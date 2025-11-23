@@ -1,0 +1,25 @@
+[package]
+name = "bevy_lua_entity"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+bevy = "0.16"
+mlua = { version = "0.10", features = ["lua54", "send", "vendored"] }
+
+[features]
+default = []
+# Enable automatic reflection-based bundle spawning
+auto-reflection = []
+
+[[example]]
+name = "basic"
+path = "examples/basic.rs"
+
+[[example]]
+name = "sprites"
+path = "examples/sprites.rs"
+
+[[example]]
+name = "button"
+path = "examples/button.rs"
