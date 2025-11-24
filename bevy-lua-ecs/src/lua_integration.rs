@@ -66,6 +66,11 @@ pub struct LuaSpawnPlugin;
 
 impl Plugin for LuaSpawnPlugin {
     fn build(&self, app: &mut App) {
+        // Initialize SerdeComponentRegistry if not already present
+        if !app.world().contains_resource::<crate::serde_components::SerdeComponentRegistry>() {
+            app.init_resource::<crate::serde_components::SerdeComponentRegistry>();
+        }
+        
         app.add_systems(Startup, setup_lua_context);
     }
 }

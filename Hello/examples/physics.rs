@@ -1,8 +1,12 @@
+/// Physics Example
+/// Demonstrates the Rapier physics integration with bevy-lua-ecs
+/// Run with: cargo run --example physics --features physics
+
 use bevy::prelude::*;
 use bevy_lua_ecs::*;
 use std::fs;
 
-#[cfg(feature = "physics")]
+#[path = "../src/rapier.rs"]
 mod rapier;
 
 fn main() {
@@ -11,12 +15,10 @@ fn main() {
     // Add Bevy's default plugins
     app.add_plugins(DefaultPlugins);
     
-    // Add Rapier physics plugins if the physics feature is enabled
-    #[cfg(feature = "physics")]
+    // Add Rapier physics plugins
     app.add_plugins(rapier::RapierIntegrationPlugin);
     
     // Create component registry AFTER plugins are added
-    // This automatically includes Rapier's components if enabled!
     let component_registry = ComponentRegistry::from_type_registry(
         app.world().resource::<AppTypeRegistry>().clone()
     );
@@ -31,7 +33,7 @@ fn main() {
             run_lua_systems,
             process_component_updates,
         ))
-        .add_systems(PostStartup, load_and_run_script)
+        .add_systems(PostStartup, load_physics_script)
         .add_systems(Startup, setup)
         .run();
 }
@@ -41,12 +43,12 @@ fn setup(mut commands: Commands) {
     info!("✓ Camera spawned");
 }
 
-fn load_and_run_script(lua_ctx: Res<LuaScriptContext>) {
-    let script_path = "Hello/assets/scripts/main.lua";
+fn load_physics_script(lua_ctx: Res<LuaScriptContext>) {
+    let script_path = "Hello/assets/scripts/physics.lua";
     match fs::read_to_string(script_path) {
         Ok(script_content) => {
-            info!("✓ Loaded script: {}", script_path);
-            if let Err(e) = lua_ctx.execute_script(&script_content, "main.lua") {
+            info!("✓ Loaded physics script: {}", script_path);
+            if let Err(e) = lua_ctx.execute_script(&script_content, "physics.lua") {
                 error!("Failed to execute script: {}", e);
             }
         }
