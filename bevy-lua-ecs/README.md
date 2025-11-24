@@ -231,6 +231,44 @@ See `examples/button.rs` and `assets/scripts/spawn_button.lua` for:
 3. **No Game-Specific Rust**: Animation, UI, gameplay all in Lua
 4. **Automatic Component Discovery**: Any `#[reflect(Component)]` type works
 5. **Type Safety**: Reflection ensures correct component structure
+6. **Macro-Based Asset Registration**: Use `register_handle_setters!` macro to declare which asset types your game needs
+
+## Advanced: Custom Asset Type Registration
+
+For full Zero Rust compliance, you can customize which asset types are registered using the `register_handle_setters!` macro:
+
+```rust
+use bevy::prelude::*;
+use bevy_lua_ecs::*;
+
+fn main() {
+    let mut app = App::new();
+    app.add_plugins(DefaultPlugins);
+    
+    // Create empty asset registry
+    let mut asset_registry = AssetRegistry::new();
+    let type_registry = app.world().resource::<AppTypeRegistry>();
+    
+    // Register only the asset types your game needs
+    let mut handle_setters = std::collections::HashMap::new();
+    register_handle_setters!(
+        handle_setters,
+        type_registry,
+        Image,              // For sprites and UI
+        Mesh,               // For 3D models
+        StandardMaterial,   // For PBR materials
+        MyCustomAsset,      // Your own asset types!
+    );
+    
+    // The macro generates type-specific code at compile time
+    // This avoids hardcoding asset types in the library
+    
+    // Continue with app setup...
+}
+```
+
+Alternatively, use the convenience method `AssetRegistry::from_type_registry()` which pre-registers common Bevy asset types:
+- `Image`, `Mesh`, `StandardMaterial`, `Scene`, `AnimationClip`, `AudioSource`, `Font`
 
 ## Running Examples
 

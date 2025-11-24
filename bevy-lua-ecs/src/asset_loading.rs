@@ -1,10 +1,14 @@
 use bevy::prelude::*;
 use bevy::asset::{ReflectAsset, UntypedAssetId};
+use bevy::reflect::PartialReflect;
 use mlua::prelude::*;
 use mlua::RegistryKey;
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicU32, Ordering};
 use std::sync::{Arc, Mutex};
+
+/// Type-erased function that sets a Handle<T> field from an UntypedHandle
+type HandleSetter = Box<dyn Fn(&mut dyn PartialReflect, UntypedHandle) -> bool + Send + Sync>;
 
 /// Pending asset to be created via reflection
 #[derive(Clone)]
@@ -14,7 +18,7 @@ pub struct PendingAsset {
 }
 
 /// Resource that manages loaded and created assets, providing asset IDs to Lua
-#[derive(Resource, Default, Clone)]
+#[derive(Resource, Clone)]
 pub struct AssetRegistry {
     /// Maps asset IDs to Image handles (for load_asset)
     image_handles: Arc<Mutex<HashMap<u32, Handle<Image>>>>,
@@ -30,9 +34,115 @@ pub struct AssetRegistry {
     
     /// Counter for generating unique asset IDs
     next_id: Arc<AtomicU32>,
+    
+    /// Type-erased handle setters for each asset type (fully generic!)
+    handle_setters: Arc<HashMap<String, HandleSetter>>,
+}
+
+impl Default for AssetRegistry {
+    fn default() -> Self {
+        Self {
+            image_handles: Default::default(),
+            typed_handles: Default::default(),
+            asset_handles: Default::default(),
+            pending_assets: Default::default(),
+            next_id: Default::default(),
+            handle_setters: Arc::new(HashMap::new()),
+        }
+    }
+}
+
+/// Macro to register handle setters for asset types
+/// Usage: register_handle_setters!(registry, Image, Mesh, StandardMaterial, ...)
+/// This allows users to specify which asset types they need in their game
+#[macro_export]
+macro_rules! register_handle_setters {
+    ($registry:expr, $type_registry:expr, $($asset_type:ty),* $(,)?) => {
+        {
+            let registry_guard = $type_registry.read();
+            $(
+                // For each asset type, create a setter
+                let type_path = std::any::type_name::<$asset_type>();
+                if let Some(registration) = registry_guard.get_with_type_path(type_path) {
+                    if registration.data::<bevy::asset::ReflectAsset>().is_some() {
+                        let handle_type_path = format!("bevy_asset::handle::Handle<{}>", type_path);
+                        let setter: Box<dyn Fn(&mut dyn bevy::reflect::PartialReflect, bevy::asset::UntypedHandle) -> bool + Send + Sync> = 
+                            Box::new(|field, handle| {
+                                if let Some(h) = field.try_downcast_mut::<bevy::asset::Handle<$asset_type>>() {
+                                    *h = handle.typed();
+                                    true
+                                } else {
+                                    false
+                                }
+                            });
+                        $registry.insert(handle_type_path, setter);
+                    }
+                }
+            )*
+        }
+    };
 }
 
 impl AssetRegistry {
+    /// Create AssetRegistry with empty handle setters (user must register types they need)
+    pub fn new() -> Self {
+        Self {
+            image_handles: Default::default(),
+            typed_handles: Default::default(),
+            asset_handles: Default::default(),
+            pending_assets: Default::default(),
+            next_id: Default::default(),
+            handle_setters: Arc::new(HashMap::new()),
+        }
+    }
+    
+    /// Create AssetRegistry and populate with common Bevy asset types
+    /// This is a convenience method - for full Zero Rust, use new() + register_asset_types!
+    pub fn from_type_registry(type_registry: &AppTypeRegistry) -> Self {
+        use bevy::prelude::*;
+        
+        let mut handle_setters: HashMap<String, HandleSetter> = HashMap::new();
+        
+        // Register common Bevy asset types using the macro
+        // Users can customize this list in their own code
+        register_handle_setters!(
+            handle_setters,
+            type_registry,
+            Image,
+            Mesh,
+            StandardMaterial,
+            Scene,
+            AnimationClip,
+            AudioSource,
+            Font,
+        );
+        
+        info!("✓ Registered {} handle setters for asset types", handle_setters.len());
+        
+        Self {
+            image_handles: Default::default(),
+            typed_handles: Default::default(),
+            asset_handles: Default::default(),
+            pending_assets: Default::default(),
+            next_id: Default::default(),
+            handle_setters: Arc::new(handle_setters),
+        }
+    }
+    
+    /// Try to set a handle field using the registered handle setters
+    pub fn try_set_handle_field(
+        &self,
+        field: &mut dyn PartialReflect,
+        field_type_path: &str,
+        untyped_handle: UntypedHandle,
+    ) -> bool {
+        if let Some(setter) = self.handle_setters.get(field_type_path) {
+            setter(field, untyped_handle)
+        } else {
+            false
+        }
+    }
+    
     /// Register an image handle (for load_asset)
     pub fn register_image(&self, handle: Handle<Image>) -> u32 {
         let id = self.next_id.fetch_add(1, Ordering::Relaxed);
@@ -55,6 +165,11 @@ impl AssetRegistry {
         let handles = self.typed_handles.lock().unwrap();
         let untyped_handle = handles.get(&id)?;
         Some(untyped_handle.clone().typed())
+    }
+    
+    /// Get an untyped handle by ID (most generic - works for any asset type)
+    pub fn get_untyped_handle(&self, id: u32) -> Option<UntypedHandle> {
+        self.typed_handles.lock().unwrap().get(&id).cloned()
     }
     
     /// Register a pending asset for creation

@@ -287,22 +287,26 @@ fn set_field_from_lua(
     lua_value: &LuaValue,
     asset_registry: Option<&crate::asset_loading::AssetRegistry>,
 ) -> LuaResult<()> {
-    // Check if this is any Handle<T> field - generic handle resolution
+    // Fully generic Handle<T> resolution using type-erased handle setters!
+    // The AssetRegistry was populated at startup with setters for all asset types in TypeRegistry.
     let type_path = field.reflect_type_path().to_string();
     if type_path.contains("Handle<") {
         if let LuaValue::Integer(asset_id) = lua_value {
             if let Some(registry) = asset_registry {
-                // Generic handle resolution: try Handle<Image> as it's the most common
-                if type_path.contains("Image>") {
-                    if let Some(image_handle) = registry.get_image_handle(*asset_id as u32) {
-                        if let Some(handle_field) = field.try_downcast_mut::<Handle<Image>>() {
-                            *handle_field = image_handle;
-                            return Ok(());
-                        }
+                // Try using the generic handle setter system
+                if let Some(untyped_handle) = registry.get_untyped_handle(*asset_id as u32) {
+                    if registry.try_set_handle_field(field, &type_path, untyped_handle.clone()) {
+                        return Ok(());
                     }
                 }
-                // For other handle types, this is a limitation of the current generic system
-                // Future: Could use TypeRegistry to dynamically downcast to any Handle<T>
+                
+                // Fallback: image_handles (for loaded images via load_asset)
+                if let Some(image_handle) = registry.get_image_handle(*asset_id as u32) {
+                    if let Some(handle_field) = field.try_downcast_mut::<Handle<Image>>() {
+                        *handle_field = image_handle;
+                        return Ok(());
+                    }
+                }
             }
         }
     }

@@ -79,9 +79,12 @@ fn setup_lua_context(
     queue: Res<SpawnQueue>,
     asset_server: Res<AssetServer>,
     mut component_registry: ResMut<crate::components::ComponentRegistry>,
+    type_registry: Res<AppTypeRegistry>,
 ) {
     let system_registry = LuaSystemRegistry::default();
-    let asset_registry = crate::asset_loading::AssetRegistry::default();
+    
+    // Create AssetRegistry with handle setters for all asset types
+    let asset_registry = crate::asset_loading::AssetRegistry::from_type_registry(&type_registry);
     
     // Update ComponentRegistry with AssetRegistry reference
     component_registry.set_asset_registry(asset_registry.clone());
