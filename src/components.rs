@@ -7,7 +7,7 @@ use std::collections::HashMap;
 use std::sync::Arc;
 
 /// Component handler function type
-type ComponentHandler = Box<dyn Fn(&LuaTable, &mut EntityCommands) -> LuaResult<()> + Send + Sync>;
+type ComponentHandler = Box<dyn Fn(&LuaValue, &mut EntityCommands) -> LuaResult<()> + Send + Sync>;
 
 /// Generic container for components defined purely in Lua
 #[derive(Component, Default, Clone)]
@@ -52,7 +52,7 @@ impl ComponentRegistry {
                 let full_path_clone = full_path.clone();
                 
                 // Create handler using reflection
-                let handler = Box::new(move |data: &LuaTable, entity: &mut EntityCommands| {
+                let handler = Box::new(move |data: &LuaValue, entity: &mut EntityCommands| {
                     spawn_component_via_reflection(
                         data,
                         entity,
@@ -91,9 +91,9 @@ impl ComponentRegistry {
     }
 }
 
-/// Spawn component using Bevy's reflection system
+/// Spawn component using Bevy's reflection system (with serde fallback)
 fn spawn_component_via_reflection(
-    data: &LuaTable,
+    data: &LuaValue,
     entity: &mut EntityCommands,
     type_path: &str,
     type_registry: &AppTypeRegistry,
@@ -105,109 +105,145 @@ fn spawn_component_via_reflection(
         return Err(LuaError::RuntimeError(format!("Type not found: {}", type_path)));
     };
     
-    // Create default instance
-    let Some(reflect_default) = registration.data::<ReflectDefault>() else {
-        return Err(LuaError::RuntimeError(format!("{} doesn't implement Default", type_path)));
-    };
-    
-    let mut component = reflect_default.default();
-    let type_info = registration.type_info();
-    
-    // Patch component with Lua data
-    match type_info {
-        TypeInfo::Struct(struct_info) => {
-            // Get mutable reflection
-            let reflect_mut = component.reflect_mut();
-            
-            // Pattern match to get struct
-            if let ReflectMut::Struct(struct_mut) = reflect_mut {
+    // PATH 1: Try Reflect-based creation (existing system)
+    if let Some(reflect_default) = registration.data::<ReflectDefault>() {
+        let mut component = reflect_default.default();
+        let type_info = registration.type_info();
+        
+        // Patch component with Lua data
+        match type_info {
+            TypeInfo::Struct(struct_info) => {
+                // Structs require a table
+                let data_table = match data {
+                    LuaValue::Table(t) => t,
+                    _ => return Err(LuaError::RuntimeError(
+                        format!("{} requires a table, got {:?}", type_path, data)
+                    )),
+                };
                 
-                // Iterate through struct fields
-                for i in 0..struct_info.field_len() {
-                    let field_info = struct_info.field_at(i).unwrap();
-                    let field_name = field_info.name();
+                // Get mutable reflection
+                let reflect_mut = component.reflect_mut();
+                
+                // Pattern match to get struct
+                if let ReflectMut::Struct(struct_mut) = reflect_mut {
                     
-                    // Try to get value from Lua table
-                    if let Ok(lua_value) = data.get::<LuaValue>(field_name) {
-                        // Get mutable field
-                        if let Some(field) = struct_mut.field_at_mut(i) {
-                            set_field_from_lua(field, &lua_value)?;
+                    // Iterate through struct fields
+                    for i in 0..struct_info.field_len() {
+                        let field_info = struct_info.field_at(i).unwrap();
+                        let field_name = field_info.name();
+                        
+                        // Try to get value from Lua table
+                        if let Ok(lua_value) = data_table.get::<LuaValue>(field_name) {
+                            // Get mutable field
+                            if let Some(field) = struct_mut.field_at_mut(i) {
+                                set_field_from_lua(field, &lua_value)?;
+                            }
                         }
                     }
                 }
             }
-        }
-        
-        TypeInfo::TupleStruct(_) => {
-            // Handle single-field tuple structs like Text(String)
-            for pair in data.pairs::<LuaValue, LuaValue>() {
-                if let Ok((key, value)) = pair {
-                    let _key_str = match &key {
-                        LuaValue::String(s) => {
-                            match s.to_str() {
-                                Ok(s_str) => format!("'{}'", s_str),
-                                Err(_) => "?".to_string(),
-                            }
-                        }
-                        LuaValue::Integer(i) => format!("{}", i),
-                        _ => "other".to_string(),
-                    };
-                    let _value_str = match &value {
-                        LuaValue::String(s) => {
-                            match s.to_str() {
-                                Ok(s_str) => format!("String(\"{}\")", s_str),
-                                Err(_) => "String(?)".to_string(),
-                            }
-                        }
-                        LuaValue::Table(_) => "Table".to_string(),
-                        LuaValue::Nil => "Nil".to_string(),
-                        _ => format!("{:?}", value),
-                    };
-                }
-            }
             
-            // Try to get the value from common keys
-            let lua_value: LuaValue = if let Ok(val) = data.raw_get("value") {
-                if !matches!(val, LuaValue::Nil) {
+            TypeInfo::TupleStruct(_) => {
+                // Tuple structs require a table
+                let data_table = match data {
+                    LuaValue::Table(t) => t,
+                    _ => return Err(LuaError::RuntimeError(
+                        format!("{} requires a table, got {:?}", type_path, data)
+                    )),
+                };
+                
+                // Handle single-field tuple structs like Text(String)
+                // Try to get the value from common keys
+                let lua_value: LuaValue = if let Ok(val) = data_table.raw_get("value") {
+                    if !matches!(val, LuaValue::Nil) { val } else { LuaValue::Nil }
+                } else if let Ok(val) = data_table.raw_get("0") {
                     val
-                } else if let Ok(val) = data.raw_get("text") {
-                    if !matches!(val, LuaValue::Nil) {
-                        val
-                    } else if let Ok(val) = data.raw_get("color") {
-                        if !matches!(val, LuaValue::Nil) {
-                            val
-                        } else if let Ok(val) = data.raw_get("0") {
-                            val
-                        } else {
-                            return Err(LuaError::RuntimeError("No valid value found in tuple struct data".to_string()));
-                        }
-                    } else {
-                        return Err(LuaError::RuntimeError("Failed to access tuple struct data".to_string()));
-                    }
                 } else {
-                    return Err(LuaError::RuntimeError("Failed to access tuple struct data".to_string()));
+                    // If it's a single value table like { "some text" } (Lua array-like)
+                    if let Ok(val) = data_table.get(1) {
+                        val
+                    } else {
+                        return Err(LuaError::RuntimeError("No valid value found in tuple struct data".to_string()));
+                    }
+                };
+                
+                if matches!(lua_value, LuaValue::Nil) {
+                     return Err(LuaError::RuntimeError("Failed to access tuple struct data".to_string()));
                 }
-            } else {
-                return Err(LuaError::RuntimeError("Failed to access tuple struct data".to_string()));
-            };
+                
+                let reflect_mut = component.reflect_mut();
+                if let ReflectMut::TupleStruct(tuple_mut) = reflect_mut {
+                    if let Some(field) = tuple_mut.field_mut(0) {
+                        set_field_from_lua(field, &lua_value)?;
+                    }
+                }
+            }
             
-            let reflect_mut = component.reflect_mut();
-            if let ReflectMut::TupleStruct(tuple_mut) = reflect_mut {
-                if let Some(field) = tuple_mut.field_mut(0) {
-                    set_field_from_lua(field, &lua_value)?;
-                }
+            TypeInfo::Enum(enum_info) => {
+                // Enums can be specified as strings (variant name)
+                let variant_name = match data {
+                    LuaValue::String(s) => s.to_str()?.to_string(),
+                    _ => return Err(LuaError::RuntimeError(
+                        format!("{} enum requires a string variant name, got {:?}", type_path, data)
+                    )),
+                };
+                
+                // Find matching variant (case-sensitive)
+                let variant_info = enum_info.variant(&variant_name)
+                    .ok_or_else(|| LuaError::RuntimeError(
+                        format!("Unknown variant '{}' for enum {}. Available variants: {}",
+                            variant_name,
+                            type_path,
+                            enum_info.iter().map(|v| v.name()).collect::<Vec<_>>().join(", ")
+                        )
+                    ))?;
+                
+                // Handle unit variants
+                use bevy::reflect::{DynamicEnum, DynamicVariant};
+                
+                let dynamic_variant = match variant_info {
+                    bevy::reflect::VariantInfo::Unit(_) => DynamicVariant::Unit,
+                    _ => return Err(LuaError::RuntimeError(
+                        format!("Only unit enum variants are supported via this path. Use serde path for complex enums.")
+                    )),
+                };
+                
+                let dynamic_enum = DynamicEnum::new(&variant_name, dynamic_variant);
+                
+                // Convert to concrete type via ReflectFromReflect
+                let reflect_from_reflect = registration.data::<bevy::reflect::ReflectFromReflect>()
+                    .ok_or_else(|| LuaError::RuntimeError(
+                        format!("{} doesn't implement FromReflect", type_path)
+                    ))?;
+                
+                let new_component = reflect_from_reflect.from_reflect(&dynamic_enum)
+                    .ok_or_else(|| LuaError::RuntimeError(
+                        format!("Failed to create {} from reflection.", type_path)
+                    ))?;
+                
+                component.apply(new_component.as_ref());
+            }
+            
+            _ => {
+                return Err(LuaError::RuntimeError(format!("Unsupported type: {}", type_path)));
             }
         }
         
-        _ => {
-            return Err(LuaError::RuntimeError(format!("Unsupported type: {}", type_path)));
-        }
+        // Insert component via reflection
+        entity.insert_reflect(component);
+        return Ok(());
     }
     
-    // Insert component via reflection
-    entity.insert_reflect(component);
-
-    Ok(())
+    // PATH 2: Try Serde deserialization (fallback for non-Reflect types like Collider)
+    // Note: This path is for types that ARE in the TypeRegistry (implement Reflect) 
+    // but use serde for deserialization. Collider is NOT in TypeRegistry, so it 
+    // will be handled by SerdeComponentRegistry in entity_spawner.rs instead.
+    
+    // Neither Reflect nor Serde available
+    Err(LuaError::RuntimeError(format!(
+        "{} doesn't implement Reflect (with Default). Cannot create from Lua via reflection.",
+        type_path
+    )))
 }
 
 /// Set a reflected field value from a Lua value

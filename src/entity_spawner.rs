@@ -9,6 +9,7 @@ pub fn process_spawn_queue(
     mut commands: Commands,
     queue: Res<SpawnQueue>,
     component_registry: Res<ComponentRegistry>,
+    serde_registry: Res<crate::serde_components::SerdeComponentRegistry>,
     lua_ctx: Res<LuaScriptContext>,
 ) {
     let requests = queue.drain();
@@ -25,34 +26,46 @@ pub fn process_spawn_queue(
         
         // Apply each component
         for (component_name, registry_key) in request.components {
-            // Check if it's a known Rust component
-            if let Some(handler) = component_registry.get(&component_name) {
-                // Retrieve the Lua table from the registry
-                let data_table: LuaTable = match lua_ctx.lua.registry_value(&registry_key) {
-                    Ok(table) => table,
-                    Err(e) => {
-                        error!("Failed to retrieve Lua table for {}: {}", component_name, e);
-                        continue;
-                    }
-                };
-                
-                // Apply component
-                if let Err(e) = handler(&data_table, &mut entity) {
-                    error!("Failed to add component {}: {}", component_name, e);
+            // Retrieve the Lua value from the registry (can be string, table, number, etc.)
+            let data_value: LuaValue = match lua_ctx.lua.registry_value(&registry_key) {
+                Ok(value) => value,
+                Err(e) => {
+                    error!("Failed to retrieve Lua value for {}: {}", component_name, e);
+                    continue;
                 }
-                
-                // Remove the registry value to free memory
-                if let Err(e) = lua_ctx.lua.remove_registry_value(registry_key) {
-                    warn!("Failed to remove registry value for {}: {}", component_name, e);
+            };
+            
+            // Check if it's a known Rust component (Reflect)
+            if let Some(handler) = component_registry.get(&component_name) {
+                // Apply component via Reflect
+                if let Err(e) = handler(&data_value, &mut entity) {
+                    error!("Failed to add component {}: {}", component_name, e);
                 }
                 
                 if component_name == "Interaction" {
                     _has_interaction = true;
                 }
-            } else {
-                // It's a generic Lua component! Store it.
+            } 
+            // Check if it's a known Serde component (Non-Reflect)
+            else if let Some(result) = serde_registry.try_handle(&component_name, &data_value, &mut entity) {
+                if let Err(e) = result {
+                    error!("Failed to add serde component {}: {}", component_name, e);
+                }
+            }
+            // It's a generic Lua component! Store it.
+            else {
                 // We keep the registry key alive in the component
                 lua_custom_components.components.insert(component_name, std::sync::Arc::new(registry_key));
+                // We don't remove the registry value here because it's stored in Arc
+                // But wait, we retrieved it above. We need to be careful about ownership.
+                // The registry_key passed in the loop is owned by us.
+                // We should NOT remove it if we store it in lua_custom_components.
+                continue; 
+            }
+            
+            // Remove the registry value to free memory (only if NOT stored in custom components)
+            if let Err(e) = lua_ctx.lua.remove_registry_value(registry_key) {
+                warn!("Failed to remove registry value for {}: {}", component_name, e);
             }
         }
         

@@ -5,7 +5,12 @@ edition = "2021"
 
 [dependencies]
 bevy = "0.16"
-mlua = { version = "0.10", features = ["lua54", "send", "vendored"] }
+mlua = { version = "0.10", features = ["lua54", "send", "vendored", "serialize"] }
+serde = "1.0"
+serde_json = "1.0"
+
+# Optional dependency for physics example
+bevy_rapier2d = { version = "0.31", features = ["serde-serialize"], optional = true }
 
 [features]
 default = []
@@ -23,3 +28,9 @@ path = "examples/sprites.rs"
 [[example]]
 name = "button"
 path = "examples/button.rs"
+
+[[example]]
+name = "physics_rapier"
+path = "examples/physics_rapier/main.rs"
+required-features = ["bevy_rapier2d"]
+

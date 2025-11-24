@@ -8,6 +8,7 @@ pub mod lua_systems;
 pub mod lua_world_api;
 pub mod reflection;
 pub mod spawn_queue;
+pub mod serde_components;
 
 // Re-exports
 pub use spawn_queue::SpawnQueue;
@@ -19,3 +20,4 @@ pub use reflection::BundleRegistry;
 pub use components::{ComponentRegistry, LuaCustomComponents};
 pub use lua_systems::{LuaSystemRegistry, run_lua_systems};
 pub use lua_world_api::{LuaQueryBuilder, LuaEntitySnapshot, execute_query};
+

@@ -7,7 +7,7 @@ use std::collections::HashMap;
 /// Bundle definition for Lua spawning
 pub struct BundleDefinition {
     pub name: String,
-    pub spawn_fn: Box<dyn Fn(&LuaTable, &mut EntityCommands) -> LuaResult<()> + Send + Sync>,
+    pub spawn_fn: Box<dyn Fn(&LuaValue, &mut EntityCommands) -> LuaResult<()> + Send + Sync>,
 }
 
 /// Registry of available bundles for Lua
@@ -20,7 +20,7 @@ impl BundleRegistry {
     /// Register a bundle with a spawn function
     pub fn register<F>(&mut self, name: impl Into<String>, spawn_fn: F)
     where
-        F: Fn(&LuaTable, &mut EntityCommands) -> LuaResult<()> + Send + Sync + 'static,
+        F: Fn(&LuaValue, &mut EntityCommands) -> LuaResult<()> + Send + Sync + 'static,
     {
         let name = name.into();
         self.bundles.insert(name.clone(), BundleDefinition {
@@ -51,7 +51,7 @@ impl BundleRegistry {
                 let struct_info_clone = struct_info.clone();
                 let type_path = registration.type_path().to_string();
                 
-                registry.register(type_name, move |data: &LuaTable, entity: &mut EntityCommands| {
+                registry.register(type_name, move |data: &LuaValue, entity: &mut EntityCommands| {
                     spawn_from_reflection(data, entity, &struct_info_clone, &type_path)
                 });
             }
@@ -64,7 +64,7 @@ impl BundleRegistry {
 /// Spawn entity from reflected type information
 #[cfg(feature = "auto-reflection")]
 fn spawn_from_reflection(
-    data: &LuaTable,
+    data: &LuaValue,
     entity: &mut EntityCommands,
     struct_info: &StructInfo,
     type_path: &str,

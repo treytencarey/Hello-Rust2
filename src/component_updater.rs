@@ -22,11 +22,11 @@ pub fn process_component_updates(
     for request in requests {
         // Check if it's a known Rust component
         if let Some(handler) = component_registry.get(&request.component_name) {
-            // Retrieve the Lua table from the registry
-            let data_table: LuaTable = match lua_ctx.lua.registry_value(&request.data) {
-                Ok(table) => table,
+            // Retrieve the Lua value from the registry (can be string, table, number, etc.)
+            let data_value: LuaValue = match lua_ctx.lua.registry_value(&request.data) {
+                Ok(value) => value,
                 Err(e) => {
-                    error!("Failed to retrieve Lua table for {}: {}", request.component_name, e);
+                    error!("Failed to retrieve Lua value for {}: {}", request.component_name, e);
                     continue;
                 }
             };
@@ -35,7 +35,7 @@ pub fn process_component_updates(
             let mut entity_commands = commands.entity(request.entity);
             
             // Apply component update
-            if let Err(e) = handler(&data_table, &mut entity_commands) {
+            if let Err(e) = handler(&data_value, &mut entity_commands) {
                 error!("Failed to update component {}: {}", request.component_name, e);
             }
             
