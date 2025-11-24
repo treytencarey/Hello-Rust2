@@ -20,6 +20,7 @@ pub struct LuaCustomComponents {
 pub struct ComponentRegistry {
     handlers: HashMap<String, ComponentHandler>,
     type_registry: AppTypeRegistry,
+    asset_registry: Option<crate::asset_loading::AssetRegistry>,
 }
 
 impl ComponentRegistry {
@@ -28,12 +29,20 @@ impl ComponentRegistry {
         let mut registry = Self {
             handlers: HashMap::new(),
             type_registry: type_registry.clone(),
+            asset_registry: None,
         };
         
         // Auto-discover and register all components
         registry.discover_components();
         
         registry
+    }
+    
+    /// Set the asset registry (called after AssetRegistry is created)
+    pub fn set_asset_registry(&mut self, asset_registry: crate::asset_loading::AssetRegistry) {
+        self.asset_registry = Some(asset_registry);
+        // Re-discover components to update handlers with asset registry
+        self.discover_components();
     }
     
     /// Automatically discover all registered components via reflection
@@ -50,6 +59,7 @@ impl ComponentRegistry {
                 // Clone what we need for the closure
                 let registry_clone = self.type_registry.clone();
                 let full_path_clone = full_path.clone();
+                let asset_registry_clone = self.asset_registry.clone();
                 
                 // Create handler using reflection
                 let handler = Box::new(move |data: &LuaValue, entity: &mut EntityCommands| {
@@ -58,6 +68,7 @@ impl ComponentRegistry {
                         entity,
                         &full_path_clone,
                         &registry_clone,
+                        asset_registry_clone.as_ref(),
                     )
                 });
                 
@@ -97,6 +108,7 @@ fn spawn_component_via_reflection(
     entity: &mut EntityCommands,
     type_path: &str,
     type_registry: &AppTypeRegistry,
+    asset_registry: Option<&crate::asset_loading::AssetRegistry>,
 ) -> LuaResult<()> {
     let registry = type_registry.read();
     
@@ -136,7 +148,7 @@ fn spawn_component_via_reflection(
                         if let Ok(lua_value) = data_table.get::<LuaValue>(field_name) {
                             // Get mutable field
                             if let Some(field) = struct_mut.field_at_mut(i) {
-                                set_field_from_lua(field, &lua_value)?;
+                                set_field_from_lua(field, &lua_value, asset_registry)?;
                             }
                         }
                     }
@@ -197,7 +209,7 @@ fn spawn_component_via_reflection(
                 let reflect_mut = component.reflect_mut();
                 if let ReflectMut::TupleStruct(tuple_mut) = reflect_mut {
                     if let Some(field) = tuple_mut.field_mut(0) {
-                        set_field_from_lua(field, &lua_value)?;
+                        set_field_from_lua(field, &lua_value, asset_registry)?;
                     }
                 }
             }
@@ -270,7 +282,31 @@ fn spawn_component_via_reflection(
 }
 
 /// Set a reflected field value from a Lua value
-fn set_field_from_lua(field: &mut dyn PartialReflect, lua_value: &LuaValue) -> LuaResult<()> {
+fn set_field_from_lua(
+    field: &mut dyn PartialReflect,
+    lua_value: &LuaValue,
+    asset_registry: Option<&crate::asset_loading::AssetRegistry>,
+) -> LuaResult<()> {
+    // Check if this is any Handle<T> field - generic handle resolution
+    let type_path = field.reflect_type_path().to_string();
+    if type_path.contains("Handle<") {
+        if let LuaValue::Integer(asset_id) = lua_value {
+            if let Some(registry) = asset_registry {
+                // Generic handle resolution: try Handle<Image> as it's the most common
+                if type_path.contains("Image>") {
+                    if let Some(image_handle) = registry.get_image_handle(*asset_id as u32) {
+                        if let Some(handle_field) = field.try_downcast_mut::<Handle<Image>>() {
+                            *handle_field = image_handle;
+                            return Ok(());
+                        }
+                    }
+                }
+                // For other handle types, this is a limitation of the current generic system
+                // Future: Could use TypeRegistry to dynamically downcast to any Handle<T>
+            }
+        }
+    }
+    
     // Try to downcast to common types
     if let Some(f32_field) = field.try_downcast_mut::<f32>() {
         match lua_value {
@@ -323,11 +359,119 @@ fn set_field_from_lua(field: &mut dyn PartialReflect, lua_value: &LuaValue) -> L
             let w: f32 = quat_table.get("w").unwrap_or(1.0);
             *quat_field = Quat::from_xyzw(x, y, z, w);
         }
+    } else if let LuaValue::Table(nested_table) = lua_value {
+        // Generic nested struct/enum handling using reflection
+        if let Err(e) = set_nested_field_from_lua(field, nested_table, asset_registry) {
+            // Silently continue if nested field setting fails - might not be a nested struct
+            let _ = e;
+        }
     } else {
         // warn!(
         //     "Could not downcast field of type {} to any known type",
         //     field.reflect_type_path()
         // );
+    }
+    
+    Ok(())
+}
+
+/// Generic handler for nested structs and enums using reflection
+fn set_nested_field_from_lua(
+    field: &mut dyn PartialReflect,
+    table: &LuaTable,
+    asset_registry: Option<&crate::asset_loading::AssetRegistry>,
+) -> LuaResult<()> {
+    use bevy::reflect::{DynamicStruct, DynamicTuple, DynamicEnum, DynamicVariant};
+    
+    match field.reflect_mut() {
+        ReflectMut::Struct(struct_mut) => {
+            // Set each field in the struct from the table
+            for i in 0..struct_mut.field_len() {
+                if let Some(field_name) = struct_mut.name_at(i) {
+                    if let Ok(lua_value) = table.get::<LuaValue>(field_name) {
+                        if let Some(nested_field) = struct_mut.field_at_mut(i) {
+                            set_field_from_lua(nested_field, &lua_value, asset_registry)?;
+                        }
+                    }
+                }
+            }
+        }
+        ReflectMut::Enum(_enum_mut) => {
+            // Generic Option<T> handling: Try to create a Some(T) variant
+            // This handles Option<Rect>, Option<TextureAtlas>, etc.
+            
+            // Get the type info to understand the enum structure
+            let type_path = field.reflect_type_path();
+            
+            // For Option types, we want to create Some(inner_value)
+            // The table represents the inner value (e.g., Rect { min, max })
+            if type_path.contains("Option<") {
+                // Create a dynamic struct for the inner value
+                let mut inner_struct = DynamicStruct::default();
+                
+                // Populate the inner struct from all table fields
+                for pair in table.pairs::<String, LuaValue>() {
+                    if let Ok((key, value)) = pair {
+                        match &value {
+                            LuaValue::Integer(i) => {
+                                inner_struct.insert_boxed(&key, Box::new(*i as i32));
+                            }
+                            LuaValue::Number(n) => {
+                                inner_struct.insert_boxed(&key, Box::new(*n as f32));
+                            }
+                            LuaValue::Boolean(b) => {
+                                inner_struct.insert_boxed(&key, Box::new(*b));
+                            }
+                            LuaValue::String(s) => {
+                                if let Ok(string) = s.to_str() {
+                                    inner_struct.insert_boxed(&key, Box::new(string.to_string()));
+                                }
+                            }
+                            LuaValue::Table(nested_table) => {
+                                // Handle nested tables (e.g., min/max in Rect)
+                                if key == "min" || key == "max" {
+                                    // Try to create Vec2
+                                    if let (Ok(x), Ok(y)) = (
+                                        nested_table.get::<f32>("x"),
+                                        nested_table.get::<f32>("y")
+                                    ) {
+                                        inner_struct.insert_boxed(&key, Box::new(Vec2::new(x, y)));
+                                    }
+                                } else {
+                                    // Generic nested struct handling
+                                    let mut nested_struct = DynamicStruct::default();
+                                    for nested_pair in nested_table.pairs::<String, LuaValue>() {
+                                        if let Ok((nested_key, nested_value)) = nested_pair {
+                                            match &nested_value {
+                                                LuaValue::Number(n) => {
+                                                    nested_struct.insert_boxed(&nested_key, Box::new(*n as f32));
+                                                }
+                                                LuaValue::Integer(i) => {
+                                                    nested_struct.insert_boxed(&nested_key, Box::new(*i as i32));
+                                                }
+                                                _ => {}
+                                            }
+                                        }
+                                    }
+                                    inner_struct.insert_boxed(&key, Box::new(nested_struct));
+                                }
+                            }
+                            _ => {}
+                        }
+                    }
+                }
+                
+                // Wrap in tuple for Some(.0)
+                let mut some_tuple = DynamicTuple::default();
+                some_tuple.insert_boxed(Box::new(inner_struct));
+                
+                let some_variant = DynamicVariant::Tuple(some_tuple);
+                let some_enum = DynamicEnum::new("Some", some_variant);
+                
+                field.apply(&some_enum);
+            }
+        }
+        _ => {}
     }
     
     Ok(())

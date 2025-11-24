@@ -20,7 +20,7 @@ When implementing features for this Bevy + Lua project, follow the "Zero Rust" p
 4. **Reflection-Based Components**: Use Bevy's reflection to automatically register and handle components. Lua should be able to create/modify any reflected Bevy component without custom Rust handlers.
 
 5. **Examples of Good Rust Additions**:
-   - [ComponentUpdateQueue](cci:2://file:///d:/Hello-new/src/component_update_queue.rs:13:0-15:1) - generic mutation system
+   - [ComponentUpdateQueue](cci:2://file:///d:/Hello-new/bevy-lua-ecs/src/component_update_queue.rs:13:0-15:1) - generic mutation system
    - `world:delta_time()` - generic time access
    - `entity:set(component, data)` - generic component mutation
    - Auto-discovery of components via `TypeRegistry`

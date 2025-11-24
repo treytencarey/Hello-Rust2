@@ -49,6 +49,8 @@ impl LuaScriptContext {
         lua_clone.globals().set("spawn", spawn)?;
         lua_clone.globals().set("register_system", register_system)?;
         
+        // Note: load_asset will be added via add_asset_loading_to_lua()
+        
         Ok(Self {
             lua: lua_clone,
         })
@@ -66,12 +68,8 @@ pub struct LuaSpawnPlugin;
 
 impl Plugin for LuaSpawnPlugin {
     fn build(&self, app: &mut App) {
-        // Initialize SerdeComponentRegistry if not already present
-        if !app.world().contains_resource::<crate::serde_components::SerdeComponentRegistry>() {
-            app.init_resource::<crate::serde_components::SerdeComponentRegistry>();
-        }
-        
         app.add_systems(Startup, setup_lua_context);
+        app.add_systems(Update, crate::asset_loading::process_pending_assets);
     }
 }
 
@@ -79,12 +77,29 @@ impl Plugin for LuaSpawnPlugin {
 fn setup_lua_context(
     mut commands: Commands,
     queue: Res<SpawnQueue>,
+    asset_server: Res<AssetServer>,
+    mut component_registry: ResMut<crate::components::ComponentRegistry>,
 ) {
     let system_registry = LuaSystemRegistry::default();
+    let asset_registry = crate::asset_loading::AssetRegistry::default();
+    
+    // Update ComponentRegistry with AssetRegistry reference
+    component_registry.set_asset_registry(asset_registry.clone());
+    
     match LuaScriptContext::new(queue.clone(), system_registry.clone()) {
         Ok(ctx) => {
+            // Add asset loading to Lua
+            if let Err(e) = crate::asset_loading::add_asset_loading_to_lua(
+                &ctx,
+                asset_server.clone(),
+                asset_registry.clone(),
+            ) {
+                error!("Failed to add asset loading to Lua: {}", e);
+            }
+            
             commands.insert_resource(ctx);
             commands.insert_resource(system_registry);
+            commands.insert_resource(asset_registry);
         }
         Err(e) => {
             error!("Failed to initialize Lua context: {}", e);

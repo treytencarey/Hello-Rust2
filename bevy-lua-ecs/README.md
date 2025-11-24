@@ -36,17 +36,39 @@ fn main() {
         app.world().resource::<AppTypeRegistry>().clone()
     );
     
+    // Create asset registry for asset loading/creation
+    let asset_registry = AssetRegistry::default();
+    
     app.insert_resource(component_registry)
+        .insert_resource(asset_registry)
         .init_resource::<SpawnQueue>()
         .init_resource::<ComponentUpdateQueue>()
         .add_plugins(LuaSpawnPlugin)
         .add_systems(Update, (
             process_spawn_queue,
+            process_pending_assets,  // Process assets created from Lua
             run_lua_systems,
             process_component_updates,
         ))
         .add_systems(Startup, setup)
         .run();
+}
+
+fn setup(
+    world: &mut World,
+) {
+    // Setup Lua context with asset loading
+    let lua_ctx = LuaScriptContext::new().unwrap();
+    let asset_server = world.resource::<AssetServer>().clone();
+    let asset_registry = world.resource::<AssetRegistry>().clone();
+    
+    add_asset_loading_to_lua(&lua_ctx, asset_server, asset_registry.clone()).unwrap();
+    
+    // Link asset registry to component registry
+    world.resource_mut::<ComponentRegistry>()
+        .set_asset_registry(asset_registry);
+    
+    world.insert_resource(lua_ctx);
 }
 ```
 
@@ -83,6 +105,8 @@ register_system("Update", my_system)
 ### Core Capabilities
 
 - **Component Spawning**: Create entities with any reflected Bevy component
+- **Asset Loading**: Load image files and create assets via reflection
+- **Asset Creation**: Create any Bevy asset type (layouts, materials, etc.) from Lua
 - **Component Queries**: Query entities with filtering and change detection
 - **Component Mutation**: Update components via `entity:set()`
 - **Lua Systems**: Register Lua functions to run every frame
@@ -90,6 +114,31 @@ register_system("Update", my_system)
 - **Time Access**: Get delta time and frame information
 
 ### Lua API
+
+#### Loading and Creating Assets
+
+```lua
+-- Load image files
+local texture = load_asset("path/to/image.png")
+
+-- Create any Bevy asset via reflection
+local layout = create_asset("bevy_sprite::texture_atlas::layout::TextureAtlasLayout", {
+    tile_size = { x = 16, y = 16 },
+    columns = 10,
+    rows = 5
+})
+
+-- Use assets in components
+spawn({
+    Sprite = {
+        image = texture,
+        rect = {
+            min = { x = 0, y = 0 },
+            max = { x = 16, y = 16 }
+        }
+    }
+})
+```
 
 #### Spawning Entities
 
@@ -134,6 +183,14 @@ local dt = world:delta_time()
 
 ## Examples
 
+### Tilemap Rendering
+
+See `examples/tilemap.rs` and `assets/scripts/tilemap.lua` for a complete example of:
+- Loading tileset textures from Tiled
+- Using Sprite's `rect` field for tile slicing (pure Lua)
+- Spawning thousands of tiles with texture atlas
+- Zero game-specific Rust code
+
 ### Animated Sprites
 
 See `examples/sprites.rs` and `assets/scripts/spawn_sprites.lua` for a complete example of:
@@ -153,10 +210,12 @@ See `examples/button.rs` and `assets/scripts/spawn_button.lua` for:
 ### Rust Layer (Generic Infrastructure)
 
 - **ComponentRegistry**: Auto-discovers Bevy components via reflection
+- **AssetRegistry**: Manages loaded images and created assets
 - **SpawnQueue**: Queues entity creation from Lua
 - **ComponentUpdateQueue**: Queues component updates from Lua
 - **LuaSystemRegistry**: Manages Lua systems to run each frame
 - **Query API**: Provides ECS queries to Lua
+- **Asset Loading**: Generic `load_asset()` and `create_asset()` functions
 
 ### Lua Layer (Game Logic)
 
@@ -176,6 +235,9 @@ See `examples/button.rs` and `assets/scripts/spawn_button.lua` for:
 ## Running Examples
 
 ```bash
+# Tilemap with texture atlas slicing
+cargo run --example tilemap
+
 # Animated sprites with color pulsing
 cargo run --example sprites
 
