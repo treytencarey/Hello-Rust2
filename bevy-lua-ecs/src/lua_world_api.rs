@@ -103,7 +103,7 @@ impl LuaUserData for LuaEntitySnapshot {
 
 /// Execute a query and collect entity snapshots
 pub fn execute_query(
-    lua: &Lua,
+    _lua: &Lua,
     world: &World,
     query_builder: &LuaQueryBuilder,
     component_registry: &ComponentRegistry,

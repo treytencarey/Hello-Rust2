@@ -18,10 +18,9 @@ impl LuaScriptContext {
         let queue_clone = queue.clone();
         let lua_clone = Arc::new(lua);
         let lua_for_closure = lua_clone.clone();
-        let lua_for_system = lua_clone.clone();
         
         // Create component-based spawn function
-        let spawn = lua_clone.create_function(move |lua_ctx, components: LuaTable| {
+        let spawn = lua_clone.create_function(move |_lua_ctx, components: LuaTable| {
             let mut all_components = Vec::new();
             
             // Iterate over components table

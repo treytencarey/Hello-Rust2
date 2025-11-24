@@ -143,7 +143,7 @@ fn spawn_component_via_reflection(
                 }
             }
             
-            TypeInfo::TupleStruct(_) => {
+            TypeInfo::TupleStruct(struct_info) => {
                 // Tuple structs require a table
                 let data_table = match data {
                     LuaValue::Table(t) => t,
@@ -154,17 +154,40 @@ fn spawn_component_via_reflection(
                 
                 // Handle single-field tuple structs like Text(String)
                 // Try to get the value from common keys
-                let lua_value: LuaValue = if let Ok(val) = data_table.raw_get("value") {
-                    if !matches!(val, LuaValue::Nil) { val } else { LuaValue::Nil }
-                } else if let Ok(val) = data_table.raw_get("0") {
-                    val
-                } else {
-                    // If it's a single value table like { "some text" } (Lua array-like)
-                    if let Ok(val) = data_table.get(1) {
-                        val
-                    } else {
-                        return Err(LuaError::RuntimeError("No valid value found in tuple struct data".to_string()));
+                // Handle single-field tuple structs like Text(String)
+                // Try to get the value from common keys
+                let lua_value: LuaValue = 'search: {
+                    // Check "value"
+                    if let Ok(val) = data_table.raw_get::<LuaValue>("value") {
+                        if !matches!(val, LuaValue::Nil) { break 'search val; }
                     }
+                    
+                    // Check "0"
+                    if let Ok(val) = data_table.raw_get::<LuaValue>("0") {
+                        if !matches!(val, LuaValue::Nil) { break 'search val; }
+                    }
+                    
+                    // Check index 1
+                    if let Ok(val) = data_table.get::<LuaValue>(1) {
+                        if !matches!(val, LuaValue::Nil) { break 'search val; }
+                    }
+                    
+                    // Fallback: if the tuple struct has 1 field, check if we can find a single value
+                    if struct_info.field_len() == 1 {
+                        let mut pairs = data_table.pairs::<LuaValue, LuaValue>();
+                        
+                        // Get first pair
+                        if let Some(Ok((_, val))) = pairs.next() {
+                            // Ensure there is no second pair (to avoid ambiguity)
+                            if pairs.next().is_none() {
+                                break 'search val;
+                            } else {
+                                return Err(LuaError::RuntimeError("Ambiguous tuple struct data: multiple keys found".to_string()));
+                            }
+                        }
+                    }
+                    
+                    LuaValue::Nil
                 };
                 
                 if matches!(lua_value, LuaValue::Nil) {

@@ -1,0 +1,39 @@
+[package]
+name = "bevy-lua-ecs"
+version = "0.1.0"
+edition = "2021"
+
+[lib]
+name = "bevy_lua_ecs"
+path = "src/lib.rs"
+
+[dependencies]
+bevy = { workspace = true }
+mlua = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+
+# Optional dependency for physics example
+bevy_rapier2d = { workspace = true, optional = true }
+
+[features]
+default = []
+# Enable automatic reflection-based bundle spawning
+auto-reflection = []
+
+[[example]]
+name = "basic"
+path = "examples/basic.rs"
+
+[[example]]
+name = "sprites"
+path = "examples/sprites.rs"
+
+[[example]]
+name = "button"
+path = "examples/button.rs"
+
+[[example]]
+name = "physics_rapier"
+path = "examples/physics_rapier/main.rs"
+required-features = ["bevy_rapier2d"]

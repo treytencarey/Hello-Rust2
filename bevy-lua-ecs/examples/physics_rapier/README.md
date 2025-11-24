@@ -9,12 +9,9 @@ When you add the `RapierPhysicsPlugin` to your Bevy app, Rapier's components (li
 ## Building and Running
 
 ```powershell
-# From the example directory
-cd examples/physics_rapier
-cargo run
+cargo run --example physics_rapier
 
-# Or from the project root
-cargo run --example physics_rapier_example
+cargo run -p hello
 ```
 
 ## What This Example Shows
@@ -69,7 +66,7 @@ let component_registry = ComponentRegistry::from_type_registry(
 );
 
 // For non-Reflect components (like Collider), use the serde_components! macro
-app.insert_resource(bevy_lua_entity::serde_components![
+app.insert_resource(bevy_lua_ecs::serde_components![
     Collider,
 ]);
 ```
@@ -81,7 +78,7 @@ app.insert_resource(bevy_lua_entity::serde_components![
 For components that implement `Deserialize` but not `Reflect`, use the `serde_components!` macro:
 
 ```rust
-app.insert_resource(bevy_lua_entity::serde_components![
+app.insert_resource(bevy_lua_ecs::serde_components![
     Collider,
     // Add more serde-based components here
 ]);

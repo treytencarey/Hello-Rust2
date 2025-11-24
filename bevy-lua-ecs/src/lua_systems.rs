@@ -29,7 +29,7 @@ pub fn run_lua_systems(
     // Get resources we need
     let lua_ctx = world.resource::<LuaScriptContext>().clone();
     let registry = world.resource::<LuaSystemRegistry>().clone();
-    let component_registry = world.resource::<ComponentRegistry>().clone();
+    let component_registry = world.resource::<ComponentRegistry>();
     let update_queue = world.resource::<ComponentUpdateQueue>().clone();
     
     // Get change detection ticks
