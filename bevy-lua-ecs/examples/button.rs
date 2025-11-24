@@ -15,10 +15,12 @@ fn main() {
     
     app.insert_resource(component_registry)
         .init_resource::<SpawnQueue>()
+        .init_resource::<ComponentUpdateQueue>()
         .add_plugins(LuaSpawnPlugin)
         .add_systems(Update, (
             process_spawn_queue,
             run_lua_systems,
+            process_component_updates,
         ))
         .add_systems(Startup, (setup, load_and_run_script).chain())
         .run();

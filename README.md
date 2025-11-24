@@ -1,187 +1,178 @@
-# Bevy Lua Entity
+# Hello
 
-A Lua scripting integration for Bevy that follows the **"Zero Rust" philosophy** - build entire games in Lua using generic, reflection-based ECS infrastructure.
+A Lua-first game framework built on [Bevy](https://bevyengine.org/) and [bevy-lua-ecs](./bevy-lua-ecs).
 
 ## Philosophy
 
-All game logic, systems, and behaviors are implemented purely in Lua. Rust code provides only generic ECS operations using Bevy's reflection system. This means:
+Hello is a collection of optional game plugins with full Lua bindings support. Following the "Zero Rust" philosophy, all game logic is written in Lua while Rust provides generic, plugin-based infrastructure.
 
-- ✅ Game developers write **only Lua** for game features
-- ✅ Rust provides **generic utilities** (queries, component mutation, time access)
-- ✅ **Any** Bevy component can be used from Lua via reflection
-- ✅ Custom Lua components work alongside Bevy components
+### Key Principles
+
+- **Lua-First Development**: Write your entire game in Lua scripts
+- **Plugin Architecture**: Optional feature modules (physics, audio, networking, etc.)
+- **Self-Contained Plugins**: Each plugin handles its own setup and Lua integration
+- **No Manual Registration**: Plugins automatically register their components for Lua
+
+## Project Structure
+
+```
+Hello/
+├── bevy-lua-ecs/          # Core Lua-ECS integration library
+│   ├── src/               # Generic reflection-based infrastructure
+│   └── examples/          # Lua scripting examples
+└── Hello/                 # Game framework with optional plugins
+    ├── src/
+    │   ├── main.rs        # Main application entry
+    │   └── rapier.rs      # Physics plugin (optional)
+    ├── examples/
+    │   └── physics.rs     # Physics demonstration
+    └── assets/scripts/    # Lua game scripts
+        ├── main.lua       # Default game script
+        └── physics.lua    # Physics example script
+```
 
 ## Quick Start
 
-### 1. Add to Your Project
+### Run the Default Game
 
-```toml
-[dependencies]
-bevy = "0.15"
-mlua = "0.10"
+```powershell
+cargo run -p hello
 ```
 
-### 2. Setup Your App
+This runs `Hello/assets/scripts/main.lua` with no optional plugins enabled.
 
-```rust
-use bevy::prelude::*;
-use bevy_lua_entity::*;
+### Run with Physics
 
-fn main() {
-    let mut app = App::new();
-    app.add_plugins(DefaultPlugins);
-    
-    // Create component registry from type registry
-    let component_registry = ComponentRegistry::from_type_registry(
-        app.world().resource::<AppTypeRegistry>().clone()
-    );
-    
-    app.insert_resource(component_registry)
-        .init_resource::<SpawnQueue>()
-        .init_resource::<ComponentUpdateQueue>()
-        .add_plugins(LuaSpawnPlugin)
-        .add_systems(Update, (
-            process_spawn_queue,
-            run_lua_systems,
-            process_component_updates,
-        ))
-        .add_systems(Startup, setup)
-        .run();
-}
+```powershell
+cargo run -p hello --example physics
 ```
 
-### 3. Write Lua Scripts
-
-```lua
--- Spawn entities with any Bevy component
-spawn({
-    Sprite = { color = {r = 1.0, g = 0.0, b = 0.0, a = 1.0} },
-    Transform = { 
-        translation = {x = 0, y = 0, z = 0},
-        scale = {x = 50.0, y = 50.0, z = 1.0}
-    }
-})
-
--- Define systems entirely in Lua
-function my_system(world)
-    local dt = world:delta_time()
-    local entities = world:query({"Sprite", "Transform"}, nil)
-    
-    for i, entity in ipairs(entities) do
-        -- Update components
-        entity:set("Sprite", { 
-            color = {r = math.sin(dt), g = 0.5, b = 1.0, a = 1.0} 
-        })
-    end
-end
-
-register_system("Update", my_system)
-```
+Demonstrates Rapier physics integration - all physics entities and behaviors defined in `Hello/assets/scripts/physics.lua`.
 
 ## Features
 
-### Core Capabilities
+### Default Features
 
-- **Component Spawning**: Create entities with any reflected Bevy component
-- **Component Queries**: Query entities with filtering and change detection
-- **Component Mutation**: Update components via `entity:set()`
-- **Lua Systems**: Register Lua functions to run every frame
-- **Generic Lua Components**: Store arbitrary Lua data as components
-- **Time Access**: Get delta time and frame information
+- `physics` - Rapier 2D physics integration (enabled by default)
 
-### Lua API
+### Available Plugins
 
-#### Spawning Entities
+#### Physics (Rapier 2D)
 
-```lua
-spawn({
-    ComponentName = { field1 = value1, field2 = value2 },
-    AnotherComponent = { ... }
-})
+The physics plugin demonstrates the architecture pattern:
+
+**Rust Side** (`src/rapier.rs`):
+- Self-contained plugin that handles all setup
+- Registers physics engine and debug rendering
+- Registers non-Reflect components (like `Collider`) for Lua
+- Only compiled when `physics` feature is enabled
+
+**Lua Side** (`assets/scripts/physics.lua`):
+- Spawns physics entities (ground, boxes, balls)
+- Uses Rapier components (`RigidBody`, `Collider`, `Velocity`, etc.)
+- Implements physics monitoring systems
+- Zero Rust game logic required
+
+## Adding New Plugins
+
+To add a new optional plugin following the Hello architecture:
+
+1. **Create a feature in `Cargo.toml`**:
+```toml
+[features]
+my_plugin = ["dep:some_crate"]
+
+[dependencies]
+some_crate = { version = "1.0", optional = true }
 ```
 
-#### Querying Entities
+2. **Create a plugin module** (e.g., `src/my_plugin.rs`):
+```rust
+use bevy::prelude::*;
+use bevy_lua_ecs::*;
 
-```lua
--- Query with required components
-local entities = world:query({"Component1", "Component2"}, nil)
+pub struct MyPluginIntegration;
 
--- Query with change detection
-local changed = world:query({"Transform"}, {"Transform"})
+impl Plugin for MyPluginIntegration {
+    fn build(&self, app: &mut App) {
+        // Add external plugins
+        app.add_plugins(SomeExternalPlugin);
+        
+        // Register serde components if needed
+        app.insert_resource(bevy_lua_ecs::serde_components![
+            SomeComponent,
+        ]);
+        
+        info!("✓ My plugin integration enabled");
+    }
+}
 ```
 
-#### Updating Components
+3. **Conditionally add to main.rs**:
+```rust
+#[cfg(feature = "my_plugin")]
+mod my_plugin;
 
-```lua
-entity:set("ComponentName", { field = new_value })
+#[cfg(feature = "my_plugin")]
+app.add_plugins(my_plugin::MyPluginIntegration);
 ```
 
-#### Registering Systems
+4. **Write Lua scripts** that use the plugin's components and systems.
 
-```lua
-function my_system(world)
-    -- System logic here
-end
-
-register_system("Update", my_system)
-```
-
-#### Accessing Time
-
-```lua
-local dt = world:delta_time()
-```
+That's it! No manual component registration, no game-specific Rust code.
 
 ## Examples
 
-### Animated Sprites
+### Physics Simulation
 
-See `examples/sprites.rs` and `assets/scripts/spawn_sprites.lua` for a complete example of:
-- Spawning sprites with reflection
-- Animating colors using Lua systems
-- Component mutation every frame
+```lua
+-- Spawn a dynamic physics box
+spawn({
+    RigidBody = "Dynamic",
+    Collider = ColliderCuboid(25.0, 25.0),
+    Velocity = { linvel = { x = 0.0, y = 0.0 }, angvel = 0.0 },
+    Transform = { translation = { x = 0.0, y = 200.0, z = 0.0 } },
+    Sprite = { color = { r = 1.0, g = 0.0, b = 0.0, a = 1.0 } }
+})
 
-### Interactive UI
+-- Monitor physics state
+function physics_monitor(world)
+    local entities = world:query({"RigidBody", "Transform"}, nil)
+    for _, entity in ipairs(entities) do
+        -- Read physics data
+        local transform = entity:get("Transform")
+        -- React to physics state
+    end
+end
 
-See `examples/button.rs` and `assets/scripts/spawn_button.lua` for:
-- UI component creation
-- Click event handling in Lua
-- Custom Lua components (callbacks)
-
-## Architecture
-
-### Rust Layer (Generic Infrastructure)
-
-- **ComponentRegistry**: Auto-discovers Bevy components via reflection
-- **SpawnQueue**: Queues entity creation from Lua
-- **ComponentUpdateQueue**: Queues component updates from Lua
-- **LuaSystemRegistry**: Manages Lua systems to run each frame
-- **Query API**: Provides ECS queries to Lua
-
-### Lua Layer (Game Logic)
-
-- All game systems, behaviors, and logic
-- Entity spawning and component updates
-- Event handling and callbacks
-- Animation and gameplay code
-
-## Design Principles
-
-1. **Generic Rust Code**: Rust provides only reflection-based ECS utilities
-2. **Lua-First Features**: All game features implemented in Lua
-3. **No Game-Specific Rust**: Animation, UI, gameplay all in Lua
-4. **Automatic Component Discovery**: Any `#[reflect(Component)]` type works
-5. **Type Safety**: Reflection ensures correct component structure
-
-## Running Examples
-
-```bash
-# Animated sprites with color pulsing
-cargo run --example sprites
-
-# Interactive button with click handling
-cargo run --example button
-
-# Basic Lua integration
-cargo run --example basic
+register_system("Update", physics_monitor)
 ```
+
+## Design Goals
+
+### For Plugin Developers (Rust)
+
+- Create self-contained plugins with minimal boilerplate
+- Automatically expose components to Lua via reflection
+- No game logic in Rust - only infrastructure
+
+### For Game Developers (Lua)
+
+- Write entire game in Lua scripts
+- Use any plugin component without configuration
+- Hot-reload scripts during development
+- Full ECS query and mutation capabilities
+
+## Dependencies
+
+- [Bevy 0.16](https://bevyengine.org/) - Game engine
+- [mlua 0.10](https://github.com/mlua-rs/mlua) - Lua bindings
+- [bevy_rapier2d 0.31](https://github.com/dimforge/bevy_rapier) - Physics (optional)
+
+## Related Projects
+
+- [bevy-lua-ecs](./bevy-lua-ecs) - The core Lua-ECS integration library
+
+## License
+
+This project is private.
