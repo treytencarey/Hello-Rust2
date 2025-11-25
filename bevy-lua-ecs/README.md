@@ -113,6 +113,8 @@ register_system("Update", my_system)
 - **Asset Loading**: Load image files and create assets via reflection
 - **Asset Creation**: Create any Bevy asset type (layouts, materials, etc.) from Lua
 - **Resource Management**: Insert and query Bevy resources from Lua via builders
+- **Networking Constructors**: Built-in generic builders for multiplayer (with `networking` feature)
+- **OS Utilities**: Generic socket binding, time access, and address parsing
 - **Component Queries**: Query entities with filtering and change detection
 - **Component Mutation**: Update components via `entity:set()`
 - **Lua Systems**: Register Lua functions to run every frame
@@ -208,17 +210,70 @@ end
 
 The library provides a generic resource management system that allows Lua to insert and query Bevy resources. This is useful for game-level configuration and state that isn't tied to specific entities.
 
-### Registering Resource Builders
+### Generic Resource Constructors (Library Infrastructure)
 
-In your Rust code, register builders that construct resources from Lua data:
+For common use cases like networking, the library provides **generic resource constructors** as reusable infrastructure. These constructors use OS-level utilities that work for ANY game.
+
+#### Networking Resources (with `networking` feature)
+
+The library includes built-in constructors for networking resources:
 
 ```rust
 use bevy_lua_ecs::*;
 
 fn setup(world: &mut World) {
-    let mut builder_registry = ResourceBuilderRegistry::default();
+    let builder_registry = ResourceBuilderRegistry::default();
     
-    // Register a simple resource builder
+    // Register generic networking constructors from library
+    #[cfg(feature = "networking")]
+    register_networking_constructors(&builder_registry);
+    
+    world.insert_resource(builder_registry);
+}
+```
+
+This registers constructors for:
+- `RenetServer` - Multiplayer server resource
+- `RenetClient` - Multiplayer client resource  
+- `NetcodeServerTransport` - Server network transport (with socket binding)
+- `NetcodeClientTransport` - Client network transport (with socket binding)
+
+**From Lua, just use them:**
+
+```lua
+-- Start a server (library handles socket binding, time access, etc.)
+insert_resource("RenetServer", {})
+insert_resource("NetcodeServerTransport", {
+    port = 5001,
+    max_clients = 10
+})
+
+-- Or start a client
+insert_resource("RenetClient", {})
+insert_resource("NetcodeClientTransport", {
+    server_addr = "127.0.0.1",
+    port = 5001
+})
+
+-- Check if server is ready
+if world:query_resource("RenetServer") then
+    print("Server is running!")
+end
+```
+
+**Key benefit:** No game-specific Rust code needed! The library provides generic OS utilities (`OsUtilities::bind_udp_socket()`, `OsUtilities::current_time()`, etc.) that work for any game.
+
+### Custom Resource Builders
+
+For game-specific resources, register custom builders:
+
+```rust
+use bevy_lua_ecs::*;
+
+fn setup(world: &mut World) {
+    let builder_registry = ResourceBuilderRegistry::default();
+    
+    // Register a custom resource builder
     builder_registry.register("MyGameConfig", |_lua, data: LuaValue, world: &mut World| {
         let table = data.as_table()
             .ok_or_else(|| LuaError::RuntimeError("Expected table".to_string()))?;
@@ -249,6 +304,16 @@ if world:query_resource("MyGameConfig") then
 end
 ```
 
+### OS Utilities (Advanced)
+
+The library exposes generic OS-level utilities through `OsUtilities`:
+
+- `OsUtilities::bind_udp_socket(addr)` - Bind UDP sockets
+- `OsUtilities::current_time()` - Get system time
+- `OsUtilities::parse_socket_addr(addr)` - Parse network addresses
+
+These are used internally by networking constructors but can be used for custom resource builders that need OS-level operations.
+
 ### Marker Components
 
 For components that need to be serialized/replicated (e.g., for networking), register them as marker components:
@@ -270,13 +335,31 @@ spawn({
 
 ## Examples
 
-### Networking Example
+### Networking Example (Zero Rust!)
 
 See `examples/networking.rs` and `assets/scripts/networking_example.lua` for a complete example of:
-- Using resource builders for server/client setup
-- Generic `insert_resource()` API for any resource type
+- **Generic networking constructors from library** - No game-specific resource code!
+- Server/client setup purely in Lua using `insert_resource()`
+- Socket binding and time access handled by library's `OsUtilities`
 - Marker components for entity replication
-- Zero game-specific networking code in Rust
+- **80+ lines of game code eliminated** - moved to reusable library infrastructure
+
+**The game code is just configuration:**
+```rust
+// That's it! No networking resource builders needed.
+register_networking_constructors(&builder_registry);
+```
+
+**All networking logic in Lua:**
+```lua
+-- Start server
+insert_resource("RenetServer", {})
+insert_resource("NetcodeServerTransport", { port = 5001, max_clients = 10 })
+
+-- Or start client  
+insert_resource("RenetClient", {})
+insert_resource("NetcodeClientTransport", { server_addr = "127.0.0.1", port = 5001 })
+```
 
 ### Tilemap Rendering
 
@@ -310,6 +393,9 @@ See `examples/button.rs` and `assets/scripts/spawn_button.lua` for:
 - **ComponentUpdateQueue**: Queues component updates from Lua
 - **ResourceQueue**: Queues resource insertion from Lua
 - **ResourceBuilderRegistry**: Registers constructors for Bevy resources
+- **ResourceConstructorRegistry**: Reflection-based resource construction (for future use)
+- **OsUtilities**: Generic OS-level operations (socket binding, time access, address parsing)
+- **Networking Constructors**: Built-in generic builders for multiplayer resources
 - **SerdeComponentRegistry**: Registers marker components for serialization
 - **LuaSystemRegistry**: Manages Lua systems to run each frame
 - **Query API**: Provides ECS queries to Lua

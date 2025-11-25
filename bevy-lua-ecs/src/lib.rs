@@ -12,6 +12,7 @@ pub mod asset_loading;
 pub mod resource_queue;
 pub mod resource_inserter;
 pub mod resource_builder;
+pub mod resource_constructors;
 
 // Re-export commonly used types
 pub use components::{ComponentRegistry, LuaCustomComponents};
@@ -27,3 +28,8 @@ pub use lua_world_api::{LuaQueryBuilder, LuaEntitySnapshot, execute_query};
 pub use resource_queue::ResourceQueue;
 pub use resource_inserter::process_resource_queue;
 pub use resource_builder::ResourceBuilderRegistry;
+pub use resource_constructors::{ResourceConstructorRegistry, OsUtilities};
+
+#[cfg(feature = "networking")]
+pub use resource_constructors::register_networking_constructors;
+

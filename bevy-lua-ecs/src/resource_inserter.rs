@@ -30,7 +30,7 @@ pub fn process_resource_queue(
             }
         };
         
-        // Try builder registry first (for complex resources like RenetServer)
+        // Try builder registry first (for resources like RenetServer, NetcodeServerTransport)
         if let Some(result) = builder_registry.try_build(&lua_ctx.lua, &request.resource_name, data_value.clone(), world) {
             match result {
                 Ok(()) => {
