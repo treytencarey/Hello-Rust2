@@ -31,6 +31,8 @@ pub fn run_lua_systems(
     let registry = world.resource::<LuaSystemRegistry>().clone();
     let component_registry = world.resource::<ComponentRegistry>();
     let update_queue = world.resource::<ComponentUpdateQueue>().clone();
+    let serde_registry = world.resource::<crate::serde_components::SerdeComponentRegistry>().clone();
+    let builder_registry = world.resource::<crate::resource_builder::ResourceBuilderRegistry>().clone();
     
     // Get change detection ticks
     let this_run = world.read_change_tick().get();
@@ -48,6 +50,8 @@ pub fn run_lua_systems(
             world,
             &component_registry,
             &update_queue,
+            &serde_registry,
+            &builder_registry,
             last_run_tick,
             this_run,
         ) {
@@ -62,6 +66,8 @@ fn run_single_lua_system(
     world: &World,
     component_registry: &ComponentRegistry,
     update_queue: &ComponentUpdateQueue,
+    serde_registry: &crate::serde_components::SerdeComponentRegistry,
+    builder_registry: &crate::resource_builder::ResourceBuilderRegistry,
     last_run: u32,
     this_run: u32,
 ) -> LuaResult<()> {
@@ -111,6 +117,16 @@ fn run_single_lua_system(
             Ok(results_table)
         })?)?;
         
+        // query_resource(resource_name) - check if a resource exists
+        // This is a generic API that works for any resource type
+        world_table.set("query_resource", scope.create_function({
+            let serde_registry = serde_registry.clone();
+            move |_lua_ctx, (_self, resource_name): (LuaTable, String)| {
+                // Check if this resource has been inserted
+                Ok(serde_registry.has_resource(&resource_name))
+            }
+        })?)?;
+
         // Call the Lua system function
         func.call::<()>(world_table)?;
         

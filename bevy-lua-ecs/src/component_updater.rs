@@ -22,6 +22,16 @@ pub fn process_component_updates(
     for request in requests {
         // Check if it's a known Rust component
         if let Some(handler) = component_registry.get(&request.component_name) {
+            // Check if entity still exists before trying to update it
+            // This prevents crashes when entities are despawned (e.g., client disconnect in networking)
+            if commands.get_entity(request.entity).is_err() {
+                // Entity was despawned, skip this update and clean up
+                if let Err(e) = lua_ctx.lua.remove_registry_value(request.data) {
+                    warn!("Failed to remove registry value for despawned entity: {}", e);
+                }
+                continue;
+            }
+            
             // Retrieve the Lua value from the registry (can be string, table, number, etc.)
             let data_value: LuaValue = match lua_ctx.lua.registry_value(&request.data) {
                 Ok(value) => value,

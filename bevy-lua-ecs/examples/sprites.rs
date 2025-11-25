@@ -16,6 +16,9 @@ fn main() {
     app.insert_resource(component_registry)
         .init_resource::<SpawnQueue>()
         .init_resource::<ComponentUpdateQueue>()
+        .init_resource::<ResourceQueue>()
+        .init_resource::<ResourceBuilderRegistry>()
+        .init_resource::<SerdeComponentRegistry>()
         .add_plugins(LuaSpawnPlugin)
         .add_systems(Update, (
             process_spawn_queue,

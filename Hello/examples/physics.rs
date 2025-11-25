@@ -4,6 +4,7 @@
 
 use bevy::prelude::*;
 use bevy_lua_ecs::*;
+use bevy_lua_ecs::component_updater::process_component_updates;
 use std::fs;
 
 #[path = "../src/rapier.rs"]
@@ -25,7 +26,8 @@ fn main() {
     
     app.insert_resource(component_registry)
         .init_resource::<SpawnQueue>()
-        .init_resource::<ComponentUpdateQueue>();
+        .init_resource::<ComponentUpdateQueue>()
+        .init_resource::<ResourceQueue>();
         
     app.add_plugins(LuaSpawnPlugin)
         .add_systems(Update, (

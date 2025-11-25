@@ -7,8 +7,9 @@ A Lua scripting integration for Bevy that follows the **"Zero Rust" philosophy**
 All game logic, systems, and behaviors are implemented purely in Lua. Rust code provides only generic ECS operations using Bevy's reflection system. This means:
 
 - ✅ Game developers write **only Lua** for game features
-- ✅ Rust provides **generic utilities** (queries, component mutation, time access)
+- ✅ Rust provides **generic utilities** (queries, component mutation, time access, resource management)
 - ✅ **Any** Bevy component can be used from Lua via reflection
+- ✅ **Any** Bevy resource can be inserted from Lua via builders
 - ✅ Custom Lua components work alongside Bevy components
 
 ## Quick Start
@@ -43,9 +44,13 @@ fn main() {
         .insert_resource(asset_registry)
         .init_resource::<SpawnQueue>()
         .init_resource::<ComponentUpdateQueue>()
+        .init_resource::<ResourceQueue>()
+        .init_resource::<ResourceBuilderRegistry>()
+        .init_resource::<SerdeComponentRegistry>()
         .add_plugins(LuaSpawnPlugin)
         .add_systems(Update, (
             process_spawn_queue,
+            process_resource_queue,  // Process resources inserted from Lua
             process_pending_assets,  // Process assets created from Lua
             run_lua_systems,
             process_component_updates,
@@ -107,10 +112,12 @@ register_system("Update", my_system)
 - **Component Spawning**: Create entities with any reflected Bevy component
 - **Asset Loading**: Load image files and create assets via reflection
 - **Asset Creation**: Create any Bevy asset type (layouts, materials, etc.) from Lua
+- **Resource Management**: Insert and query Bevy resources from Lua via builders
 - **Component Queries**: Query entities with filtering and change detection
 - **Component Mutation**: Update components via `entity:set()`
 - **Lua Systems**: Register Lua functions to run every frame
 - **Generic Lua Components**: Store arbitrary Lua data as components
+- **Marker Components**: Register serializable marker components for special purposes
 - **Time Access**: Get delta time and frame information
 
 ### Lua API
@@ -181,7 +188,95 @@ register_system("Update", my_system)
 local dt = world:delta_time()
 ```
 
+#### Inserting Resources
+
+```lua
+-- Register resource builders in Rust first, then use from Lua
+insert_resource("MyResource", { field1 = value1, field2 = value2 })
+```
+
+#### Querying Resources
+
+```lua
+-- Check if a resource exists
+if world:query_resource("MyResource") then
+    print("Resource exists!")
+end
+```
+
+## Advanced: Resource Management
+
+The library provides a generic resource management system that allows Lua to insert and query Bevy resources. This is useful for game-level configuration and state that isn't tied to specific entities.
+
+### Registering Resource Builders
+
+In your Rust code, register builders that construct resources from Lua data:
+
+```rust
+use bevy_lua_ecs::*;
+
+fn setup(world: &mut World) {
+    let mut builder_registry = ResourceBuilderRegistry::default();
+    
+    // Register a simple resource builder
+    builder_registry.register("MyGameConfig", |_lua, data: LuaValue, world: &mut World| {
+        let table = data.as_table()
+            .ok_or_else(|| LuaError::RuntimeError("Expected table".to_string()))?;
+        
+        let difficulty: String = table.get("difficulty")?;
+        let volume: f32 = table.get("volume")?;
+        
+        world.insert_resource(MyGameConfig { difficulty, volume });
+        Ok(())
+    });
+    
+    world.insert_resource(builder_registry);
+}
+```
+
+### Using Resources from Lua
+
+```lua
+-- Insert a resource (calls the registered builder)
+insert_resource("MyGameConfig", {
+    difficulty = "hard",
+    volume = 0.8
+})
+
+-- Query if a resource exists
+if world:query_resource("MyGameConfig") then
+    print("Game config loaded!")
+end
+```
+
+### Marker Components
+
+For components that need to be serialized/replicated (e.g., for networking), register them as marker components:
+
+```rust
+let mut serde_registry = SerdeComponentRegistry::default();
+serde_registry.register_marker::<Replicated>("Replicated");
+world.insert_resource(serde_registry);
+```
+
+Then use them in Lua:
+
+```lua
+spawn({
+    Transform = { ... },
+    Replicated = {}  -- Marker component for replication
+})
+```
+
 ## Examples
+
+### Networking Example
+
+See `examples/networking.rs` and `assets/scripts/networking_example.lua` for a complete example of:
+- Using resource builders for server/client setup
+- Generic `insert_resource()` API for any resource type
+- Marker components for entity replication
+- Zero game-specific networking code in Rust
 
 ### Tilemap Rendering
 
@@ -213,9 +308,13 @@ See `examples/button.rs` and `assets/scripts/spawn_button.lua` for:
 - **AssetRegistry**: Manages loaded images and created assets
 - **SpawnQueue**: Queues entity creation from Lua
 - **ComponentUpdateQueue**: Queues component updates from Lua
+- **ResourceQueue**: Queues resource insertion from Lua
+- **ResourceBuilderRegistry**: Registers constructors for Bevy resources
+- **SerdeComponentRegistry**: Registers marker components for serialization
 - **LuaSystemRegistry**: Manages Lua systems to run each frame
 - **Query API**: Provides ECS queries to Lua
 - **Asset Loading**: Generic `load_asset()` and `create_asset()` functions
+- **Resource Management**: Generic `insert_resource()` and `query_resource()` functions
 
 ### Lua Layer (Game Logic)
 
@@ -273,6 +372,9 @@ Alternatively, use the convenience method `AssetRegistry::from_type_registry()` 
 ## Running Examples
 
 ```bash
+# Networking with server/client resources (requires networking feature)
+cargo run --example networking --features networking
+
 # Tilemap with texture atlas slicing
 cargo run --example tilemap
 

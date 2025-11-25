@@ -1,6 +1,7 @@
 use bevy::prelude::*;
 use bevy_rapier2d::prelude::*;
 use bevy_lua_ecs::*;
+use bevy_lua_ecs::component_updater::process_component_updates;
 use std::fs;
 
 fn main() {
@@ -21,7 +22,9 @@ fn main() {
     
     app.insert_resource(component_registry)
         .init_resource::<SpawnQueue>()
-        .init_resource::<ComponentUpdateQueue>();
+        .init_resource::<ComponentUpdateQueue>()
+        .init_resource::<ResourceQueue>()
+        .init_resource::<ResourceBuilderRegistry>();
         
     // Register serde-based components (for types that don't implement Reflect)
     app.insert_resource(bevy_lua_ecs::serde_components![

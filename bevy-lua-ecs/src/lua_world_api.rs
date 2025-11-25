@@ -1,6 +1,5 @@
 use bevy::prelude::*;
 use bevy::ecs::reflect::ReflectComponent;
-use bevy::reflect::ReflectRef;
 use mlua::prelude::*;
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -73,8 +72,15 @@ impl LuaUserData for LuaEntitySnapshot {
             }
             
             // Check reflected Rust components
-            if let Some(data) = this.component_data.get(&component_name) {
-                Ok(LuaValue::String(lua.create_string(data)?))
+            if let Some(data_str) = this.component_data.get(&component_name) {
+                // Try to deserialize JSON string to Lua table
+                if let Ok(json_value) = serde_json::from_str::<serde_json::Value>(data_str) {
+                    // Convert JSON to Lua value - field names are preserved from serialization
+                    let lua_value = json_to_lua(lua, &json_value)?;
+                    return Ok(lua_value);
+                }
+                // Fallback to string if not JSON
+                Ok(LuaValue::String(lua.create_string(data_str)?))
             } else {
                 Ok(LuaValue::Nil)
             }
@@ -98,6 +104,68 @@ impl LuaUserData for LuaEntitySnapshot {
             
             Ok(())
         });
+    }
+}
+
+/// Helper function to convert serde_json::Value to Lua value
+fn json_to_lua(lua: &Lua, value: &serde_json::Value) -> LuaResult<LuaValue> {
+    json_to_lua_impl(lua, value, None)
+}
+
+/// Helper function to convert serde_json::Value to Lua value with context about parent key
+fn json_to_lua_impl(lua: &Lua, value: &serde_json::Value, parent_key: Option<&str>) -> LuaResult<LuaValue> {
+    match value {
+        serde_json::Value::Null => Ok(LuaValue::Nil),
+        serde_json::Value::Bool(b) => Ok(LuaValue::Boolean(*b)),
+        serde_json::Value::Number(n) => {
+            if let Some(i) = n.as_i64() {
+                Ok(LuaValue::Integer(i))
+            } else if let Some(f) = n.as_f64() {
+                Ok(LuaValue::Number(f))
+            } else {
+                Ok(LuaValue::Nil)
+            }
+        }
+        serde_json::Value::String(s) => Ok(LuaValue::String(lua.create_string(s)?)),
+        serde_json::Value::Array(arr) => {
+            // Check if this is a vector type based on parent key and array length
+            if arr.iter().all(|v| v.is_number()) {
+                let field_names: Option<&[&str]> = match (parent_key, arr.len()) {
+                    (Some("translation" | "scale"), 3) => Some(&["x", "y", "z"]),
+                    (Some("rotation"), 4) => Some(&["x", "y", "z", "w"]),
+                    (_, 2) if arr.iter().all(|v| v.is_number()) => Some(&["x", "y"]),
+                    (_, 3) if arr.iter().all(|v| v.is_number()) => Some(&["x", "y", "z"]),
+                    (_, 4) if arr.iter().all(|v| v.is_number()) => Some(&["x", "y", "z", "w"]),
+                    _ => None,
+                };
+                
+                if let Some(names) = field_names {
+                    let table = lua.create_table()?;
+                    for (i, (name, item)) in names.iter().zip(arr.iter()).enumerate() {
+                        // Set both named field and numeric index
+                        table.set(*name, json_to_lua_impl(lua, item, None)?)?;
+                        table.set(i + 1, json_to_lua_impl(lua, item, None)?)?;
+                    }
+                    return Ok(LuaValue::Table(table));
+                }
+            }
+            
+            // Regular array (1-indexed for Lua)
+            let table = lua.create_table()?;
+            for (i, item) in arr.iter().enumerate() {
+                table.set(i + 1, json_to_lua_impl(lua, item, None)?)?;
+            }
+            Ok(LuaValue::Table(table))
+        }
+        serde_json::Value::Object(obj) => {
+            // Objects are converted to Lua tables with their field names preserved
+            let table = lua.create_table()?;
+            for (key, value) in obj {
+                // Pass the key name as context for array field name inference
+                table.set(key.as_str(), json_to_lua_impl(lua, value, Some(key))?)?;
+            }
+            Ok(LuaValue::Table(table))
+        }
     }
 }
 
@@ -127,15 +195,17 @@ pub fn execute_query(
                 if let Some(registration) = type_registry.get_with_type_path(&type_path) {
                     if let Some(reflect_component) = registration.data::<ReflectComponent>() {
                         if let Some(component) = reflect_component.reflect(Into::<bevy::ecs::world::FilteredEntityRef>::into(&entity_ref)) {
-                            // Smart serialization
-                            let value_str = match component.reflect_ref() {
-                                ReflectRef::Enum(enum_ref) => enum_ref.variant_name().to_string(),
-                                ReflectRef::TupleStruct(tuple) if tuple.field_len() == 1 => {
-                                    format!("{:?}", tuple.field(0).unwrap())
+                            // Use TypedReflectSerializer to get proper JSON serialization
+                            use bevy::reflect::serde::TypedReflectSerializer;
+                            let serializer = TypedReflectSerializer::new(component.as_reflect(), &type_registry);
+                            if let Ok(json_value) = serde_json::to_value(serializer) {
+                                if let Ok(json_string) = serde_json::to_string(&json_value) {
+                                    component_data.insert(component_name.clone(), json_string);
+                                    continue;
                                 }
-                                _ => format!("{:?}", component),
-                            };
-                            component_data.insert(component_name.clone(), value_str);
+                            }
+                            // Fallback to Debug if serialization fails
+                            component_data.insert(component_name.clone(), format!("{:?}", component));
                             continue;
                         }
                     }

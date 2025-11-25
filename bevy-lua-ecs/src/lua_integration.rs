@@ -11,13 +11,20 @@ pub struct LuaScriptContext {
 }
 impl LuaScriptContext {
     /// Create a new Lua context with component-based spawn function
-    pub fn new(queue: SpawnQueue, system_registry: LuaSystemRegistry) -> Result<Self, LuaError> {
+    pub fn new(
+        queue: SpawnQueue,
+        resource_queue: crate::resource_queue::ResourceQueue,
+        system_registry: LuaSystemRegistry,
+        _builder_registry: crate::resource_builder::ResourceBuilderRegistry,
+    ) -> Result<Self, LuaError> {
         let lua = Lua::new();
         
         // Clone what we need for the closure
         let queue_clone = queue.clone();
+        let resource_queue_clone = resource_queue.clone();
         let lua_clone = Arc::new(lua);
         let lua_for_closure = lua_clone.clone();
+        let lua_for_resource = lua_clone.clone();
         
         // Create component-based spawn function
         let spawn = lua_clone.create_function(move |_lua_ctx, components: LuaTable| {
@@ -37,6 +44,15 @@ impl LuaScriptContext {
             Ok(())
         })?;
         
+        // Create generic insert_resource function
+        // Accepts either a table (for serde resources) or UserData (for builder-created resources)
+        let insert_resource = lua_clone.create_function(move |_lua_ctx, (resource_name, resource_data): (String, LuaValue)| {
+            // Store resource data as registry value (works for both tables and UserData)
+            let registry_key = lua_for_resource.create_registry_value(resource_data)?;
+            resource_queue_clone.queue_insert(resource_name, registry_key);
+            Ok(())
+        })?;
+        
         // Create register_system function
         let system_reg = system_registry.clone();
         let register_system = lua_clone.create_function(move |lua_ctx, (_schedule, func): (String, LuaFunction)| {
@@ -47,9 +63,11 @@ impl LuaScriptContext {
         
         // Inject into globals
         lua_clone.globals().set("spawn", spawn)?;
+        lua_clone.globals().set("insert_resource", insert_resource)?;
         lua_clone.globals().set("register_system", register_system)?;
         
         // Note: load_asset will be added via add_asset_loading_to_lua()
+        // Note: query_resource will be added to world table in lua_systems
         
         Ok(Self {
             lua: lua_clone,
@@ -70,6 +88,7 @@ impl Plugin for LuaSpawnPlugin {
     fn build(&self, app: &mut App) {
         app.add_systems(Startup, setup_lua_context);
         app.add_systems(Update, crate::asset_loading::process_pending_assets);
+        app.add_systems(Update, crate::resource_inserter::process_resource_queue);
     }
 }
 
@@ -77,6 +96,8 @@ impl Plugin for LuaSpawnPlugin {
 fn setup_lua_context(
     mut commands: Commands,
     queue: Res<SpawnQueue>,
+    resource_queue: Res<crate::resource_queue::ResourceQueue>,
+    builder_registry: Res<crate::resource_builder::ResourceBuilderRegistry>,
     asset_server: Res<AssetServer>,
     mut component_registry: ResMut<crate::components::ComponentRegistry>,
     type_registry: Res<AppTypeRegistry>,
@@ -89,7 +110,12 @@ fn setup_lua_context(
     // Update ComponentRegistry with AssetRegistry reference
     component_registry.set_asset_registry(asset_registry.clone());
     
-    match LuaScriptContext::new(queue.clone(), system_registry.clone()) {
+    match LuaScriptContext::new(
+        queue.clone(),
+        resource_queue.clone(),
+        system_registry.clone(),
+        builder_registry.clone(),
+    ) {
         Ok(ctx) => {
             // Add asset loading to Lua
             if let Err(e) = crate::asset_loading::add_asset_loading_to_lua(

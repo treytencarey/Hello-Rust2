@@ -35,8 +35,16 @@ pub fn process_spawn_queue(
                 }
             };
             
+            // Check if it's a known Serde component (Non-Reflect) FIRST
+            // This handles special cases like Replicated which may be in both registries
+            // but don't implement Default (required for Reflect-based insertion)
+            if let Some(result) = serde_registry.try_handle(&component_name, &data_value, &mut entity) {
+                if let Err(e) = result {
+                    error!("Failed to add serde component {}: {}", component_name, e);
+                }
+            }
             // Check if it's a known Rust component (Reflect)
-            if let Some(handler) = component_registry.get(&component_name) {
+            else if let Some(handler) = component_registry.get(&component_name) {
                 // Apply component via Reflect
                 if let Err(e) = handler(&data_value, &mut entity) {
                     error!("Failed to add component {}: {}", component_name, e);
@@ -44,12 +52,6 @@ pub fn process_spawn_queue(
                 
                 if component_name == "Interaction" {
                     _has_interaction = true;
-                }
-            } 
-            // Check if it's a known Serde component (Non-Reflect)
-            else if let Some(result) = serde_registry.try_handle(&component_name, &data_value, &mut entity) {
-                if let Err(e) = result {
-                    error!("Failed to add serde component {}: {}", component_name, e);
                 }
             }
             // It's a generic Lua component! Store it.
@@ -72,17 +74,6 @@ pub fn process_spawn_queue(
         // Add generic Lua components if any
         if !lua_custom_components.components.is_empty() {
             entity.insert(lua_custom_components);
-            
-            // If we have custom components and interaction, we might want PrevInteraction
-            // But since we don't know which custom component is a callback, we can't be sure.
-            // However, the user script handles interaction state changes manually via query.changed("Interaction").
-            // So we might NOT need PrevInteraction anymore if the Lua script does the logic!
-            // The previous PrevInteraction was for the Rust event system.
-            // If the user wants to track previous state in Lua, they can do it in Lua.
-            // But let's keep it if Interaction is present, just in case?
-            // No, "Zero Rust" means we shouldn't add magic components unless necessary.
-            // The Lua script example uses `changed("Interaction")` query filter, which works on the Interaction component itself.
-            // So we don't need PrevInteraction!
         }
     }
 }

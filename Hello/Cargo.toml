@@ -4,12 +4,25 @@ version = "0.1.0"
 edition = "2021"
 
 [features]
-default = ["physics", "tiled"]
+default = ["physics", "tiled", "networking"]
 physics = ["dep:bevy_rapier2d"]
 tiled = ["dep:bevy_ecs_tiled"]
+networking = ["dep:bevy_replicon", "dep:bevy_replicon_renet", "dep:bevy_renet", "dep:serde", "dep:mlua"]
+bevy_rapier2d = ["dep:bevy_rapier2d"]
 
 [dependencies]
 bevy = { workspace = true, features = ["default"] }
-bevy-lua-ecs = { path = "../bevy-lua-ecs" }
+bevy-lua-ecs = { path = "../bevy-lua-ecs", features = ["networking"] }
 bevy_rapier2d = { version = "0.31", features = ["serde-serialize"], optional = true }
 bevy_ecs_tiled = { version = "0.7", optional = true }
+bevy_replicon = { workspace = true, optional = true }
+bevy_replicon_renet = { workspace = true, optional = true }
+bevy_renet = { workspace = true, optional = true }
+serde = { workspace = true, optional = true }
+mlua = { workspace = true, optional = true }
+
+[[example]]
+name = "networking"
+path = "examples/networking.rs"
+required-features = ["networking"]
+

@@ -8,6 +8,9 @@ mod rapier;
 #[cfg(feature = "tiled")]
 mod tiled;
 
+#[cfg(feature = "networking")]
+pub mod networking;
+
 fn main() {
     let mut app = App::new();
     
@@ -21,6 +24,10 @@ fn main() {
     // Add Tiled map plugin if the tiled feature is enabled
     #[cfg(feature = "tiled")]
     app.add_plugins(tiled::TiledIntegrationPlugin);
+    
+    // Add networking plugin if the networking feature is enabled
+    #[cfg(feature = "networking")]
+    app.add_plugins(networking::NetworkingIntegrationPlugin);
     
     // Create component registry AFTER plugins are added
     // This automatically includes Rapier's components if enabled!
