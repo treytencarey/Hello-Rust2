@@ -82,14 +82,50 @@ impl LuaScriptContext {
 }
 
 /// Plugin that sets up Lua scripting with component-based spawn function
+/// 
+/// This plugin automatically initializes all required resources and systems:
+/// - ComponentRegistry (from AppTypeRegistry)
+/// - SpawnQueue, ComponentUpdateQueue, ResourceQueue
+/// - ResourceBuilderRegistry, SerdeComponentRegistry
+/// - All processing systems (spawn, updates, resources, assets)
+/// 
+/// Users only need to add this plugin after DefaultPlugins (or other plugins that register types).
 pub struct LuaSpawnPlugin;
 
 impl Plugin for LuaSpawnPlugin {
     fn build(&self, app: &mut App) {
+        // Initialize all required resources
+        // Note: ComponentRegistry needs AppTypeRegistry, so we create it in a startup system
+        app.init_resource::<SpawnQueue>();
+        app.init_resource::<crate::component_update_queue::ComponentUpdateQueue>();
+        app.init_resource::<crate::resource_queue::ResourceQueue>();
+        app.init_resource::<crate::resource_builder::ResourceBuilderRegistry>();
+        app.init_resource::<crate::serde_components::SerdeComponentRegistry>();
+        
+        // Add all required systems
+        // Initialize ComponentRegistry in PreStartup to ensure it exists before setup_lua_context
+        app.add_systems(PreStartup, initialize_component_registry);
         app.add_systems(Startup, setup_lua_context);
-        app.add_systems(Update, crate::asset_loading::process_pending_assets);
-        app.add_systems(Update, crate::resource_inserter::process_resource_queue);
+        app.add_systems(Update, (
+            crate::entity_spawner::process_spawn_queue,
+            crate::lua_systems::run_lua_systems,
+            crate::component_updater::process_component_updates,
+            crate::asset_loading::process_pending_assets,
+            crate::resource_inserter::process_resource_queue,
+        ));
     }
+}
+
+/// System to initialize ComponentRegistry from AppTypeRegistry
+/// This runs before setup_lua_context so the registry is available
+fn initialize_component_registry(
+    mut commands: Commands,
+    type_registry: Res<AppTypeRegistry>,
+) {
+    let component_registry = crate::components::ComponentRegistry::from_type_registry(
+        type_registry.clone()
+    );
+    commands.insert_resource(component_registry);
 }
 
 /// System to initialize Lua context

@@ -3,38 +3,23 @@ use bevy_lua_ecs::*;
 use std::fs;
 
 fn main() {
-    let mut app = App::new();
-    
-    // Add Bevy's default plugins - this auto-registers many types!
-    app.add_plugins(DefaultPlugins);
-    
-    // Bevy automatically registers types from plugins
-    // No need to manually register Text, Sprite, Transform, etc.!
-    
-    // Create component registry AFTER plugins are added
-    // This way it discovers all auto-registered components
-    let component_registry = ComponentRegistry::from_type_registry(
-        app.world().resource::<AppTypeRegistry>().clone()
-    );
-    
-    app.insert_resource(component_registry)
-        .init_resource::<SpawnQueue>()
+    App::new()
+        .add_plugins(DefaultPlugins)
         .add_plugins(LuaSpawnPlugin)
-        .add_systems(Update, process_spawn_queue)
         .add_systems(Startup, (setup, load_and_run_script).chain())
         .run();
 }
 
 fn setup(mut commands: Commands) {
     commands.spawn(Camera2d);
-    info!("✓ Camera spawned");
+    info!("Camera spawned");
 }
 
 fn load_and_run_script(lua_ctx: Res<LuaScriptContext>) {
     let script_path = "bevy-lua-ecs/assets/scripts/spawn_text.lua";
     match fs::read_to_string(script_path) {
         Ok(script_content) => {
-            info!("✓ Loaded script: {}", script_path);
+            info!("Loaded script: {}", script_path);
             if let Err(e) = lua_ctx.execute_script(&script_content, "spawn_text.lua") {
                 error!("Failed to execute script: {}", e);
             }

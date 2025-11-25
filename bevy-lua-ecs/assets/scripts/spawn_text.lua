@@ -1,7 +1,5 @@
 -- Spawn text entities using component-based API for 2D world text
 
-print("Text spawn script loaded!")
-
 -- Spawn entity with Text2d for 2D world rendering
 spawn({
     Text = { text = "Hello from Lua!" },

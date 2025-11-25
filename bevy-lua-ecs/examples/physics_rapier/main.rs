@@ -14,31 +14,17 @@ fn main() {
     app.add_plugins(RapierPhysicsPlugin::<NoUserData>::pixels_per_meter(100.0));
     app.add_plugins(RapierDebugRenderPlugin::default());
     
-    // Create component registry AFTER plugins are added
-    // This automatically includes Rapier's components!
-    let component_registry = ComponentRegistry::from_type_registry(
-        app.world().resource::<AppTypeRegistry>().clone()
-    );
+    // Add Lua plugin (auto-initializes all resources and systems)
+    app.add_plugins(LuaSpawnPlugin);
     
-    app.insert_resource(component_registry)
-        .init_resource::<SpawnQueue>()
-        .init_resource::<ComponentUpdateQueue>()
-        .init_resource::<ResourceQueue>()
-        .init_resource::<ResourceBuilderRegistry>();
-        
     // Register serde-based components (for types that don't implement Reflect)
+    // This uses the SerdeComponentRegistry that was auto-initialized by LuaSpawnPlugin
     app.insert_resource(bevy_lua_ecs::serde_components![
         Collider,
     ]);
-        
-    app.add_plugins(LuaSpawnPlugin)
-        .add_systems(Update, (
-            process_spawn_queue,
-            run_lua_systems,
-            process_component_updates,
-        ))
+    
+    app.add_systems(Startup, setup)
         .add_systems(PostStartup, load_and_run_script)
-        .add_systems(Startup, setup)
         .run();
 }
 

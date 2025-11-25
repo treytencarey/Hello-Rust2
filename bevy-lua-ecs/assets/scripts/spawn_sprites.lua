@@ -1,7 +1,5 @@
 -- Spawn sprite entities using component-based API
 
-print("Sprite spawn script loaded!")
-
 -- Spawn a simple sprite with color and animation timer
 spawn({
     Sprite = { color = {r = 1.0, g = 0.0, b = 0.0, a = 1.0} },

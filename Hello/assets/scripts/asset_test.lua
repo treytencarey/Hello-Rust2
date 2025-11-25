@@ -1,5 +1,4 @@
 -- Test script for generic asset creation
-print("Testing generic asset creation...")
 
 -- Create a TextureAtlasLayout
 local atlas_id = create_asset("bevy_sprite::texture_atlas::TextureAtlasLayout", {
@@ -27,4 +26,4 @@ spawn({
     }
 })
 
-print("✓ Test complete!")
+print("Test complete!")

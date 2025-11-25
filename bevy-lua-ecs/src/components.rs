@@ -156,7 +156,26 @@ fn spawn_component_via_reflection(
             }
             
             TypeInfo::TupleStruct(struct_info) => {
-                // Tuple structs require a table
+                // Special case: single-field tuple struct (newtype wrapper) with scalar value
+                // This handles types like GravityScale(f32), Restitution { coefficient: f32, ... }
+                // where Lua can just pass a number instead of a table
+                if struct_info.field_len() == 1 {
+                    // Try to handle as scalar newtype wrapper first
+                    if !matches!(data, LuaValue::Table(_)) {
+                        let reflect_mut = component.reflect_mut();
+                        if let ReflectMut::TupleStruct(tuple_mut) = reflect_mut {
+                            if let Some(field) = tuple_mut.field_mut(0) {
+                                if set_field_from_lua(field, data, asset_registry).is_ok() {
+                                    // Successfully set the field from scalar value
+                                    entity.insert_reflect(component);
+                                    return Ok(());
+                                }
+                            }
+                        }
+                    }
+                }
+                
+                // Tuple structs require a table for non-scalar cases
                 let data_table = match data {
                     LuaValue::Table(t) => t,
                     _ => return Err(LuaError::RuntimeError(

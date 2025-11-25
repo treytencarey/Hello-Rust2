@@ -3,41 +3,24 @@ use bevy_lua_ecs::*;
 use std::fs;
 
 fn main() {
-    let mut app = App::new();
-    
-    // Add Bevy's default plugins
-    app.add_plugins(DefaultPlugins);
-    
-    // Create component registry AFTER plugins are added
-    let component_registry = ComponentRegistry::from_type_registry(
-        app.world().resource::<AppTypeRegistry>().clone()
-    );
-    
-    app.insert_resource(component_registry)
-        .init_resource::<SerdeComponentRegistry>()
-        .init_resource::<SpawnQueue>()
-        .init_resource::<ComponentUpdateQueue>();
-        
-    app.add_plugins(LuaSpawnPlugin)
-        .add_systems(Update, (
-            process_spawn_queue,
-            run_lua_systems,
-        ))
-        .add_systems(PostStartup, load_test_script)
+    App::new()
+        .add_plugins(DefaultPlugins)
+        .add_plugins(LuaSpawnPlugin)
         .add_systems(Startup, setup)
+        .add_systems(PostStartup, load_and_run_script)
         .run();
 }
 
 fn setup(mut commands: Commands) {
     commands.spawn(Camera2d);
-    info!("✓ Camera spawned");
+    info!("Camera spawned");
 }
 
-fn load_test_script(lua_ctx: Res<LuaScriptContext>) {
+fn load_and_run_script(lua_ctx: Res<LuaScriptContext>) {
     let script_path = "Hello/assets/scripts/asset_test.lua";
     match fs::read_to_string(script_path) {
         Ok(script_content) => {
-            info!("✓ Loaded test script: {}", script_path);
+            info!("Loaded test script: {}", script_path);
             if let Err(e) = lua_ctx.execute_script(&script_content, "asset_test.lua") {
                 error!("Failed to execute script: {}", e);
             }

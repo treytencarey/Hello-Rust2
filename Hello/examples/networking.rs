@@ -23,40 +23,26 @@ fn main() {
         app.replicate::<Transform>();
     }
     
-    // Create component registry
-    let component_registry = ComponentRegistry::from_type_registry(
-        app.world().resource::<AppTypeRegistry>().clone()
-    );
-    
-    let mut serde_registry = SerdeComponentRegistry::default();
-    
+    app.add_plugins(LuaSpawnPlugin)
+        .add_systems(PreStartup, setup_networking_registries)
+        .add_systems(Startup, setup)
+        .add_systems(PostStartup, load_and_run_script)
+        .run();
+}
+
+/// Register networking-specific components and resource constructors
+/// Runs in PreStartup (after LuaSpawnPlugin's PreStartup but before Startup)
+fn setup_networking_registries(
+    mut serde_registry: ResMut<SerdeComponentRegistry>,
+    builder_registry: Res<ResourceBuilderRegistry>,
+) {
     // Register Replicated marker component for this example
     #[cfg(feature = "networking")]
     serde_registry.register_marker::<Replicated>("Replicated");
     
-    // Create builder registry and register networking constructors from library
-    // These are GENERIC library infrastructure, not game-specific code!
-    let builder_registry = ResourceBuilderRegistry::default();
+    // Register networking constructors from library (generic infrastructure)
     #[cfg(feature = "networking")]
     register_networking_constructors(&builder_registry);
-    
-    app.insert_resource(component_registry)
-        .init_resource::<SpawnQueue>()
-        .init_resource::<ResourceQueue>()
-        .init_resource::<ComponentUpdateQueue>()
-        .insert_resource(serde_registry)
-        .insert_resource(builder_registry)
-        .init_resource::<ResourceConstructorRegistry>();  // Keep for future Reflect-based resources
-        
-    app.add_plugins(LuaSpawnPlugin)
-        .add_systems(Update, (
-            process_spawn_queue,
-            run_lua_systems,
-            bevy_lua_ecs::component_updater::process_component_updates,
-        ))
-        .add_systems(PostStartup, load_and_run_script)
-        .add_systems(Startup, setup)
-        .run();
 }
 
 fn setup(mut commands: Commands) {
@@ -64,7 +50,7 @@ fn setup(mut commands: Commands) {
 }
 
 fn load_and_run_script(lua_ctx: Res<LuaScriptContext>) {
-    let script_path = "assets/scripts/networking_example.lua";
+    let script_path = "Hello/assets/scripts/networking_example.lua";
     match fs::read_to_string(script_path) {
         Ok(script_content) => {
             if let Err(e) = lua_ctx.execute_script(&script_content, "networking_example.lua") {

@@ -1,8 +1,6 @@
 -- Tilemap rendering using asset loading
 -- Loads map_0.tmx and renders it with the actual tileset texture
 
-print("🗺️  Loading tilemap...")
-
 -- Map configuration
 local map_width = 64
 local map_height = 64
@@ -11,7 +9,7 @@ local scale = 2.0  -- Scale for visibility
 
 -- Load the tileset image
 local tileset = load_asset("tiled/Super_Retro_World_Interior_pack_week42/atlas_16x.png")
-print("✓ Loaded tileset texture")
+print("Loaded tileset texture")
 
 -- Tileset configuration (from map_0.tmx)
 local tileset_columns = 48
@@ -21,7 +19,7 @@ local tileset_tile_height = 16
 
 -- No need for TextureAtlasLayout! We can use Sprite's rect field instead
 -- This is pure Lua - no Rust code needed!
-print("✓ Using Sprite rect for tile slicing (pure Lua approach)")
+print("Using Sprite rect for tile slicing (pure Lua approach)")
 
 -- Read and parse the CSV tile data from map_0.tmx
 local function read_map_data()
@@ -56,10 +54,7 @@ local function read_map_data()
 end
 
 local tile_data = read_map_data()
-print(string.format("✓ Loaded %d tiles from map_0.tmx", #tile_data))
-
--- Spawn tiles using the loaded tileset with texture atlas
-print("Spawning tiles...")
+print(string.format("Loaded %d tiles from map_0.tmx", #tile_data))
 
 local tiles_spawned = 0
 local sample_size = 32  -- Show a 32x32 sample from center
@@ -107,6 +102,5 @@ for y = 0, sample_size - 1 do
     end
 end
 
-print(string.format("✓ Spawned %d tiles from map_0.tmx", tiles_spawned))
-print("🎉 Tilemap loaded with texture atlas support!")
+print(string.format("Spawned %d tiles from map_0.tmx", tiles_spawned))
 print("")

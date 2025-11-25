@@ -29,23 +29,10 @@ fn main() {
     #[cfg(feature = "networking")]
     app.add_plugins(networking::NetworkingIntegrationPlugin);
     
-    // Create component registry AFTER plugins are added
-    // This automatically includes Rapier's components if enabled!
-    let component_registry = ComponentRegistry::from_type_registry(
-        app.world().resource::<AppTypeRegistry>().clone()
-    );
-    
-    app.insert_resource(component_registry)
-        .init_resource::<SpawnQueue>()
-        .init_resource::<ComponentUpdateQueue>();
-        
+    // Add Lua plugin (auto-initializes all resources and systems)
     app.add_plugins(LuaSpawnPlugin)
-        .add_systems(Update, (
-            process_spawn_queue,
-            run_lua_systems,
-        ))
-        .add_systems(PostStartup, load_and_run_script)
         .add_systems(Startup, setup)
+        .add_systems(PostStartup, load_and_run_script)
         .run();
 }
 

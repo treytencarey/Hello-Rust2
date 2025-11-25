@@ -1,13 +1,6 @@
 -- Physics simulation using bevy_rapier2d components
 -- All physics entities and behavior defined purely in Lua!
 
-print("Physics example script loaded!")
-
--- NOTE: Collider component requires builder methods (Collider::ball(), Collider::cuboid())
--- which aren't yet supported by the reflection system.
--- For now, this example demonstrates that RigidBody enum works from Lua.
--- Without colliders, the boxes will fall through everything (no collision detection).
-
 -- Helper functions to create Collider components (wrapping the complex JSON structure)
 function ColliderCuboid(hx, hy)
     return {
@@ -39,7 +32,7 @@ spawn({
     }
 })
 
-print("✓ Ground platform spawned")
+print("Ground platform spawned")
 
 -- Spawn multiple falling boxes with physics
 local box_positions = {
@@ -70,7 +63,7 @@ for i, pos in ipairs(box_positions) do
     })
 end
 
-print("✓ " .. #box_positions .. " physics boxes spawned")
+print("" .. #box_positions .. " physics boxes spawned")
 
 -- Frame counter for periodic logging
 local frame_count = 0
@@ -102,5 +95,4 @@ end
 
 register_system("Update", physics_monitor_system)
 
-print("✓ Physics monitor system registered")
-print("Note: Boxes should fall and collide with the ground!")
+print("Physics monitor system registered")

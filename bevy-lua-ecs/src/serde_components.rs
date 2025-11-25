@@ -13,7 +13,7 @@ type SerdeResourceHandler = Box<dyn Fn(&LuaValue, &mut World) -> LuaResult<()> +
 /// This is required for types like `Collider` that implement `Deserialize` but not `Reflect`.
 #[derive(Resource, Default, Clone)]
 pub struct SerdeComponentRegistry {
-    component_handlers: Arc<Mutex<HashMap<String, SerdeComponentHandler>>>,
+    pub component_handlers: Arc<Mutex<HashMap<String, SerdeComponentHandler>>>,
     resource_handlers: Arc<Mutex<HashMap<String, SerdeResourceHandler>>>,
     /// Track which resources have been inserted (generic tracking)
     inserted_resources: Arc<Mutex<std::collections::HashSet<String>>>,
@@ -50,6 +50,31 @@ impl SerdeComponentRegistry {
         let handler = Box::new(move |_data: &LuaValue, entity: &mut EntityCommands| {
             // Marker component - ignore data and just insert it
             entity.insert(T::default());
+            Ok(())
+        });
+        
+        self.component_handlers.lock().unwrap().insert(name, handler);
+    }
+    
+    /// Register a newtype wrapper component (tuple struct with single field)
+    /// Accepts a scalar value from Lua and wraps it in an array for deserialization
+    pub fn register_newtype<T>(&mut self, name: impl Into<String>)
+    where
+        T: Component + for<'de> serde::Deserialize<'de>,
+    {
+        let name = name.into();
+        let handler = Box::new(move |data: &LuaValue, entity: &mut EntityCommands| {
+            // Wrap scalar value in array for tuple struct deserialization
+            let json_value = serde_json::to_value(data)
+                .map_err(|e| LuaError::SerializeError(format!("Failed to serialize Lua value: {}", e)))?;
+            
+            // Wrap in array to match tuple struct format
+            let wrapped = serde_json::json!([json_value]);
+            
+            let component: T = serde_json::from_value(wrapped)
+                .map_err(|e| LuaError::DeserializeError(format!("Failed to deserialize newtype component: {}", e)))?;
+            
+            entity.insert(component);
             Ok(())
         });
         

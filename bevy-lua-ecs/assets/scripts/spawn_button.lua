@@ -1,7 +1,5 @@
 -- Check what components are available
 
-print("Button spawn script loaded!")
-
 -- Spawn button with OnClick callback
 spawn({
     Button = {},

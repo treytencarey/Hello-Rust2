@@ -67,7 +67,7 @@ fn run_single_lua_system(
     component_registry: &ComponentRegistry,
     update_queue: &ComponentUpdateQueue,
     serde_registry: &crate::serde_components::SerdeComponentRegistry,
-    builder_registry: &crate::resource_builder::ResourceBuilderRegistry,
+    _builder_registry: &crate::resource_builder::ResourceBuilderRegistry,
     last_run: u32,
     this_run: u32,
 ) -> LuaResult<()> {

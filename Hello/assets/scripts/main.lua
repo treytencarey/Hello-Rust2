@@ -1,8 +1,6 @@
 -- Hello Game Main Script
 -- This is your game's main Lua script
 
-print("Hello game initialized!")
-
 -- Example: Spawn a simple text entity
 spawn({
     Text = { text = "Hello from Lua!" },
@@ -12,4 +10,4 @@ spawn({
     Transform = { translation = {x = 0, y = 100, z = 0} }
 })
 
-print("✓ Hello text spawned")
+print("Hello text spawned")

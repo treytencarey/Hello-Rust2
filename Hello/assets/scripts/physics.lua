@@ -1,8 +1,6 @@
 -- Physics Example Script
 -- Demonstrates spawning entities with Rapier physics components
 
-print("Physics example initialized!")
-
 -- Helper functions to create Collider components (wrapping the complex JSON structure)
 function ColliderCuboid(hx, hy)
     return {
@@ -31,7 +29,7 @@ spawn({
     Collider = ColliderCuboid(300.0, 10.0)
 })
 
-print("✓ Ground platform spawned")
+print("Ground platform spawned")
 
 -- Spawn dynamic bouncing ball
 spawn({
@@ -46,7 +44,7 @@ spawn({
     GravityScale = 1.0
 })
 
-print("✓ Bouncing ball spawned")
+print("Bouncing ball spawned")
 
 -- Spawn some falling boxes
 for i = 1, 5 do
@@ -63,7 +61,7 @@ for i = 1, 5 do
     })
 end
 
-print("✓ Falling boxes spawned")
+print("Falling boxes spawned")
 
 -- Add instruction text
 spawn({
@@ -73,5 +71,3 @@ spawn({
     TextLayout = {},
     Transform = { translation = {x = 0, y = 300, z = 0} }
 })
-
-print("✓ Physics example ready!")
