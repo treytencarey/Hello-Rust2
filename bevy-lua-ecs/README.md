@@ -19,6 +19,7 @@ All game logic, systems, and behaviors are implemented purely in Lua. Rust code 
 ```toml
 [dependencies]
 bevy = "0.15"
+bevy_lua_ecs = { path = "../bevy-lua-ecs" }
 mlua = "0.10"
 ```
 
@@ -26,83 +27,41 @@ mlua = "0.10"
 
 ```rust
 use bevy::prelude::*;
-use bevy_lua_entity::*;
+use bevy_lua_ecs::*;
 
 fn main() {
     let mut app = App::new();
     app.add_plugins(DefaultPlugins);
     
-    // Create component registry from type registry
-    let component_registry = ComponentRegistry::from_type_registry(
-        app.world().resource::<AppTypeRegistry>().clone()
-    );
+    // Add Lua plugin - automatically registers common Bevy events
+    // (CursorMoved, FileDragAndDrop, KeyboardInput, MouseButtonInput, etc.)
+    app.add_plugins(LuaSpawnPlugin);
     
-    // Create asset registry for asset loading/creation
-    let asset_registry = AssetRegistry::default();
-    
-    app.insert_resource(component_registry)
-        .insert_resource(asset_registry)
-        .init_resource::<SpawnQueue>()
-        .init_resource::<ComponentUpdateQueue>()
-        .init_resource::<ResourceQueue>()
-        .init_resource::<ResourceBuilderRegistry>()
-        .init_resource::<SerdeComponentRegistry>()
-        .add_plugins(LuaSpawnPlugin)
-        .add_systems(Update, (
-            process_spawn_queue,
-            process_resource_queue,  // Process resources inserted from Lua
-            process_pending_assets,  // Process assets created from Lua
-            run_lua_systems,
-            process_component_updates,
-        ))
-        .add_systems(Startup, setup)
+    app.add_systems(Startup, load_script)
         .run();
 }
 
-fn setup(
-    world: &mut World,
-) {
-    // Setup Lua context with asset loading
-    let lua_ctx = LuaScriptContext::new().unwrap();
-    let asset_server = world.resource::<AssetServer>().clone();
-    let asset_registry = world.resource::<AssetRegistry>().clone();
-    
-    add_asset_loading_to_lua(&lua_ctx, asset_server, asset_registry.clone()).unwrap();
-    
-    // Link asset registry to component registry
-    world.resource_mut::<ComponentRegistry>()
-        .set_asset_registry(asset_registry);
-    
-    world.insert_resource(lua_ctx);
+fn load_script(lua_ctx: Res<LuaScriptContext>) {
+    let script = std::fs::read_to_string("assets/scripts/main.lua").unwrap();
+    lua_ctx.execute_script(&script, "main.lua").unwrap();
 }
 ```
 
-### 3. Write Lua Scripts
+### 3. Write Game Logic in Lua
 
 ```lua
--- Spawn entities with any Bevy component
+-- Spawn an entity
 spawn({
-    Sprite = { color = {r = 1.0, g = 0.0, b = 0.0, a = 1.0} },
-    Transform = { 
-        translation = {x = 0, y = 0, z = 0},
-        scale = {x = 50.0, y = 50.0, z = 1.0}
+    Sprite = {
+        color = {r = 1.0, g = 0.0, b = 0.0, a = 1.0}
+    },
+    Transform = {
+        translation = {x = 0, y = 0, z = 0}
     }
 })
 
--- Define systems entirely in Lua
+-- Register a system
 function my_system(world)
-    local dt = world:delta_time()
-    local entities = world:query({"Sprite", "Transform"}, nil)
-    
-    for i, entity in ipairs(entities) do
-        -- Update components
-        entity:set("Sprite", { 
-            color = {r = math.sin(dt), g = 0.5, b = 1.0, a = 1.0} 
-        })
-    end
-end
-
-register_system("Update", my_system)
 ```
 
 ## Features
@@ -174,20 +133,74 @@ local changed = world:query({"Transform"}, {"Transform"})
 entity:set("ComponentName", { field = new_value })
 ```
 
-#### Registering Systems
+#### Reading Events
+
+Read **any** Bevy event using generic reflection:
 
 ```lua
-function my_system(world)
-    -- System logic here
+function handle_input(world)
+    -- File drag and drop
+    local file_events = world:read_events("bevy_window::event::FileDragAndDrop")
+    for i, event in ipairs(file_events) do
+        if event.DroppedFile then
+            local path = event.DroppedFile.path_buf
+            local image = load_asset(path)
+            spawn({ Sprite = { image = image }, Transform = {...} })
+        end
+    end
+    
+    -- Mouse cursor movement
+    local cursor_events = world:read_events("bevy_window::event::CursorMoved")
+    for i, event in ipairs(cursor_events) do
+        print("Cursor at:", event.position.x, event.position.y)
+    end
+    
+    -- Keyboard input
+    local key_events = world:read_events("bevy_input::keyboard::KeyboardInput")
+    for i, event in ipairs(key_events) do
+        print("Key:", event.key_code, "State:", event.state)
+    end
+    
+    -- Mouse buttons
+    local mouse_events = world:read_events("bevy_input::mouse::MouseButtonInput")
+    for i, event in ipairs(mouse_events) do
+        print("Button:", event.button, "State:", event.state)
+    end
 end
 
-register_system("Update", my_system)
+register_system("handle_input", handle_input)
 ```
+
+**Event Registration**
+
+Common Bevy events are **automatically registered** by `LuaSpawnPlugin`:
+- Window: `CursorMoved`, `FileDragAndDrop`, `WindowResized`, `WindowFocused`, `WindowClosed`
+- Keyboard: `KeyboardInput`
+- Mouse: `MouseButtonInput`, `MouseWheel`, `MouseMotion`
+
+For additional or custom events, use one of these methods:
+
+```rust
+// Option 1: Use the convenience function (registers all common events)
+register_common_bevy_events(&mut app);
+
+// Option 2: Register specific events with the macro
+register_lua_events!(app,
+    bevy::window::CursorMoved,
+    MyCustomEvent,
+);
+
+// Option 3: Manually register (for fine control)
+app.register_type::<MyCustomEvent>();
+app.register_type::<Events<MyCustomEvent>>();
+```
+
+The generic event reader works with **any** event type that has `#[derive(Event, Reflect)]`.
 
 #### Accessing Time
 
 ```lua
-local dt = world:delta_time()
+function my_system(world)
 ```
 
 #### Inserting Resources

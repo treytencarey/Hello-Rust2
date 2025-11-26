@@ -86,29 +86,22 @@ fn run_single_lua_system(
         })?)?;
         
         // query(with_components, changed_components) - executes immediately and returns results
-        // with_components: table of component names to filter by
-        // changed_components: optional table of component names that must have changed
         world_table.set("query", scope.create_function(move |lua_ctx, (_self, with_comps, changed_comps): (LuaTable, LuaTable, Option<LuaTable>)| {
-            // Build query from parameters
             let mut builder = LuaQueryBuilder::new();
             
-            // Add with components - use sequence_values for array iteration
             for comp_name in with_comps.sequence_values::<String>() {
                 let name = comp_name?;
                 builder.with_components.push(name);
             }
             
-            // Add changed components if provided
             if let Some(changed_table) = changed_comps {
                 for comp_name in changed_table.sequence_values::<String>() {
                     builder.changed_components.push(comp_name?);
                 }
             }
             
-            // Execute query immediately
             let results = execute_query(lua_ctx, world, &builder, component_registry, update_queue, last_run, this_run)?;
             
-            // Return results as table
             let results_table = lua_ctx.create_table()?;
             for (i, entity) in results.into_iter().enumerate() {
                 results_table.set(i + 1, entity)?;
@@ -118,12 +111,75 @@ fn run_single_lua_system(
         })?)?;
         
         // query_resource(resource_name) - check if a resource exists
-        // This is a generic API that works for any resource type
         world_table.set("query_resource", scope.create_function({
             let serde_registry = serde_registry.clone();
             move |_lua_ctx, (_self, resource_name): (LuaTable, String)| {
-                // Check if this resource has been inserted
                 Ok(serde_registry.has_resource(&resource_name))
+            }
+        })?)?;
+
+        // read_events(event_type_name) - read any Bevy event via reflection
+        world_table.set("read_events", scope.create_function({
+            let component_registry = component_registry.clone();
+            move |lua_ctx, (_self, event_type_name): (LuaTable, String)| {
+                let type_registry = component_registry.type_registry();
+                let registry = type_registry.read();
+                
+                // Look up the event type
+                let _type_registration = registry.get_with_type_path(&event_type_name)
+                    .ok_or_else(|| LuaError::RuntimeError(format!("Event type '{}' not found", event_type_name)))?;
+                
+                // Construct Events<T> type path
+                let events_type_path = format!("bevy_ecs::event::collections::Events<{}>", event_type_name);
+                
+                // Look up Events<T>
+                let events_registration = registry.get_with_type_path(&events_type_path)
+                    .ok_or_else(|| LuaError::RuntimeError(format!("Events<{}> not found. Make sure it's registered.", event_type_name)))?;
+                
+                // Get ReflectResource
+                let reflect_resource = events_registration.data::<bevy::ecs::reflect::ReflectResource>()
+                    .ok_or_else(|| LuaError::RuntimeError(format!("Events<{}> doesn't have ReflectResource", event_type_name)))?;
+                
+                // Access Events<T> resource using unsafe cast
+                #[allow(invalid_reference_casting)]
+                let events_resource = unsafe {
+                    let world_mut = &mut *(world as *const bevy::ecs::world::World as *mut bevy::ecs::world::World);
+                    let world_cell = world_mut.as_unsafe_world_cell();
+                    reflect_resource.reflect_unchecked_mut(world_cell)
+                }.ok_or_else(|| LuaError::RuntimeError(format!("Events<{}> resource not found", event_type_name)))?;
+                
+                // Read events from the Events<T> struct
+                let results = lua_ctx.create_table()?;
+                let mut index = 1;
+                
+                if let bevy::reflect::ReflectRef::Struct(events_struct) = events_resource.reflect_ref() {
+                    // Events<T> has events_a and events_b fields which are EventSequence<T>
+                    for field_name in ["events_a", "events_b"] {
+                        if let Some(field) = events_struct.field(field_name) {
+                            // EventSequence is a struct with an "events" field that contains a Vec
+                            if let bevy::reflect::ReflectRef::Struct(sequence_struct) = field.reflect_ref() {
+                                if let Some(events_field) = sequence_struct.field("events") {
+                                    if let bevy::reflect::ReflectRef::List(event_list) = events_field.reflect_ref() {
+                                        for i in 0..event_list.len() {
+                                            if let Some(event_instance) = event_list.get(i) {
+                                                // EventInstance<T> is a struct with 'event' field
+                                                if let bevy::reflect::ReflectRef::Struct(instance_struct) = event_instance.reflect_ref() {
+                                                    if let Some(event) = instance_struct.field("event") {
+                                                        let lua_value = crate::event_reader::reflection_to_lua(lua_ctx, event, &type_registry)?;
+                                                        results.set(index, lua_value)?;
+                                                        index += 1;
+                                                    }
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+
+                Ok(results)
             }
         })?)?;
 

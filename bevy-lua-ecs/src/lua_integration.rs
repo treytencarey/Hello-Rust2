@@ -102,10 +102,17 @@ impl Plugin for LuaSpawnPlugin {
         app.init_resource::<crate::resource_builder::ResourceBuilderRegistry>();
         app.init_resource::<crate::serde_components::SerdeComponentRegistry>();
         
+        // Note: EventReaderRegistry is no longer needed!
+        // Event reading is now fully generic via reflection in world:read_events()
+        
+        // Register common Bevy events for Lua access automatically
+        crate::register_common_bevy_events(app);
+        
         // Add all required systems
         // Initialize ComponentRegistry in PreStartup to ensure it exists before setup_lua_context
         app.add_systems(PreStartup, initialize_component_registry);
         app.add_systems(Startup, setup_lua_context);
+        app.add_systems(PostStartup, log_available_events);
         app.add_systems(Update, (
             crate::entity_spawner::process_spawn_queue,
             crate::lua_systems::run_lua_systems,
@@ -126,6 +133,31 @@ fn initialize_component_registry(
         type_registry.clone()
     );
     commands.insert_resource(component_registry);
+}
+
+/// System to log which events are available for Lua
+fn log_available_events(type_registry: Res<AppTypeRegistry>) {
+    let registry = type_registry.read();
+    let mut count = 0;
+    
+    for registration in registry.iter() {
+        let type_path = registration.type_info().type_path();
+        if type_path.starts_with("bevy_ecs::event::collections::Events<") {
+            if let Some(inner) = type_path.strip_prefix("bevy_ecs::event::collections::Events<") {
+                if let Some(event_type) = inner.strip_suffix(">") {
+                    count += 1;
+                    if count == 1 {
+                        info!("Events available in Lua via world:read_events():");
+                    }
+                    info!("  ✓ {}", event_type);
+                }
+            }
+        }
+    }
+    
+    if count == 0 {
+        warn!("No Events<T> registered. Use register_common_bevy_events() or register_lua_events! macro to enable event reading.");
+    }
 }
 
 /// System to initialize Lua context
