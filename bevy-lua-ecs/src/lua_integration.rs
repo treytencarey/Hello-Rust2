@@ -61,10 +61,55 @@ impl LuaScriptContext {
             Ok(())
         })?;
         
+        // Create copy_file function for file operations
+        let copy_file = lua_clone.create_function(|_lua_ctx, (src, dest): (String, String)| {
+            use std::fs;
+            use std::path::Path;
+            
+            // Create destination directory if it doesn't exist
+            if let Some(parent) = Path::new(&dest).parent() {
+                fs::create_dir_all(parent)
+                    .map_err(|e| LuaError::RuntimeError(format!("Failed to create directory: {}", e)))?;
+            }
+            
+            // Copy the file
+            fs::copy(&src, &dest)
+                .map_err(|e| LuaError::RuntimeError(format!("Failed to copy file: {}", e)))?;
+            
+            Ok(())
+        })?;
+        
+        // Create read_file_bytes function to read binary file contents
+        let read_file_bytes = lua_clone.create_function(|lua_ctx, path: String| {
+            use std::fs;
+            let bytes = fs::read(&path)
+                .map_err(|e| LuaError::RuntimeError(format!("Failed to read file: {}", e)))?;
+            lua_ctx.create_string(&bytes)
+        })?;
+        
+        // Create write_file_bytes function to write binary file contents
+        let write_file_bytes = lua_clone.create_function(|_lua_ctx, (path, data): (String, LuaString)| {
+            use std::fs;
+            use std::path::Path;
+            
+            // Create destination directory if it doesn't exist
+            if let Some(parent) = Path::new(&path).parent() {
+                fs::create_dir_all(parent)
+                    .map_err(|e| LuaError::RuntimeError(format!("Failed to create directory: {}", e)))?;
+            }
+            
+            fs::write(&path, data.as_bytes())
+                .map_err(|e| LuaError::RuntimeError(format!("Failed to write file: {}", e)))?;
+            Ok(())
+        })?;
+        
         // Inject into globals
         lua_clone.globals().set("spawn", spawn)?;
         lua_clone.globals().set("insert_resource", insert_resource)?;
         lua_clone.globals().set("register_system", register_system)?;
+        lua_clone.globals().set("copy_file", copy_file)?;
+        lua_clone.globals().set("read_file_bytes", read_file_bytes)?;
+        lua_clone.globals().set("write_file_bytes", write_file_bytes)?;
         
         // Note: load_asset will be added via add_asset_loading_to_lua()
         // Note: query_resource will be added to world table in lua_systems
@@ -101,12 +146,14 @@ impl Plugin for LuaSpawnPlugin {
         app.init_resource::<crate::resource_queue::ResourceQueue>();
         app.init_resource::<crate::resource_builder::ResourceBuilderRegistry>();
         app.init_resource::<crate::serde_components::SerdeComponentRegistry>();
+        app.init_resource::<crate::resource_lua_trait::LuaResourceRegistry>();
         
         // Note: EventReaderRegistry is no longer needed!
         // Event reading is now fully generic via reflection in world:read_events()
-        
-        // Register common Bevy events for Lua access automatically
-        crate::register_common_bevy_events(app);
+        // 
+        // IMPORTANT: Events must be registered BEFORE Replicon plugins!
+        // Users should call register_common_bevy_events() explicitly before
+        // adding RepliconPlugins to ensure consistent registration order.
         
         // Add all required systems
         // Initialize ComponentRegistry in PreStartup to ensure it exists before setup_lua_context

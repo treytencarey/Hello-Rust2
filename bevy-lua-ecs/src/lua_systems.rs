@@ -71,6 +71,8 @@ fn run_single_lua_system(
     last_run: u32,
     this_run: u32,
 ) -> LuaResult<()> {
+    // Get resource registry
+    let resource_registry = world.resource::<crate::resource_lua_trait::LuaResourceRegistry>();
     // Get the Lua function
     let func: LuaFunction = lua.registry_value(system_key)?;
     
@@ -117,10 +119,17 @@ fn run_single_lua_system(
                 Ok(serde_registry.has_resource(&resource_name))
             }
         })?)?;
+        
+        // call_resource_method(resource_name, method_name, ...args) - call a registered method on a resource
+        world_table.set("call_resource_method", scope.create_function({
+            let resource_registry = resource_registry.clone();
+            move |lua_ctx, (_, resource_name, method_name, args): (LuaTable, String, String, mlua::MultiValue)| {
+                resource_registry.call_method(lua_ctx, world, &resource_name, &method_name, args)
+            }
+        })?)?;
 
         // read_events(event_type_name) - read any Bevy event via reflection
         world_table.set("read_events", scope.create_function({
-            let component_registry = component_registry.clone();
             move |lua_ctx, (_self, event_type_name): (LuaTable, String)| {
                 let type_registry = component_registry.type_registry();
                 let registry = type_registry.read();

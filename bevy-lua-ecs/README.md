@@ -72,8 +72,8 @@ function my_system(world)
 - **Asset Loading**: Load image files and create assets via reflection
 - **Asset Creation**: Create any Bevy asset type (layouts, materials, etc.) from Lua
 - **Resource Management**: Insert and query Bevy resources from Lua via builders
-- **Networking Constructors**: Built-in generic builders for multiplayer (with `networking` feature)
-- **OS Utilities**: Generic socket binding, time access, and address parsing
+- **Auto-Generated Bindings**: Build script automatically generates Lua method bindings for resource types
+- **Auto-Generated Event Registration**: Build script generates event registration from metadata
 - **Component Queries**: Query entities with filtering and change detection
 - **Component Mutation**: Update components via `entity:set()`
 - **Lua Systems**: Register Lua functions to run every frame
@@ -173,10 +173,23 @@ register_system("handle_input", handle_input)
 
 **Event Registration**
 
-Common Bevy events are **automatically registered** by `LuaSpawnPlugin`:
+Common Bevy events are **automatically registered** when you call `register_common_bevy_events()` before adding plugins:
 - Window: `CursorMoved`, `FileDragAndDrop`, `WindowResized`, `WindowFocused`, `WindowClosed`
 - Keyboard: `KeyboardInput`
 - Mouse: `MouseButtonInput`, `MouseWheel`, `MouseMotion`
+
+**IMPORTANT for networking:** If using Bevy Replicon, call `register_common_bevy_events()` **after** `DefaultPlugins` but **BEFORE** `RepliconPlugins` to ensure consistent event registration order between client and server.
+
+```rust
+app.add_plugins(DefaultPlugins);
+
+// Register events BEFORE Replicon for consistent protocol
+register_common_bevy_events(&mut app);
+
+// Now add Replicon plugins
+app.add_plugins(RepliconPlugins);
+app.add_plugins(LuaSpawnPlugin);
+```
 
 For additional or custom events, use one of these methods:
 
@@ -223,58 +236,67 @@ end
 
 The library provides a generic resource management system that allows Lua to insert and query Bevy resources. This is useful for game-level configuration and state that isn't tied to specific entities.
 
-### Generic Resource Constructors (Library Infrastructure)
+### Auto-Generated Method Bindings
 
-For common use cases like networking, the library provides **generic resource constructors** as reusable infrastructure. These constructors use OS-level utilities that work for ANY game.
+The build script can automatically generate Lua bindings for resource methods by reading type metadata from dependent crates' `Cargo.toml`:
 
-#### Networking Resources (with `networking` feature)
-
-The library includes built-in constructors for networking resources:
-
-```rust
-use bevy_lua_ecs::*;
-
-fn setup(world: &mut World) {
-    let builder_registry = ResourceBuilderRegistry::default();
-    
-    // Register generic networking constructors from library
-    #[cfg(feature = "networking")]
-    register_networking_constructors(&builder_registry);
-    
-    world.insert_resource(builder_registry);
-}
+**In your game's `Cargo.toml`:**
+```toml
+[package.metadata.lua_resources]
+types = [
+    "renet::remote_connection::RenetClient",
+    "renet::server::RenetServer",
+]
 ```
 
-This registers constructors for:
-- `RenetServer` - Multiplayer server resource
-- `RenetClient` - Multiplayer client resource  
-- `NetcodeServerTransport` - Server network transport (with socket binding)
-- `NetcodeClientTransport` - Client network transport (with socket binding)
+The build script will:
+1. Find the source files for these types in the Cargo registry
+2. Parse the impl blocks using `syn`
+3. Generate method bindings automatically
+4. Make them available via `world:call_resource_method()`
 
-**From Lua, just use them:**
-
+**From Lua:**
 ```lua
--- Start a server (library handles socket binding, time access, etc.)
-insert_resource("RenetServer", {})
-insert_resource("NetcodeServerTransport", {
-    port = 5001,
-    max_clients = 10
-})
+-- Call any method on a resource
+local connected = world:call_resource_method("RenetClient", "is_connected")
+local rtt = world:call_resource_method("RenetClient", "rtt")
 
--- Or start a client
-insert_resource("RenetClient", {})
-insert_resource("NetcodeClientTransport", {
-    server_addr = "127.0.0.1",
-    port = 5001
-})
-
--- Check if server is ready
-if world:query_resource("RenetServer") then
-    print("Server is running!")
-end
+-- Methods with parameters work too
+world:call_resource_method("RenetClient", "send_message", channel_id, data)
 ```
 
-**Key benefit:** No game-specific Rust code needed! The library provides generic OS utilities (`OsUtilities::bind_udp_socket()`, `OsUtilities::current_time()`, etc.) that work for any game.
+**Benefits:**
+- No manual binding code needed
+- Automatically discovers all public methods
+- Works with any resource type in any crate
+- Type-safe through mlua's automatic conversion
+
+### Auto-Generated Event Registration
+
+Events are automatically registered from `[package.metadata.lua_events]` in `Cargo.toml`:
+
+```toml
+[package.metadata.lua_events]
+types = [
+    "bevy::window::CursorMoved",
+    "bevy::window::FileDragAndDrop",
+    "bevy::input::keyboard::KeyboardInput",
+    # Add your custom events here
+]
+```
+
+The build script generates the registration code at compile time, ensuring consistent event order for networking protocols.
+
+### Generic Resource Constructors (Moved to Game Code)
+
+**Note:** As of the latest architecture, networking-specific resource constructors have been moved to game code (e.g., `Hello/src/networking.rs`). This keeps bevy-lua-ecs as a pure ECS-Lua bridge without game-specific dependencies.
+
+The library now focuses on:
+- Generic resource builder infrastructure (`ResourceBuilderRegistry`)
+- Generic reflection-based resource construction (`ResourceConstructorRegistry`)
+- Build script-based auto-binding generation
+
+For networking or other game-specific resources, implement constructors in your game crate.
 
 ### Custom Resource Builders
 
@@ -315,17 +337,30 @@ insert_resource("MyGameConfig", {
 if world:query_resource("MyGameConfig") then
     print("Game config loaded!")
 end
+
+-- Call methods on resources (with auto-generated bindings)
+local value = world:call_resource_method("MyGameConfig", "get_difficulty")
+world:call_resource_method("MyGameConfig", "set_volume", 0.9)
 ```
 
-### OS Utilities (Advanced)
+### Build Script Architecture
 
-The library exposes generic OS-level utilities through `OsUtilities`:
+The build script (`build.rs`) provides automatic code generation:
 
-- `OsUtilities::bind_udp_socket(addr)` - Bind UDP sockets
-- `OsUtilities::current_time()` - Get system time
-- `OsUtilities::parse_socket_addr(addr)` - Parse network addresses
+1. **Standalone Mode**: When building bevy-lua-ecs itself, only generates event registrations from its own metadata
+2. **Dependency Mode**: When used as a dependency, the dependent crate can specify resource types for binding generation
 
-These are used internally by networking constructors but can be used for custom resource builders that need OS-level operations.
+**Key functions:**
+- `find_source_file()`: Locates source files in the Cargo registry
+- `extract_methods_for_type()`: Parses impl blocks with `syn`
+- `generate_registration_code()`: Creates binding code with `quote`
+- `generate_event_registrations()`: Generates event registration from metadata
+
+The generated code is included via `include!(concat!(env!("OUT_DIR"), "/auto_bindings.rs"))`.
+
+### OS Utilities
+
+The library exposes a minimal `OsUtilities` struct reserved for future generic utilities. Game-specific utilities (like networking socket binding) should be implemented in game code.
 
 ### Marker Components
 
@@ -348,31 +383,49 @@ spawn({
 
 ## Examples
 
-### Networking Example (Zero Rust!)
+### Asset Upload Example
 
-See `examples/networking.rs` and `assets/scripts/networking_example.lua` for a complete example of:
-- **Generic networking constructors from library** - No game-specific resource code!
-- Server/client setup purely in Lua using `insert_resource()`
-- Socket binding and time access handled by library's `OsUtilities`
-- Marker components for entity replication
-- **80+ lines of game code eliminated** - moved to reusable library infrastructure
+See `Hello/examples/asset_upload.rs` for a complete example demonstrating the "Zero Rust" networking philosophy:
+- **Networking setup entirely in Lua**: Server/client resources created via `insert_resource()`
+- File drag-and-drop event handling in Lua
+- Dynamic asset loading and sprite creation
+- Client-server file transfer via custom networking channel
+- Auto-generated method bindings from `[package.metadata.lua_resources]`
 
-**The game code is just configuration:**
-```rust
-// That's it! No networking resource builders needed.
-register_networking_constructors(&builder_registry);
+**Key Lua code:**
+```lua
+-- Network initialization in Lua
+if IS_CLIENT_MODE then
+    insert_resource("RenetClient", {})
+    insert_resource("NetcodeClientTransport", {
+        server_addr = "127.0.0.1",
+        port = 5000
+    })
+else
+    insert_resource("RenetServer", {})
+    insert_resource("NetcodeServerTransport", {
+        port = 5000,
+        max_clients = 10
+    })
+end
 ```
+
+**Rust provides only:**
+- Resource constructor registration (`register_networking_constructors()`)
+- Socket binding and low-level networking utilities (UDP sockets, connect tokens)
+- Auto-generated method bindings via build script
 
 **All networking logic in Lua:**
-```lua
--- Start server
-insert_resource("RenetServer", {})
-insert_resource("NetcodeServerTransport", { port = 5001, max_clients = 10 })
+- Network initialization and configuration
+- Message sending via `world:call_resource_method("RenetClient", "send_message", channel, data)`
+- Message receiving via `world:call_resource_method("RenetServer", "receive_message", client_id, channel)`
+- No message queue or custom Lua functions needed - just auto-generated bindings!
 
--- Or start client  
-insert_resource("RenetClient", {})
-insert_resource("NetcodeClientTransport", { server_addr = "127.0.0.1", port = 5001 })
-```
+All game logic and networking setup is in `Hello/assets/scripts/asset_upload_example.lua`.
+
+### Networking Example
+
+See `Hello/examples/networking.rs` for another networking example with message passing.
 
 ### Tilemap Rendering
 
@@ -406,14 +459,14 @@ See `examples/button.rs` and `assets/scripts/spawn_button.lua` for:
 - **ComponentUpdateQueue**: Queues component updates from Lua
 - **ResourceQueue**: Queues resource insertion from Lua
 - **ResourceBuilderRegistry**: Registers constructors for Bevy resources
+- **LuaResourceRegistry**: Type-safe method registry for resource bindings
 - **ResourceConstructorRegistry**: Reflection-based resource construction (for future use)
-- **OsUtilities**: Generic OS-level operations (socket binding, time access, address parsing)
-- **Networking Constructors**: Built-in generic builders for multiplayer resources
+- **Build Script**: Auto-generates method bindings and event registrations at compile time
 - **SerdeComponentRegistry**: Registers marker components for serialization
 - **LuaSystemRegistry**: Manages Lua systems to run each frame
 - **Query API**: Provides ECS queries to Lua
 - **Asset Loading**: Generic `load_asset()` and `create_asset()` functions
-- **Resource Management**: Generic `insert_resource()` and `query_resource()` functions
+- **Resource Management**: Generic `insert_resource()`, `query_resource()`, and `call_resource_method()` functions
 
 ### Lua Layer (Game Logic)
 
@@ -429,7 +482,9 @@ See `examples/button.rs` and `assets/scripts/spawn_button.lua` for:
 3. **No Game-Specific Rust**: Animation, UI, gameplay all in Lua
 4. **Automatic Component Discovery**: Any `#[reflect(Component)]` type works
 5. **Type Safety**: Reflection ensures correct component structure
-6. **Macro-Based Asset Registration**: Use `register_handle_setters!` macro to declare which asset types your game needs
+6. **Build-Time Code Generation**: Auto-generate bindings and registrations at compile time
+7. **Clean Architecture**: Library remains free of game-specific dependencies
+8. **Macro-Based Asset Registration**: Use `register_handle_setters!` macro to declare which asset types your game needs
 
 ## Advanced: Custom Asset Type Registration
 
@@ -470,9 +525,19 @@ Alternatively, use the convenience method `AssetRegistry::from_type_registry()` 
 
 ## Running Examples
 
+**Note:** The networking examples have been moved to the `Hello` game crate. To run them:
+
 ```bash
-# Networking with server/client resources (requires networking feature)
+# From the Hello directory
+cd Hello
+
+# Networking with server/client (run in two terminals)
 cargo run --example networking --features networking
+cargo run --example asset_upload --features networking
+cargo run --example asset_upload --features networking client
+
+# From bevy-lua-ecs directory
+cd bevy-lua-ecs
 
 # Tilemap with texture atlas slicing
 cargo run --example tilemap

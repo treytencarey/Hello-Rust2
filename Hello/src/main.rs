@@ -25,10 +25,6 @@ fn main() {
     #[cfg(feature = "tiled")]
     app.add_plugins(tiled::TiledIntegrationPlugin);
     
-    // Add networking plugin if the networking feature is enabled
-    #[cfg(feature = "networking")]
-    app.add_plugins(networking::NetworkingIntegrationPlugin);
-    
     // Add Lua plugin (auto-initializes all resources and systems)
     app.add_plugins(LuaSpawnPlugin)
         .add_systems(Startup, setup)

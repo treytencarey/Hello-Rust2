@@ -3,21 +3,43 @@ name = "hello"
 version = "0.1.0"
 edition = "2021"
 
+[package.metadata.lua_resources]
+types = [
+    # Core renet types for client/server
+    "renet::remote_connection::RenetClient",
+    "renet::server::RenetServer",
+    
+    # Transport layer types from bevy_renet
+    "bevy_renet::netcode::NetcodeServerTransport",
+    "bevy_renet::netcode::NetcodeClientTransport",
+    
+    # Authentication and configuration
+    "bevy_renet::netcode::ServerAuthentication",
+    "bevy_renet::netcode::ClientAuthentication",
+    "bevy_renet::netcode::ConnectToken",
+    
+    # Network configuration
+    "renet::connection_config::ConnectionConfig",
+    "renet::channel::ChannelConfig",
+    "renet::channel::SendType",
+]
+
 [features]
 default = ["physics", "tiled", "networking"]
 physics = ["dep:bevy_rapier2d"]
 tiled = ["dep:bevy_ecs_tiled"]
-networking = ["dep:bevy_replicon", "dep:bevy_replicon_renet", "dep:bevy_renet", "dep:serde", "dep:mlua"]
+networking = ["dep:bevy_replicon", "dep:bevy_replicon_renet", "dep:bevy_renet", "dep:renet", "dep:serde", "dep:mlua"]
 bevy_rapier2d = ["dep:bevy_rapier2d"]
 
 [dependencies]
 bevy = { workspace = true, features = ["default"] }
-bevy-lua-ecs = { path = "../bevy-lua-ecs", features = ["networking"] }
+bevy-lua-ecs = { path = "../bevy-lua-ecs", features = ["auto-bindings"] }
 bevy_rapier2d = { version = "0.31", features = ["serde-serialize"], optional = true }
 bevy_ecs_tiled = { version = "0.7", optional = true }
 bevy_replicon = { workspace = true, optional = true }
 bevy_replicon_renet = { workspace = true, optional = true }
 bevy_renet = { workspace = true, optional = true }
+renet = { workspace = true, optional = true }
 serde = { workspace = true, optional = true }
 mlua = { workspace = true, optional = true }
 

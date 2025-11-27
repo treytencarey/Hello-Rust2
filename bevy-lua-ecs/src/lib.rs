@@ -13,7 +13,9 @@ pub mod resource_queue;
 pub mod resource_inserter;
 pub mod resource_builder;
 pub mod resource_constructors;
+pub mod resource_lua_trait;
 pub mod event_reader;
+pub mod auto_bindings;
 
 // Re-export commonly used types
 pub use components::{ComponentRegistry, LuaCustomComponents};
@@ -30,15 +32,18 @@ pub use resource_queue::ResourceQueue;
 pub use resource_inserter::process_resource_queue;
 pub use resource_builder::ResourceBuilderRegistry;
 pub use resource_constructors::{ResourceConstructorRegistry, OsUtilities};
+pub use resource_lua_trait::LuaResourceRegistry;
 pub use event_reader::reflection_to_lua;
-
-#[cfg(feature = "networking")]
-pub use resource_constructors::register_networking_constructors;
+pub use auto_bindings::{register_auto_bindings, register_auto_events};
 
 /// Register common Bevy event types for Lua access via world:read_events()
 /// 
-/// This is a convenience function that registers the most commonly used Bevy events.
-/// Call this after adding DefaultPlugins and before adding LuaSpawnPlugin.
+/// This function uses auto-generated event registrations from the build script.
+/// The events are defined in [package.metadata.lua_events] in Cargo.toml.
+/// 
+/// **IMPORTANT for Bevy Replicon users:** Call this after DefaultPlugins but BEFORE
+/// adding RepliconPlugins to ensure consistent event registration order between
+/// client and server. Protocol mismatches will occur if registration order differs.
 /// 
 /// Events registered:
 /// - Window: CursorMoved, FileDragAndDrop, WindowResized, WindowFocused, WindowClosed
@@ -62,36 +67,8 @@ pub use resource_constructors::register_networking_constructors;
 /// }
 /// ```
 pub fn register_common_bevy_events(app: &mut bevy::prelude::App) {
-    use bevy::prelude::*;
-    
-    // Window events
-    app.register_type::<bevy::window::CursorMoved>();
-    app.register_type::<Events<bevy::window::CursorMoved>>();
-    
-    app.register_type::<bevy::window::FileDragAndDrop>();
-    app.register_type::<Events<bevy::window::FileDragAndDrop>>();
-    
-    app.register_type::<bevy::window::WindowResized>();
-    app.register_type::<Events<bevy::window::WindowResized>>();
-    
-    app.register_type::<bevy::window::WindowFocused>();
-    app.register_type::<Events<bevy::window::WindowFocused>>();
-    
-    app.register_type::<bevy::window::WindowClosed>();
-    app.register_type::<Events<bevy::window::WindowClosed>>();
-    
-    // Input events
-    app.register_type::<bevy::input::keyboard::KeyboardInput>();
-    app.register_type::<Events<bevy::input::keyboard::KeyboardInput>>();
-    
-    app.register_type::<bevy::input::mouse::MouseButtonInput>();
-    app.register_type::<Events<bevy::input::mouse::MouseButtonInput>>();
-    
-    app.register_type::<bevy::input::mouse::MouseWheel>();
-    app.register_type::<Events<bevy::input::mouse::MouseWheel>>();
-    
-    app.register_type::<bevy::input::mouse::MouseMotion>();
-    app.register_type::<Events<bevy::input::mouse::MouseMotion>>();
+    // Use the auto-generated event registration
+    register_auto_events(app);
 }
 
 /// Macro to register multiple event types for Lua access at once

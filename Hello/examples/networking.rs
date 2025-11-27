@@ -7,10 +7,19 @@ use bevy_replicon::prelude::*;
 #[cfg(feature = "networking")]
 use bevy_replicon_renet::RepliconRenetPlugins;
 
+#[cfg(feature = "networking")]
+mod networking {
+    include!("../src/networking.rs");
+}
+
 fn main() {
     let mut app = App::new();
     
     app.add_plugins(DefaultPlugins);
+    
+    // Register events BEFORE Replicon plugins for consistent protocol
+    #[cfg(feature = "networking")]
+    register_common_bevy_events(&mut app);
     
     // Add replicon plugins (third-party plugins, not game logic)
     #[cfg(feature = "networking")]
@@ -19,7 +28,7 @@ fn main() {
             .add_plugins(RepliconRenetPlugins);
         
         // Register components for replication (configuration)
-        // Only replicate Transform - Sprite will be added by client locally
+        // Only replicate Transform (Replicated is just a marker)
         app.replicate::<Transform>();
     }
     
@@ -42,7 +51,7 @@ fn setup_networking_registries(
     
     // Register networking constructors from library (generic infrastructure)
     #[cfg(feature = "networking")]
-    register_networking_constructors(&builder_registry);
+    networking::register_networking_constructors(&builder_registry);
 }
 
 fn setup(mut commands: Commands) {

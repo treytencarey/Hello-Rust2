@@ -14,3 +14,4 @@ bevy_rapier2d = { version = "0.31", features = ["serde-serialize"] }
 bevy_replicon = "0.35"
 bevy_replicon_renet = "0.11"
 bevy_renet = "2.0"
+renet = "0.0.16"

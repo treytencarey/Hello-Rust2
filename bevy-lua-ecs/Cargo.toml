@@ -3,9 +3,28 @@ name = "bevy-lua-ecs"
 version = "0.1.0"
 edition = "2021"
 
+[package.metadata.lua_events]
+types = [
+    "bevy::window::CursorMoved",
+    "bevy::window::FileDragAndDrop",
+    "bevy::window::WindowResized",
+    "bevy::window::WindowFocused",
+    "bevy::window::WindowClosed",
+    "bevy::input::keyboard::KeyboardInput",
+    "bevy::input::mouse::MouseButtonInput",
+    "bevy::input::mouse::MouseWheel",
+    "bevy::input::mouse::MouseMotion",
+]
+
 [lib]
 name = "bevy_lua_ecs"
 path = "src/lib.rs"
+
+[build-dependencies]
+syn = { version = "2.0", features = ["full", "parsing"] }
+quote = "1.0"
+proc-macro2 = "1.0"
+toml = "0.8"
 
 [dependencies]
 bevy = { workspace = true }
@@ -16,17 +35,12 @@ serde_json = { workspace = true }
 # Optional dependency for physics example
 bevy_rapier2d = { workspace = true, optional = true }
 
-# Optional dependencies for networking feature
-bevy_replicon = { workspace = true, optional = true }
-bevy_replicon_renet = { workspace = true, optional = true }
-bevy_renet = { workspace = true, optional = true }
-
 [features]
 default = []
 # Enable automatic reflection-based bundle spawning
 auto-reflection = []
-# Enable networking resource builders (generic infrastructure)
-networking = ["dep:bevy_replicon", "dep:bevy_replicon_renet", "dep:bevy_renet"]
+# Enable automatic resource method binding generation
+auto-bindings = []
 
 # Feature alias for physics example compatibility
 bevy_rapier2d = ["dep:bevy_rapier2d"]
