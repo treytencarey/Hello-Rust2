@@ -11,6 +11,9 @@ mod tiled;
 #[cfg(feature = "networking")]
 pub mod networking;
 
+#[cfg(feature = "networking")]
+mod auto_resource_bindings;
+
 fn main() {
     let mut app = App::new();
     
@@ -26,10 +29,20 @@ fn main() {
     app.add_plugins(tiled::TiledIntegrationPlugin);
     
     // Add Lua plugin (auto-initializes all resources and systems)
-    app.add_plugins(LuaSpawnPlugin)
-        .add_systems(Startup, setup)
+    app.add_plugins(LuaSpawnPlugin);
+    
+    // Register auto-generated resource method bindings (networking)
+    #[cfg(feature = "networking")]
+    app.add_systems(PreStartup, register_networking_bindings);
+    
+    app.add_systems(Startup, setup)
         .add_systems(PostStartup, load_and_run_script)
         .run();
+}
+
+#[cfg(feature = "networking")]
+fn register_networking_bindings(registry: Res<LuaResourceRegistry>) {
+    auto_resource_bindings::register_auto_resource_bindings(&registry);
 }
 
 fn setup(mut commands: Commands) {

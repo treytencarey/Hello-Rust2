@@ -19,6 +19,17 @@ fn main() {
         if let Ok(content) = fs::read_to_string(&own_manifest) {
             if let Ok(manifest) = toml::from_str::<toml::Value>(&content) {
                 let event_types = generate_event_registrations(&manifest);
+                
+                // Try to find parent manifest with lua_resources metadata
+                if let Ok(out_dir) = env::var("OUT_DIR") {
+                    let build_dir = PathBuf::from(out_dir);
+                    if let Some(parent_manifest) = find_parent_manifest(&build_dir) {
+                        println!("cargo:warning=Found parent manifest: {:?}", parent_manifest);
+                        generate_bindings_for_manifest(&parent_manifest);
+                        return;
+                    }
+                }
+                
                 write_empty_bindings_with_events(event_types);
                 return;
             }
@@ -119,11 +130,47 @@ fn generate_bindings_for_manifest(manifest_path: &Path) {
         }
     }
     
-    // Generate event registrations
-    let event_types = generate_event_registrations(&manifest);
+    // Process constructors
+    let constructors_to_expose = get_constructors_from_metadata(&manifest);
+    let mut all_constructor_bindings = Vec::new();
     
-    // Write generated code
-    write_generated_bindings(all_bindings, event_types);
+    for constructor_spec in constructors_to_expose {
+        match generate_bindings_for_constructor(&constructor_spec) {
+            Ok(bindings) => {
+                println!("cargo:warning=✓ Generated constructor binding for {}", constructor_spec.full_path);
+                all_constructor_bindings.push(bindings);
+            }
+            Err(e) => {
+                println!("cargo:warning=⚠ Failed to generate constructor binding for {}: {}", constructor_spec.full_path, e);
+            }
+        }
+    }
+    
+    // Get parent crate's src directory
+
+    let parent_src_dir = manifest_path.parent().unwrap().join("src");
+    
+    // Generate event registrations from our own manifest (not parent's)
+    let event_types = if let Ok(manifest_dir) = env::var("CARGO_MANIFEST_DIR") {
+        let own_manifest = PathBuf::from(manifest_dir).join("Cargo.toml");
+        if let Ok(content) = fs::read_to_string(&own_manifest) {
+            if let Ok(own_manifest_toml) = toml::from_str::<toml::Value>(&content) {
+                generate_event_registrations(&own_manifest_toml)
+            } else {
+                Vec::new()
+            }
+        } else {
+            Vec::new()
+        }
+    } else {
+        Vec::new()
+    };
+    
+    // Write generated code to parent crate's src directory
+    write_bindings_to_parent_crate(all_bindings, all_constructor_bindings, &parent_src_dir);
+    
+    // Write events to our own auto_bindings.rs
+    write_empty_bindings_with_events(event_types);
 }
 
 fn generate_event_registrations(manifest: &toml::Value) -> Vec<String> {
@@ -150,6 +197,13 @@ struct TypeSpec {
     crate_name: String,
     module_path: Vec<String>,
     type_name: String,
+}
+
+#[derive(Debug)]
+struct ConstructorSpec {
+    full_path: String,  // e.g., "renet::RenetClient::new"
+    type_spec: TypeSpec,
+    function_name: String,  // e.g., "new"
 }
 
 fn get_types_from_metadata(manifest: &toml::Value) -> Vec<TypeSpec> {
@@ -187,6 +241,36 @@ fn parse_type_spec(full_path: &str) -> Option<TypeSpec> {
         crate_name,
         module_path,
         type_name,
+    })
+}
+
+
+fn get_constructors_from_metadata(manifest: &toml::Value) -> Vec<ConstructorSpec> {
+    let constructors_array = manifest
+        .get("package")
+        .and_then(|p| p.get("metadata"))
+        .and_then(|m| m.get("lua_resources"))
+        .and_then(|lr| lr.get("constructors"))
+        .and_then(|c| c.as_array());
+    
+    constructors_array
+        .map(|arr| arr.iter()
+            .filter_map(|v| v.as_str())
+            .filter_map(|s| parse_constructor_spec(s))
+            .collect())
+        .unwrap_or_default()
+}
+
+fn parse_constructor_spec(full_path: &str) -> Option<ConstructorSpec> {
+    let parts: Vec<&str> = full_path.split("::").collect();
+    if parts.len() < 3 { return None; }
+    let function_name = parts.last()?.to_string();
+    let type_path = parts[..parts.len()-1].join("::");
+    let type_spec = parse_type_spec(&type_path)?;
+    Some(ConstructorSpec { 
+        full_path: full_path.to_string(), 
+        type_spec, 
+        function_name 
     })
 }
 
@@ -313,6 +397,58 @@ struct MethodInfo {
 }
 
 #[allow(dead_code)]
+
+fn extract_associated_function(syntax_tree: &File, type_name: &str, function_name: &str) -> Result<MethodInfo, String> {
+    for item in &syntax_tree.items {
+        if let Item::Impl(impl_block) = item {
+            if !is_impl_for_type(impl_block, type_name) {
+                continue;
+            }
+            
+            for impl_item in &impl_block.items {
+                if let ImplItem::Fn(method) = impl_item {
+                    if method.sig.ident.to_string() != function_name {
+                        continue;
+                    }
+                    
+                    // Check if it's public
+                    if !matches!(method.vis, Visibility::Public(_)) {
+                        continue;
+                    }
+                    
+                    // Extract arguments (skip self parameter if present)
+                    let args: Vec<_> = method.sig.inputs.iter()
+                        .filter_map(|arg| {
+                            if let FnArg::Typed(pat_type) = arg {
+                                if let syn::Pat::Ident(pat_ident) = &*pat_type.pat {
+                                    let name = pat_ident.ident.to_string();
+                                    let ty = quote::quote!(#pat_type.ty).to_string();
+                                    return Some((name, ty));
+                                }
+                            }
+                            None
+                        })
+                        .collect();
+                    
+                    let return_type = match &method.sig.output {
+                        ReturnType::Type(_, ty) => Some(quote::quote!(#ty).to_string()),
+                        _ => None,
+                    };
+                    
+                    return Ok(MethodInfo {
+                        name: function_name.to_string(),
+                        is_mut: false,  // Constructors don't have &mut self
+                        args,
+                        return_type,
+                    });
+                }
+            }
+        }
+    }
+    
+    Err(format!("Function '{}' not found for type '{}'", function_name, type_name))
+}
+
 fn extract_methods_for_type(syntax_tree: &File, type_name: &str) -> Result<Vec<MethodInfo>, String> {
     let mut methods = Vec::new();
     
@@ -386,6 +522,67 @@ fn is_impl_for_type(impl_block: &ItemImpl, type_name: &str) -> bool {
 }
 
 #[allow(dead_code)]
+
+fn generate_constructor_binding(spec: &ConstructorSpec, method_info: &MethodInfo) -> Result<proc_macro2::TokenStream, String> {
+    let type_path = syn::parse_str::<syn::Path>(&spec.type_spec.full_path)
+        .map_err(|e| format!("Invalid type path: {}", e))?;
+    let function_name = &spec.function_name;
+    let function_ident = syn::Ident::new(function_name, proc_macro2::Span::call_site());
+    let lua_function_name = format!("create_{}", spec.type_spec.type_name.to_lowercase());
+    
+    // Generate based on argument count
+    let binding = match method_info.args.len() {
+        0 => {
+            // No arguments - simple call
+            quote::quote! {
+                lua.globals().set(#lua_function_name, lua.create_function(|_lua, ()| {
+                    let result = #type_path::#function_ident();
+                    Ok(result)
+                })?)?;
+            }
+        }
+        1 => {
+            // Single argument
+            quote::quote! {
+                lua.globals().set(#lua_function_name, lua.create_function(|_lua, arg: mlua::Value| {
+                    let result = #type_path::#function_ident(arg);
+                    Ok(result)
+                })?)?;
+            }
+        }
+        _ => {
+            // Multiple arguments - use MultiValue
+            quote::quote! {
+                lua.globals().set(#lua_function_name, lua.create_function(|_lua, args: mlua::MultiValue| {
+                    // TODO: Proper multi-arg handling
+                    let result = #type_path::#function_ident();
+                    Ok(result)
+                })?)?;
+            }
+        }
+    };
+    
+    Ok(binding)
+}
+
+fn generate_bindings_for_constructor(spec: &ConstructorSpec) -> Result<proc_macro2::TokenStream, String> {
+    // Find source file
+    let source_path = find_source_file(&spec.type_spec)?;
+    
+    // Parse source
+    let source_code = fs::read_to_string(&source_path)
+        .map_err(|e| format!("Failed to read source: {}", e))?;
+    
+    let syntax_tree: File = syn::parse_file(&source_code)
+        .map_err(|e| format!("Failed to parse source: {}", e))?;
+    
+    // Extract the associated function
+    let method_info = extract_associated_function(&syntax_tree, &spec.type_spec.type_name, &spec.function_name)?;
+    
+    // Generate binding code
+    generate_constructor_binding(spec, &method_info)
+}
+
 fn generate_registration_code(
     spec: &TypeSpec,
     methods: &[MethodInfo],
@@ -439,6 +636,29 @@ fn generate_registration_code(
             #(#method_registrations)*
         });
     })
+}
+
+fn write_bindings_to_parent_crate(method_bindings: Vec<proc_macro2::TokenStream>, constructor_bindings: Vec<proc_macro2::TokenStream>, parent_src_dir: &Path) {
+    let generated_file = parent_src_dir.join("auto_resource_bindings.rs");
+    
+    let full_code = quote! {
+        // Auto-generated Lua resource method bindings
+        // Generated by bevy-lua-ecs build script
+        
+        pub fn register_auto_resource_bindings(registry: &bevy_lua_ecs::LuaResourceRegistry) {
+            #(#method_bindings)*
+        }
+        
+        pub fn register_auto_constructors(lua: &mlua::Lua) -> Result<(), mlua::Error> {
+            #(#constructor_bindings)*
+            Ok(())
+        }
+    };
+    
+    fs::write(&generated_file, full_code.to_string())
+        .expect("Failed to write auto_resource_bindings.rs");
+    
+    println!("cargo:warning=✓ Wrote bindings to {:?}", generated_file);
 }
 
 fn write_generated_bindings(bindings: Vec<proc_macro2::TokenStream>, event_types: Vec<String>) {
@@ -498,3 +718,9 @@ fn write_empty_bindings_with_events(event_types: Vec<String>) {
     fs::write(generated_file, full_code.to_string())
         .expect("Failed to write auto_bindings.rs");
 }
+
+
+
+
+
+

@@ -5,11 +5,11 @@ edition = "2021"
 
 [package.metadata.lua_resources]
 types = [
-    # Core renet types for client/server
-    "renet::remote_connection::RenetClient",
-    "renet::server::RenetServer",
+    # Core renet types (using canonical renet paths for auto-discovery)
+    "renet::RenetClient",
+    "renet::RenetServer",
     
-    # Transport layer types from bevy_renet
+    # Transport layer types
     "bevy_renet::netcode::NetcodeServerTransport",
     "bevy_renet::netcode::NetcodeClientTransport",
     
@@ -19,9 +19,14 @@ types = [
     "bevy_renet::netcode::ConnectToken",
     
     # Network configuration
-    "renet::connection_config::ConnectionConfig",
-    "renet::channel::ChannelConfig",
-    "renet::channel::SendType",
+    "renet::ConnectionConfig",
+    "renet::ChannelConfig",
+    "renet::SendType",
+]
+
+constructors = [
+    # Test constructor auto-discovery
+    "renet::ConnectionConfig::default",
 ]
 
 [features]

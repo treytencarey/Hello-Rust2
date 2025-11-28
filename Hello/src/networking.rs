@@ -176,14 +176,17 @@ pub fn register_networking_constructors(registry: &bevy_lua_ecs::ResourceBuilder
         
         let current_time = current_time();
         
-        // Public address should be localhost for local testing
-        let public_addr = SocketAddr::new(IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1)), port);
+        // Public address for local testing - use localhost
+        // This is the address that will be embedded in connect tokens
+        let public_addresses = vec![
+            SocketAddr::new(IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1)), port),
+        ];
         
         let server_config = ServerConfig {
             current_time,
             max_clients,
             protocol_id: PROTOCOL_ID,
-            public_addresses: vec![public_addr],
+            public_addresses,
             authentication: ServerAuthentication::Secure { private_key: PRIVATE_KEY },
         };
         

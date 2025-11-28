@@ -271,6 +271,46 @@ world:call_resource_method("RenetClient", "send_message", channel_id, data)
 - Works with any resource type in any crate
 - Type-safe through mlua's automatic conversion
 
+### Auto-Generated Constructor Bindings
+
+The build script can also automatically generate Lua bindings for constructors and static functions:
+
+**In your game's `Cargo.toml`:**
+```toml
+[package.metadata.lua_resources]
+types = [
+    "renet::remote_connection::RenetClient",
+    "renet::server::RenetServer",
+]
+
+constructors = [
+    "renet::ConnectionConfig::default",
+    "bevy_renet::RenetClient::new",
+]
+```
+
+The build script will:
+1. Find the source files for these types
+2. Parse the associated functions using `syn`
+3. Extract function signatures automatically
+4. Generate global Lua constructor functions
+
+**From Lua:**
+```lua
+-- Auto-generated constructor functions
+local config = create_connectionconfig()  -- Calls ConnectionConfig::default()
+local client = create_renetclient(config)  -- Calls RenetClient::new(config)
+
+-- Use them to create resources
+insert_resource("RenetClient", client)
+```
+
+**Benefits:**
+- No manual constructor code needed
+- Automatically discovers function signatures
+- Works with any static function or constructor
+- Type-safe parameter handling
+
 ### Auto-Generated Event Registration
 
 Events are automatically registered from `[package.metadata.lua_events]` in `Cargo.toml`:

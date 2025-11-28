@@ -16,6 +16,7 @@ pub mod resource_constructors;
 pub mod resource_lua_trait;
 pub mod event_reader;
 pub mod auto_bindings;
+pub mod os_utilities;
 
 // Re-export commonly used types
 pub use components::{ComponentRegistry, LuaCustomComponents};

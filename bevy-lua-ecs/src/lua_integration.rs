@@ -103,6 +103,28 @@ impl LuaScriptContext {
             Ok(())
         })?;
         
+        // OS Utilities for networking and other low-level operations
+        
+        // Bind UDP socket
+        let bind_udp_socket = lua_clone.create_function(|_lua_ctx, addr: String| {
+            crate::os_utilities::bind_udp_socket(&addr)
+                .map_err(|e| LuaError::RuntimeError(e))
+                // TODO: Return socket as userdata when needed
+                .map(|_socket| ())
+        })?;
+        
+        // Get current time in milliseconds
+        let current_time = lua_clone.create_function(|_lua_ctx, ()| {
+            Ok(crate::os_utilities::current_time_millis())
+        })?;
+        
+        // Parse socket address
+        let parse_socket_addr = lua_clone.create_function(|_lua_ctx, addr: String| {
+            crate::os_utilities::parse_socket_addr(&addr)
+                .map(|socket_addr| socket_addr.to_string())
+                .map_err(|e| LuaError::RuntimeError(e))
+        })?;
+        
         // Inject into globals
         lua_clone.globals().set("spawn", spawn)?;
         lua_clone.globals().set("insert_resource", insert_resource)?;
@@ -110,6 +132,11 @@ impl LuaScriptContext {
         lua_clone.globals().set("copy_file", copy_file)?;
         lua_clone.globals().set("read_file_bytes", read_file_bytes)?;
         lua_clone.globals().set("write_file_bytes", write_file_bytes)?;
+        
+        // OS utilities
+        lua_clone.globals().set("bind_udp_socket", bind_udp_socket)?;
+        lua_clone.globals().set("current_time", current_time)?;
+        lua_clone.globals().set("parse_socket_addr", parse_socket_addr)?;
         
         // Note: load_asset will be added via add_asset_loading_to_lua()
         // Note: query_resource will be added to world table in lua_systems
@@ -148,6 +175,10 @@ impl Plugin for LuaSpawnPlugin {
         app.init_resource::<crate::serde_components::SerdeComponentRegistry>();
         app.init_resource::<crate::resource_lua_trait::LuaResourceRegistry>();
         
+        // Register auto-generated resource method bindings
+        // This must happen after LuaResourceRegistry is initialized
+        app.add_systems(PreStartup, register_resource_methods);
+        
         // Note: EventReaderRegistry is no longer needed!
         // Event reading is now fully generic via reflection in world:read_events()
         // 
@@ -168,6 +199,14 @@ impl Plugin for LuaSpawnPlugin {
             crate::resource_inserter::process_resource_queue,
         ));
     }
+}
+
+/// System to register auto-generated resource method bindings
+/// This runs in PreStartup to ensure methods are available before Lua scripts execute
+fn register_resource_methods(
+    lua_resource_registry: Res<crate::resource_lua_trait::LuaResourceRegistry>,
+) {
+    crate::auto_bindings::register_auto_bindings(&lua_resource_registry);
 }
 
 /// System to initialize ComponentRegistry from AppTypeRegistry
