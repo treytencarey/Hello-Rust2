@@ -9,12 +9,16 @@ type SerdeComponentHandler = Box<dyn Fn(&LuaValue, &mut EntityCommands) -> LuaRe
 /// Function that deserializes a resource from Lua and inserts it into World
 type SerdeResourceHandler = Box<dyn Fn(&LuaValue, &mut World) -> LuaResult<()> + Send + Sync>;
 
+/// Function that removes a resource from World
+type ResourceRemovalHandler = Box<dyn Fn(&mut World) + Send + Sync>;
+
 /// Registry for components and resources that use serde instead of Reflect
 /// This is required for types like `Collider` that implement `Deserialize` but not `Reflect`.
 #[derive(Resource, Default, Clone)]
 pub struct SerdeComponentRegistry {
     pub component_handlers: Arc<Mutex<HashMap<String, SerdeComponentHandler>>>,
     resource_handlers: Arc<Mutex<HashMap<String, SerdeResourceHandler>>>,
+    resource_removal_handlers: Arc<Mutex<HashMap<String, ResourceRemovalHandler>>>,
     /// Track which resources have been inserted (generic tracking)
     inserted_resources: Arc<Mutex<std::collections::HashSet<String>>>,
 }
@@ -105,7 +109,14 @@ impl SerdeComponentRegistry {
             Ok(())
         });
         
-        self.resource_handlers.lock().unwrap().insert(name, handler);
+        self.resource_handlers.lock().unwrap().insert(name.clone(), handler);
+        
+        // Register removal handler
+        let removal_handler = Box::new(move |world: &mut World| {
+            world.remove_resource::<T>();
+        });
+        
+        self.resource_removal_handlers.lock().unwrap().insert(name, removal_handler);
     }
     
     /// Try to handle a component via serde
@@ -125,6 +136,17 @@ impl SerdeComponentRegistry {
             Some(handler(data, world))
         } else {
             None
+        }
+    }
+    
+    /// Try to remove a resource by name
+    pub fn try_remove_resource(&self, name: &str, world: &mut World) -> bool {
+        let handlers = self.resource_removal_handlers.lock().unwrap();
+        if let Some(handler) = handlers.get(name) {
+            handler(world);
+            true
+        } else {
+            false
         }
     }
     

@@ -6,6 +6,12 @@ use bevy::prelude::*;
 use bevy_lua_ecs::*;
 use std::fs;
 
+#[derive(Resource, serde::Serialize, serde::Deserialize)]
+struct TestResource {
+    reload_number: u32,
+    message: String,
+}
+
 fn main() {
     let mut app = App::new();
 
@@ -13,6 +19,7 @@ fn main() {
         .add_plugins(DefaultPlugins)
         .add_plugins(LuaSpawnPlugin)
         .add_systems(Startup, setup)
+        .add_systems(Startup, setup_lua_resources)
         .add_systems(PostStartup, load_and_run_script)
         .add_systems(Update, check_for_reload)
         .run();
@@ -21,6 +28,13 @@ fn main() {
 fn setup(mut commands: Commands) {
     commands.spawn(Camera2d);
     info!("Camera spawned");
+}
+
+fn setup_lua_resources(world: &mut World) {
+    // Register TestResource so it can be inserted and removed from Lua
+    let mut serde_registry = world.resource_mut::<crate::serde_components::SerdeComponentRegistry>();
+    serde_registry.register_resource::<TestResource>("TestResource");
+    info!("Registered TestResource");
 }
 
 fn load_and_run_script(lua_ctx: Res<LuaScriptContext>, script_instance: Res<crate::script_entities::ScriptInstance>) {

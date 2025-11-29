@@ -150,6 +150,8 @@ fn run_single_lua_system(
         world_table.set("reload_script", scope.create_function({
             let system_registry = world.resource::<LuaSystemRegistry>().clone();
             let resource_queue = world.resource::<crate::resource_queue::ResourceQueue>().clone();
+            let serde_registry = world.resource::<crate::serde_components::SerdeComponentRegistry>().clone();
+            let builder_registry = world.resource::<crate::resource_builder::ResourceBuilderRegistry>().clone();
             move |lua_ctx, _self: LuaTable| {
                 // Get the instance ID from Lua global (set by execute_script_tracked)
                 let instance_id: u64 = lua_ctx.globals().get("__INSTANCE_ID__")?;
@@ -162,9 +164,36 @@ fn run_single_lua_system(
                 let resources_to_clear = resource_queue.get_instance_resources(instance_id);
                 
                 if !resources_to_clear.is_empty() {
-                    warn!("Script instance {} ('{}') inserted {} resources that persist across reloads: {:?}", 
-                          instance_id, script_name, resources_to_clear.len(), resources_to_clear);
-                    warn!("Resources cannot be automatically removed. Consider using entities for stateful data.");
+                    info!("Removing {} resources from script instance {} ('{}')", 
+                          resources_to_clear.len(), instance_id, script_name);
+                    
+                    // SAFETY: We need mutable access to remove resources
+                    #[allow(invalid_reference_casting)]
+                    let world_mut = unsafe { &mut *(world as *const World as *mut World) };
+                    
+                    let mut removed_count = 0;
+                    let mut not_found_count = 0;
+                    
+                    for resource_name in &resources_to_clear {
+                        // Try builder registry first
+                        if builder_registry.try_remove(resource_name, world_mut) {
+                            removed_count += 1;
+                        }
+                        // Then try serde registry
+                        else if serde_registry.try_remove_resource(resource_name, world_mut) {
+                            removed_count += 1;
+                        } else {
+                            not_found_count += 1;
+                            warn!("No removal handler found for resource '{}'", resource_name);
+                        }
+                    }
+                    
+                    if removed_count > 0 {
+                        info!("✓ Removed {} resources", removed_count);
+                    }
+                    if not_found_count > 0 {
+                        warn!("⚠ {} resources could not be removed (no removal handler)", not_found_count);
+                    }
                 }
                 
                 // Clear resource tracking for this instance
