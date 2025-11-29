@@ -11,6 +11,7 @@ pub fn process_spawn_queue(
     component_registry: Res<ComponentRegistry>,
     serde_registry: Res<crate::serde_components::SerdeComponentRegistry>,
     lua_ctx: Res<LuaScriptContext>,
+    current_script: Res<crate::script_entities::ScriptInstance>,
 ) {
     let requests = queue.drain();
     
@@ -20,9 +21,13 @@ pub fn process_spawn_queue(
     
     for request in requests {
         // Spawn entity
-        let mut entity = commands.spawn_empty();
+        let entity_id = commands.spawn_empty().id();
+        let mut entity = commands.entity(entity_id);
         let mut lua_custom_components = crate::components::LuaCustomComponents::default();
         let mut _has_interaction = false;
+        
+        // Track the spawned entity for returning to Lua
+        queue.add_spawned_entity(entity_id);
         
         // Apply each component
         for (component_name, registry_key) in request.components {
@@ -74,6 +79,11 @@ pub fn process_spawn_queue(
         // Add generic Lua components if any
         if !lua_custom_components.components.is_empty() {
             entity.insert(lua_custom_components);
+        }
+        
+        // Automatically tag entity with script ownership if a script instance is executing
+        if let Some(instance_id) = current_script.get_id() {
+            entity.insert(crate::script_entities::ScriptOwned { instance_id });
         }
     }
 }

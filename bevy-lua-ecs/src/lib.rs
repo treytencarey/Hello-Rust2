@@ -7,6 +7,7 @@ pub mod lua_integration;
 pub mod lua_systems;
 pub mod lua_world_api;
 pub mod spawn_queue;
+pub mod despawn_queue;
 pub mod serde_components;
 pub mod asset_loading;
 pub mod resource_queue;
@@ -17,12 +18,16 @@ pub mod resource_lua_trait;
 pub mod event_reader;
 pub mod auto_bindings;
 pub mod os_utilities;
+pub mod reflection;
+pub mod script_entities;
+
 
 // Re-export commonly used types
 pub use components::{ComponentRegistry, LuaCustomComponents};
 pub use entity_spawner::process_spawn_queue;
 pub use lua_integration::{LuaScriptContext, LuaSpawnPlugin};
 pub use spawn_queue::SpawnQueue;
+pub use despawn_queue::{DespawnQueue, process_despawn_queue};
 pub use component_update_queue::ComponentUpdateQueue;
 pub use component_updater::process_component_updates;
 pub use serde_components::SerdeComponentRegistry;
@@ -36,6 +41,8 @@ pub use resource_constructors::{ResourceConstructorRegistry, OsUtilities};
 pub use resource_lua_trait::LuaResourceRegistry;
 pub use event_reader::reflection_to_lua;
 pub use auto_bindings::{register_auto_bindings, register_auto_events};
+pub use script_entities::{ScriptOwned, ScriptInstance, despawn_instance_entities};
+
 
 /// Register common Bevy event types for Lua access via world:read_events()
 /// 

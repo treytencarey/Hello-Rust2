@@ -9,7 +9,7 @@ use std::sync::{Arc, Mutex};
 /// Resource that stores registered Lua systems
 #[derive(Resource, Clone)]
 pub struct LuaSystemRegistry {
-    pub update_systems: Arc<Mutex<Vec<Arc<LuaRegistryKey>>>>,
+    pub update_systems: Arc<Mutex<Vec<(u64, Arc<LuaRegistryKey>)>>>, // (instance_id, system)
     pub last_run: Arc<Mutex<u32>>,
 }
 
@@ -18,6 +18,23 @@ impl Default for LuaSystemRegistry {
         Self {
             update_systems: Arc::new(Mutex::new(Vec::new())),
             last_run: Arc::new(Mutex::new(0)),
+        }
+    }
+}
+
+impl LuaSystemRegistry {
+    /// Clear all systems registered by a specific script instance
+    pub fn clear_instance_systems(&self, instance_id: u64) {
+        let mut systems = self.update_systems.lock().unwrap();
+        let initial_count = systems.len();
+        
+        systems.retain(|(id, _key)| {
+            *id != instance_id
+        });
+        
+        let removed_count = initial_count - systems.len();
+        if removed_count > 0 {
+            info!("Cleared {} systems from instance {}", removed_count, instance_id);
         }
     }
 }
@@ -43,7 +60,7 @@ pub fn run_lua_systems(
     
     // Run each registered Lua system
     let systems = registry.update_systems.lock().unwrap().clone();
-    for system_key in systems.iter() {
+    for (_instance_id, system_key) in systems.iter() {
         if let Err(e) = run_single_lua_system(
             &lua_ctx.lua,
             system_key,
@@ -125,6 +142,76 @@ fn run_single_lua_system(
             let resource_registry = resource_registry.clone();
             move |lua_ctx, (_, resource_name, method_name, args): (LuaTable, String, String, mlua::MultiValue)| {
                 resource_registry.call_method(lua_ctx, world, &resource_name, &method_name, args)
+            }
+        })?)?;
+        
+        // reload_script() - despawn all entities from current script instance and re-execute it
+        // Note: This only despawns entities, the actual re-execution must be triggered externally
+        world_table.set("reload_script", scope.create_function({
+            let system_registry = world.resource::<LuaSystemRegistry>().clone();
+            let resource_queue = world.resource::<crate::resource_queue::ResourceQueue>().clone();
+            move |lua_ctx, _self: LuaTable| {
+                // Get the instance ID from Lua global (set by execute_script_tracked)
+                let instance_id: u64 = lua_ctx.globals().get("__INSTANCE_ID__")?;
+                let script_name: String = lua_ctx.globals().get("__SCRIPT_NAME__")?;
+                
+                // Clear all systems registered by this instance
+                system_registry.clear_instance_systems(instance_id);
+                
+                // Get list of resources inserted by this instance
+                let resources_to_clear = resource_queue.get_instance_resources(instance_id);
+                
+                if !resources_to_clear.is_empty() {
+                    warn!("Script instance {} ('{}') inserted {} resources that persist across reloads: {:?}", 
+                          instance_id, script_name, resources_to_clear.len(), resources_to_clear);
+                    warn!("Resources cannot be automatically removed. Consider using entities for stateful data.");
+                }
+                
+                // Clear resource tracking for this instance
+                resource_queue.clear_instance_tracking(instance_id);
+                
+                // SAFETY: We need mutable access to despawn entities
+                #[allow(invalid_reference_casting)]
+                let world_mut = unsafe { &mut *(world as *const World as *mut World) };
+                
+                // Despawn all entities from this instance (uses despawn queue which handles cleanup)
+                crate::script_entities::despawn_instance_entities(world_mut, instance_id);
+                Ok(())
+            }
+        })?)?;
+        
+        // despawn_all(tag_name) - despawn all entities with a specific tag component
+        world_table.set("despawn_all", scope.create_function({
+            move |_lua_ctx, (_self, tag_name): (LuaTable, String)| {
+                let despawn_queue = world.resource::<crate::despawn_queue::DespawnQueue>().clone();
+
+                // SAFETY: We need to access the world mutably for querying.
+                // This is safe because we're in an exclusive system context.
+                #[allow(invalid_reference_casting)]
+                let world_cell = unsafe {
+                    let world_mut = &mut *(world as *const World as *mut World);
+                    world_mut.as_unsafe_world_cell()
+                };
+
+                let mut entities_to_despawn = Vec::new();
+                
+                // Create a query state
+                let mut query_state = unsafe {
+                    world_cell.world_mut().query::<(Entity, &crate::components::LuaCustomComponents)>()
+                };
+                
+                for (entity, lua_comps) in unsafe { query_state.iter(world_cell.world()) } {
+                    if lua_comps.components.contains_key(&tag_name) {
+                        entities_to_despawn.push(entity);
+                    }
+                }
+
+                // Queue all matching entities for despawn
+                for entity in entities_to_despawn {
+                    despawn_queue.queue_despawn(entity);
+                }
+
+                Ok(())
             }
         })?)?;
 

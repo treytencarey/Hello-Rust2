@@ -398,6 +398,90 @@ fn set_field_from_lua(
     Ok(())
 }
 
+/// Try to create a reflected value from a Lua table generically
+/// Uses reflection to automatically populate any struct from Lua tables
+/// Supports both array format {1, 2, 3} and object format {x=1, y=2, z=3}
+fn try_create_value_from_table(
+    table: &LuaTable,
+    asset_registry: Option<&crate::asset_loading::AssetRegistry>,
+) -> LuaResult<Option<Box<dyn PartialReflect>>> {
+    use bevy::reflect::{DynamicStruct, Struct};
+    
+    // Create a dynamic struct and populate it from the table
+    let mut dynamic_struct = DynamicStruct::default();
+    
+    // Try array-style access first (for tuple-like tables: {50, 50})
+    let mut array_values = Vec::new();
+    for i in 1..=10 {  // Check up to 10 elements
+        match table.get::<LuaValue>(i) {
+            Ok(LuaValue::Number(n)) => array_values.push(n as f32),
+            Ok(LuaValue::Integer(n)) => array_values.push(n as f32),
+            _ => break,
+        }
+    }
+    
+    // If we found array values, try to map them to common struct patterns
+    if !array_values.is_empty() {
+        match array_values.len() {
+            2 => {
+                // Could be Vec2, UVec2, IVec2, etc.
+                dynamic_struct.insert("x", array_values[0]);
+                dynamic_struct.insert("y", array_values[1]);
+            }
+            3 => {
+                // Could be Vec3, UVec3, IVec3, Color (RGB), etc.
+                dynamic_struct.insert("x", array_values[0]);
+                dynamic_struct.insert("y", array_values[1]);
+                dynamic_struct.insert("z", array_values[2]);
+            }
+            4 => {
+                // Could be Vec4, Quat, Color (RGBA), etc.
+                dynamic_struct.insert("x", array_values[0]);
+                dynamic_struct.insert("y", array_values[1]);
+                dynamic_struct.insert("z", array_values[2]);
+                dynamic_struct.insert("w", array_values[3]);
+            }
+            _ => {}
+        }
+    }
+    
+    // Object-style access: populate all named fields from the table
+    for pair in table.pairs::<String, LuaValue>() {
+        if let Ok((key, value)) = pair {
+            match value {
+                LuaValue::Number(n) => {
+                    dynamic_struct.insert_boxed(&key, Box::new(n as f32));
+                }
+                LuaValue::Integer(i) => {
+                    // Try as both i32 and f32 since we don't know the target type
+                    dynamic_struct.insert_boxed(&key, Box::new(i as f32));
+                }
+                LuaValue::Boolean(b) => {
+                    dynamic_struct.insert_boxed(&key, Box::new(b));
+                }
+                LuaValue::String(s) => {
+                    if let Ok(string) = s.to_str() {
+                        dynamic_struct.insert_boxed(&key, Box::new(string.to_string()));
+                    }
+                }
+                LuaValue::Table(nested_table) => {
+                    // Recursively handle nested tables
+                    if let Ok(Some(nested_value)) = try_create_value_from_table(&nested_table, asset_registry) {
+                        dynamic_struct.insert_boxed(&key, nested_value);
+                    }
+                }
+                _ => {}
+            }
+        }
+    }
+    
+    if dynamic_struct.field_len() > 0 {
+        Ok(Some(Box::new(dynamic_struct)))
+    } else {
+        Ok(None)
+    }
+}
+
 /// Generic handler for nested structs and enums using reflection
 fn set_nested_field_from_lua(
     field: &mut dyn PartialReflect,
@@ -421,7 +505,7 @@ fn set_nested_field_from_lua(
         }
         ReflectMut::Enum(_enum_mut) => {
             // Generic Option<T> handling: Try to create a Some(T) variant
-            // This handles Option<Rect>, Option<TextureAtlas>, etc.
+            // This handles Option<Rect>, Option<TextureAtlas>, Option<Vec2>, etc.
             
             // Get the type info to understand the enum structure
             let type_path = field.reflect_type_path();
@@ -429,6 +513,18 @@ fn set_nested_field_from_lua(
             // For Option types, we want to create Some(inner_value)
             // The table represents the inner value (e.g., Rect { min, max })
             if type_path.contains("Option<") {
+                // Try to create the inner value generically from the table
+                if let Some(inner_value) = try_create_value_from_table(table, asset_registry)? {
+                    // Wrap in Some variant
+                    let mut some_tuple = DynamicTuple::default();
+                    some_tuple.insert_boxed(inner_value);
+                    let some_variant = DynamicVariant::Tuple(some_tuple);
+                    let some_enum = DynamicEnum::new("Some", some_variant);
+                    field.apply(&some_enum);
+                    return Ok(());
+                }
+                
+                // Fallback to struct-based approach for complex types
                 // Create a dynamic struct for the inner value
                 let mut inner_struct = DynamicStruct::default();
                 

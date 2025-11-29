@@ -8,7 +8,7 @@ print("")
 
 -- Network configuration
 local SERVER_PORT = 5001
-local FILE_TO_UPLOAD = "C:/Users/treyt/Desktop/clfonr.png"
+local FILE_TO_UPLOAD = "C:/Users/treyt/Desktop/cIfonr.png"
 
 -- Determine mode (server or client)
 local is_server = not IS_CLIENT_MODE
@@ -220,7 +220,8 @@ if is_server then
                                 translation = {x = 0, y = 0, z = 0},
                                 rotation = {x = 0.0, y = 0.0, z = 0.0, w = 1.0},
                                 scale = {x = 1.0, y = 1.0, z = 1.0}
-                            }
+                            },
+                            Replicated = {}
                         })
                         
                         print("🖼️  SERVER: Spawned sprite with uploaded image")

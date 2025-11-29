@@ -21,6 +21,11 @@ pub fn process_resource_queue(
     }
     
     for request in requests {
+        // Track which script instance inserted this resource
+        if let Some(instance_id) = request.instance_id {
+            queue.track_resource(instance_id, request.resource_name.clone());
+        }
+        
         // Retrieve the Lua value from the registry
         let data_value: LuaValue = match lua_ctx.lua.registry_value(&request.data) {
             Ok(value) => value,

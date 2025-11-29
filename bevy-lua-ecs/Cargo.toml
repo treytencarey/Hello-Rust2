@@ -46,18 +46,22 @@ auto-bindings = []
 bevy_rapier2d = ["dep:bevy_rapier2d"]
 
 [[example]]
-name = "basic"
-path = "examples/basic.rs"
+name = "physics_rapier"
+path = "examples/physics_rapier/main.rs"
+required-features = ["bevy_rapier2d"]
 
 [[example]]
-name = "sprites"
-path = "examples/sprites.rs"
+name = "basic"
+path = "examples/basic.rs"
 
 [[example]]
 name = "button"
 path = "examples/button.rs"
 
 [[example]]
-name = "physics_rapier"
-path = "examples/physics_rapier/main.rs"
-required-features = ["bevy_rapier2d"]
+name = "hot_reload"
+path = "examples/hot_reload.rs"
+
+[[example]]
+name = "sprites"
+path = "examples/sprites.rs"

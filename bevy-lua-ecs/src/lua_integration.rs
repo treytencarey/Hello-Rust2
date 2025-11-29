@@ -26,7 +26,7 @@ impl LuaScriptContext {
         let lua_for_closure = lua_clone.clone();
         let lua_for_resource = lua_clone.clone();
         
-        // Create component-based spawn function
+        // Create component-based spawn function that returns an entity ID
         let spawn = lua_clone.create_function(move |_lua_ctx, components: LuaTable| {
             let mut all_components = Vec::new();
             
@@ -41,23 +41,36 @@ impl LuaScriptContext {
             
             // Pass empty list for lua_components, we'll sort it out in the spawner
             queue_clone.clone().queue_spawn(all_components, Vec::new());
+            
+            // Note: We can't return the actual entity ID here because spawning is queued
+            // The entity won't exist until the next frame. Return nil for now.
+            // TODO: Implement a callback system or deferred ID retrieval
             Ok(())
         })?;
+
+
         
         // Create generic insert_resource function
         // Accepts either a table (for serde resources) or UserData (for builder-created resources)
-        let insert_resource = lua_clone.create_function(move |_lua_ctx, (resource_name, resource_data): (String, LuaValue)| {
+        let insert_resource = lua_clone.create_function(move |lua_ctx, (resource_name, resource_data): (String, LuaValue)| {
+            // Get the current instance ID from globals
+            let instance_id: Option<u64> = lua_ctx.globals().get("__INSTANCE_ID__").ok();
+            
             // Store resource data as registry value (works for both tables and UserData)
             let registry_key = lua_for_resource.create_registry_value(resource_data)?;
-            resource_queue_clone.queue_insert(resource_name, registry_key);
+            resource_queue_clone.queue_insert(resource_name, registry_key, instance_id);
             Ok(())
         })?;
         
         // Create register_system function
         let system_reg = system_registry.clone();
         let register_system = lua_clone.create_function(move |lua_ctx, (_schedule, func): (String, LuaFunction)| {
+            // Get the current instance ID from globals
+            let instance_id: u64 = lua_ctx.globals().get("__INSTANCE_ID__")
+                .unwrap_or(0);
+            
             let registry_key = lua_ctx.create_registry_value(func)?;
-            system_reg.update_systems.lock().unwrap().push(Arc::new(registry_key));
+            system_reg.update_systems.lock().unwrap().push((instance_id, Arc::new(registry_key)));
             Ok(())
         })?;
         
@@ -151,6 +164,35 @@ impl LuaScriptContext {
         self.lua.load(script_content).set_name(script_name).exec()?;
         Ok(())
     }
+    
+    /// Execute a script with automatic script ownership tracking
+    /// Entities spawned during execution will be tagged with a unique instance ID
+    /// Returns the instance ID for this execution
+    pub fn execute_script_tracked(&self, script_content: &str, script_name: &str, script_instance: &crate::script_entities::ScriptInstance) -> Result<u64, LuaError> {
+        let instance_id = script_instance.start(script_name.to_string());
+        
+        // Set both instance ID and script name as Lua globals
+        self.lua.globals().set("__INSTANCE_ID__", instance_id)?;
+        self.lua.globals().set("__SCRIPT_NAME__", script_name)?;
+        
+        self.lua.load(script_content).set_name(script_name).exec()?;
+        // Note: We DON'T clear script_instance here so entities spawned via queues get tagged
+        
+        Ok(instance_id)
+    }
+    
+    /// Execute a script with automatic cleanup and tracking
+    /// This despawns all entities from the previous instance before running the script again
+    pub fn reload_script(&self, script_content: &str, script_name: &str, world: &mut bevy::prelude::World, instance_id: u64) -> Result<u64, LuaError> {
+        // Despawn all entities from previous instance
+        crate::script_entities::despawn_instance_entities(world, instance_id);
+        
+        // Get script instance resource
+        let script_instance = world.resource::<crate::script_entities::ScriptInstance>().clone();
+        
+        // Execute with tracking (creates new instance ID)
+        self.execute_script_tracked(script_content, script_name, &script_instance)
+    }
 }
 
 /// Plugin that sets up Lua scripting with component-based spawn function
@@ -169,11 +211,13 @@ impl Plugin for LuaSpawnPlugin {
         // Initialize all required resources
         // Note: ComponentRegistry needs AppTypeRegistry, so we create it in a startup system
         app.init_resource::<SpawnQueue>();
+        app.init_resource::<crate::despawn_queue::DespawnQueue>();
         app.init_resource::<crate::component_update_queue::ComponentUpdateQueue>();
         app.init_resource::<crate::resource_queue::ResourceQueue>();
         app.init_resource::<crate::resource_builder::ResourceBuilderRegistry>();
         app.init_resource::<crate::serde_components::SerdeComponentRegistry>();
         app.init_resource::<crate::resource_lua_trait::LuaResourceRegistry>();
+        app.init_resource::<crate::script_entities::ScriptInstance>();
         
         // Register auto-generated resource method bindings
         // This must happen after LuaResourceRegistry is initialized
@@ -195,6 +239,7 @@ impl Plugin for LuaSpawnPlugin {
             crate::entity_spawner::process_spawn_queue,
             crate::lua_systems::run_lua_systems,
             crate::component_updater::process_component_updates,
+            crate::despawn_queue::process_despawn_queue,
             crate::asset_loading::process_pending_assets,
             crate::resource_inserter::process_resource_queue,
         ));
