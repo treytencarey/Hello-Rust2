@@ -51,7 +51,7 @@ fn setup(mut commands: Commands) {
 }
 
 fn load_and_run_script(lua_ctx: Res<LuaScriptContext>) {
-    let script_path = "Hello/assets/scripts/main.lua";
+    let script_path = "assets/scripts/main.lua";
     match fs::read_to_string(script_path) {
         Ok(script_content) => {
             info!("✓ Loaded script: {}", script_path);

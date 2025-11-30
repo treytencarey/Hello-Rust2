@@ -25,16 +25,19 @@ mod networking {
     include!("../src/networking.rs");
 }
 
+#[derive(Resource)]
+struct IsClient(pub bool);
+
 fn main() {
     let mut app = App::new();
-    
+
     // Determine if running as client or server
     let args: Vec<String> = std::env::args().collect();
     let is_client = args.len() > 1 && args[1] == "client";
-    
+
     // Add Bevy plugins
     app.add_plugins(DefaultPlugins);
-    
+
     // Add networking plugins
     #[cfg(feature = "networking")]
     {
@@ -46,20 +49,19 @@ fn main() {
             app.add_plugins(NetcodeServerPlugin);
         }
     }
-    
+
     // Add Lua plugin (auto-initializes all resources and systems)
     app.add_plugins(LuaSpawnPlugin);
-    
+
     // Register networking components and methods (must be after LuaSpawnPlugin)
     #[cfg(feature = "networking")]
     app.add_systems(PreStartup, setup_networking);
-    
+
     // Setup camera and register networking methods
     app.add_systems(Startup, setup);
-    app.add_systems(PostStartup, move |lua_ctx: Res<LuaScriptContext>| {
-        load_script(lua_ctx, is_client)
-    });
-    
+    app.insert_resource(IsClient(is_client));
+    app.add_systems(PostStartup, load_and_run_script);
+
     app.run();
 }
 
@@ -81,24 +83,40 @@ fn setup(mut commands: Commands) {
     info!("✓ Camera spawned");
 }
 
-fn load_script(lua_ctx: Res<LuaScriptContext>, is_client: bool) {
+fn load_and_run_script(
+    lua_ctx: Res<LuaScriptContext>,
+    script_instance: Res<crate::script_entities::ScriptInstance>,
+    script_registry: Res<crate::script_registry::ScriptRegistry>,
+    is_client: Res<IsClient>,
+) {
     // Set client mode flag
-    lua_ctx.lua.globals().set("IS_CLIENT_MODE", is_client).unwrap();
-    
-    let mode = if is_client { "CLIENT" } else { "SERVER" };
+    lua_ctx.lua.globals().set("IS_CLIENT_MODE", is_client.0).unwrap();
+
+    let mode = if is_client.0 { "CLIENT" } else { "SERVER" };
     info!("✓ Starting in {} mode", mode);
-    
+
     // Load the pure Lua file upload script
-    let script_path = "Hello/assets/scripts/file_upload.lua";
-    match fs::read_to_string(script_path) {
+    let script_path = std::path::PathBuf::from("assets/scripts/file_upload.lua");
+    match fs::read_to_string(&script_path) {
         Ok(script_content) => {
-            info!("✓ Loaded script: {}", script_path);
-            if let Err(e) = lua_ctx.execute_script(&script_content, "file_upload.lua") {
-                error!("Failed to execute script: {}", e);
+            info!("Loaded hot reload script: {:?}", script_path);
+            match lua_ctx.execute_script(
+                &script_content,
+                "file_upload.lua",
+                script_path,
+                &script_instance,
+                &script_registry,
+            ) {
+                Ok(instance_id) => {
+                    info!("Script executed with instance ID: {}", instance_id);
+                }
+                Err(e) => {
+                    error!("Failed to execute script: {}", e);
+                }
             }
         }
         Err(e) => {
-            error!("Failed to load script {}: {}", script_path, e);
+            error!("Failed to load script {:?}: {}", script_path, e);
         }
     }
 }

@@ -198,7 +198,7 @@ if is_server then
                     print("📊 SERVER: Size: " .. file_size .. " bytes")
                     
                     -- Save file to server's uploads directory
-                    local save_path = "Hello/assets/uploads/" .. filename
+                    local save_path = "assets/uploads/" .. filename
                     local save_success, save_error = pcall(function()
                         write_file_bytes(save_path, file_data)
                     end)

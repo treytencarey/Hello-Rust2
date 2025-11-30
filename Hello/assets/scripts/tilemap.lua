@@ -23,7 +23,7 @@ print("Using Sprite rect for tile slicing (pure Lua approach)")
 
 -- Read and parse the CSV tile data from map_0.tmx
 local function read_map_data()
-    local file = io.open("Hello/assets/map_0.tmx", "r")
+    local file = io.open("assets/map_0.tmx", "r")
     if not file then
         error("Failed to open map_0.tmx")
     end

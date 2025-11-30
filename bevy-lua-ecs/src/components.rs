@@ -234,15 +234,42 @@ fn spawn_component_via_reflection(
             }
             
             TypeInfo::Enum(enum_info) => {
-                // Enums can be specified as strings (variant name)
-                let variant_name = match data {
-                    LuaValue::String(s) => s.to_str()?.to_string(),
+                // Enums can be specified as:
+                // 1. Strings for unit variants: "Relative"
+                // 2. Tables for tuple/struct variants: { Px = 200 } or { SomeVariant = { field = value } }
+                
+                use bevy::reflect::{DynamicEnum, DynamicVariant, DynamicTuple, DynamicStruct};
+                
+                let (variant_name, variant_data) = match data {
+                    LuaValue::String(s) => {
+                        // Unit variant
+                        (s.to_str()?.to_string(), None)
+                    }
+                    LuaValue::Table(t) => {
+                        // Tuple or struct variant
+                        // The table should have exactly one key (the variant name)
+                        let mut pairs = t.pairs::<String, LuaValue>();
+                        
+                        if let Some(Ok((variant_name, variant_value))) = pairs.next() {
+                            // Ensure there's only one key
+                            if pairs.next().is_some() {
+                                return Err(LuaError::RuntimeError(
+                                    format!("Enum table must have exactly one key (the variant name)")
+                                ));
+                            }
+                            (variant_name, Some(variant_value))
+                        } else {
+                            return Err(LuaError::RuntimeError(
+                                format!("{} enum requires a variant name", type_path)
+                            ));
+                        }
+                    }
                     _ => return Err(LuaError::RuntimeError(
-                        format!("{} enum requires a string variant name, got {:?}", type_path, data)
+                        format!("{} enum requires a string or table, got {:?}", type_path, data)
                     )),
                 };
                 
-                // Find matching variant (case-sensitive)
+                // Find matching variant
                 let variant_info = enum_info.variant(&variant_name)
                     .ok_or_else(|| LuaError::RuntimeError(
                         format!("Unknown variant '{}' for enum {}. Available variants: {}",
@@ -252,14 +279,109 @@ fn spawn_component_via_reflection(
                         )
                     ))?;
                 
-                // Handle unit variants
-                use bevy::reflect::{DynamicEnum, DynamicVariant};
-                
                 let dynamic_variant = match variant_info {
-                    bevy::reflect::VariantInfo::Unit(_) => DynamicVariant::Unit,
-                    _ => return Err(LuaError::RuntimeError(
-                        format!("Only unit enum variants are supported via this path. Use serde path for complex enums.")
-                    )),
+                    bevy::reflect::VariantInfo::Unit(_) => {
+                        // Unit variant
+                        if variant_data.is_some() {
+                            return Err(LuaError::RuntimeError(
+                                format!("Variant '{}' is a unit variant and does not accept data", variant_name)
+                            ));
+                        }
+                        DynamicVariant::Unit
+                    }
+                    bevy::reflect::VariantInfo::Tuple(tuple_info) => {
+                        // Tuple variant like Val::Px(200.0)
+                        let data_value = variant_data.ok_or_else(|| LuaError::RuntimeError(
+                            format!("Variant '{}' is a tuple variant and requires data", variant_name)
+                        ))?;
+                        
+                        let mut dynamic_tuple = DynamicTuple::default();
+                        
+                        // Handle single-field tuple variants (most common case)
+                        if tuple_info.field_len() == 1 {
+                            // The value can be a scalar or table
+                            match &data_value {
+                                LuaValue::Number(n) => {
+                                    dynamic_tuple.insert(*n as f32);
+                                }
+                                LuaValue::Integer(i) => {
+                                    dynamic_tuple.insert(*i as f32);
+                                }
+                                LuaValue::Boolean(b) => {
+                                    dynamic_tuple.insert(*b);
+                                }
+                                LuaValue::String(s) => {
+                                    dynamic_tuple.insert(s.to_str()?.to_string());
+                                }
+                                LuaValue::Table(nested_table) => {
+                                    // Try to create the inner value from the table
+                                    if let Some(inner_value) = try_create_value_from_table(nested_table, asset_registry)? {
+                                        dynamic_tuple.insert_boxed(inner_value);
+                                    } else {
+                                        return Err(LuaError::RuntimeError(
+                                            format!("Failed to create value for tuple variant '{}'", variant_name)
+                                        ));
+                                    }
+                                }
+                                _ => {
+                                    return Err(LuaError::RuntimeError(
+                                        format!("Unsupported value type for tuple variant '{}'", variant_name)
+                                    ));
+                                }
+                            }
+                        } else {
+                            // Multi-field tuple variant (less common)
+                            return Err(LuaError::RuntimeError(
+                                format!("Multi-field tuple variants are not yet supported for '{}'", variant_name)
+                            ));
+                        }
+                        
+                        DynamicVariant::Tuple(dynamic_tuple)
+                    }
+                    bevy::reflect::VariantInfo::Struct(struct_info) => {
+                        // Struct variant like SomeEnum::StructVariant { field: value }
+                        let data_table = match variant_data {
+                            Some(LuaValue::Table(t)) => t,
+                            _ => return Err(LuaError::RuntimeError(
+                                format!("Variant '{}' is a struct variant and requires a table", variant_name)
+                            )),
+                        };
+                        
+                        let mut dynamic_struct = DynamicStruct::default();
+                        
+                        // Populate struct fields
+                        for i in 0..struct_info.field_len() {
+                            if let Some(field_info) = struct_info.field_at(i) {
+                                let field_name = field_info.name();
+                                
+                                if let Ok(lua_value) = data_table.get::<LuaValue>(field_name) {
+                                    // Convert Lua value to appropriate Rust type
+                                    match &lua_value {
+                                        LuaValue::Number(n) => {
+                                            dynamic_struct.insert_boxed(field_name, Box::new(*n as f32));
+                                        }
+                                        LuaValue::Integer(i) => {
+                                            dynamic_struct.insert_boxed(field_name, Box::new(*i as i32));
+                                        }
+                                        LuaValue::Boolean(b) => {
+                                            dynamic_struct.insert_boxed(field_name, Box::new(*b));
+                                        }
+                                        LuaValue::String(s) => {
+                                            dynamic_struct.insert_boxed(field_name, Box::new(s.to_str()?.to_string()));
+                                        }
+                                        LuaValue::Table(nested_table) => {
+                                            if let Some(inner_value) = try_create_value_from_table(nested_table, asset_registry)? {
+                                                dynamic_struct.insert_boxed(field_name, inner_value);
+                                            }
+                                        }
+                                        _ => {}
+                                    }
+                                }
+                            }
+                        }
+                        
+                        DynamicVariant::Struct(dynamic_struct)
+                    }
                 };
                 
                 let dynamic_enum = DynamicEnum::new(&variant_name, dynamic_variant);
@@ -504,9 +626,6 @@ fn set_nested_field_from_lua(
             }
         }
         ReflectMut::Enum(_enum_mut) => {
-            // Generic Option<T> handling: Try to create a Some(T) variant
-            // This handles Option<Rect>, Option<TextureAtlas>, Option<Vec2>, etc.
-            
             // Get the type info to understand the enum structure
             let type_path = field.reflect_type_path();
             
@@ -588,6 +707,67 @@ fn set_nested_field_from_lua(
                 let some_enum = DynamicEnum::new("Some", some_variant);
                 
                 field.apply(&some_enum);
+            } else {
+                // Non-Option enum (like Val) - create the enum variant from table
+                // Table should have format: { VariantName = value }
+                let mut pairs = table.pairs::<String, LuaValue>();
+                
+                if let Some(Ok((variant_name, variant_value))) = pairs.next() {
+                    // Ensure there's only one key
+                    if pairs.next().is_some() {
+                        return Err(LuaError::RuntimeError(
+                            "Enum table must have exactly one key (the variant name)".to_string()
+                        ));
+                    }
+                    
+                    // Create the dynamic enum variant
+                    let dynamic_variant = match &variant_value {
+                        LuaValue::Nil => {
+                            // Unit variant
+                            DynamicVariant::Unit
+                        }
+                        LuaValue::Number(n) => {
+                            // Tuple variant with single f32
+                            let mut tuple = DynamicTuple::default();
+                            tuple.insert(*n as f32);
+                            DynamicVariant::Tuple(tuple)
+                        }
+                        LuaValue::Integer(i) => {
+                            // Tuple variant with single i32/f32
+                            let mut tuple = DynamicTuple::default();
+                            tuple.insert(*i as f32);
+                            DynamicVariant::Tuple(tuple)
+                        }
+                        LuaValue::Boolean(b) => {
+                            // Tuple variant with single bool
+                            let mut tuple = DynamicTuple::default();
+                            tuple.insert(*b);
+                            DynamicVariant::Tuple(tuple)
+                        }
+                        LuaValue::String(s) => {
+                            // Tuple variant with single string
+                            let mut tuple = DynamicTuple::default();
+                            if let Ok(string) = s.to_str() {
+                                tuple.insert(string.to_string());
+                            }
+                            DynamicVariant::Tuple(tuple)
+                        }
+                        LuaValue::Table(nested_table) => {
+                            // Could be tuple or struct variant
+                            if let Some(inner_value) = try_create_value_from_table(nested_table, asset_registry)? {
+                                let mut tuple = DynamicTuple::default();
+                                tuple.insert_boxed(inner_value);
+                                DynamicVariant::Tuple(tuple)
+                            } else {
+                                DynamicVariant::Unit
+                            }
+                        }
+                        _ => DynamicVariant::Unit,
+                    };
+                    
+                    let dynamic_enum = DynamicEnum::new(&variant_name, dynamic_variant);
+                    field.apply(&dynamic_enum);
+                }
             }
         }
         _ => {}

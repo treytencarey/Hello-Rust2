@@ -16,12 +16,15 @@ fn main() {
     let mut app = App::new();
 
     app
-        .add_plugins(DefaultPlugins)
+        .add_plugins(DefaultPlugins.set(AssetPlugin {
+            // Enable asset hot-reloading for file watching
+            watch_for_changes_override: Some(true),
+            ..default()
+        }))
         .add_plugins(LuaSpawnPlugin)
         .add_systems(Startup, setup)
         .add_systems(Startup, setup_lua_resources)
         .add_systems(PostStartup, load_and_run_script)
-        .add_systems(Update, check_for_reload)
         .run();
 }
 
@@ -37,12 +40,22 @@ fn setup_lua_resources(world: &mut World) {
     info!("Registered TestResource");
 }
 
-fn load_and_run_script(lua_ctx: Res<LuaScriptContext>, script_instance: Res<crate::script_entities::ScriptInstance>) {
-    let script_path = "assets/scripts/hot_reload.lua";
-    match fs::read_to_string(script_path) {
+fn load_and_run_script(
+    lua_ctx: Res<LuaScriptContext>,
+    script_instance: Res<crate::script_entities::ScriptInstance>,
+    script_registry: Res<crate::script_registry::ScriptRegistry>,
+) {
+    let script_path = std::path::PathBuf::from("assets/scripts/hot_reload.lua");
+    match fs::read_to_string(&script_path) {
         Ok(script_content) => {
-            info!("Loaded hot reload script: {}", script_path);
-            match lua_ctx.execute_script_tracked(&script_content, "hot_reload.lua", &script_instance) {
+            info!("Loaded hot reload script: {:?}", script_path);
+            match lua_ctx.execute_script(
+                &script_content,
+                "hot_reload.lua",
+                script_path,
+                &script_instance,
+                &script_registry,
+            ) {
                 Ok(instance_id) => {
                     info!("Script executed with instance ID: {}", instance_id);
                 }
@@ -52,31 +65,7 @@ fn load_and_run_script(lua_ctx: Res<LuaScriptContext>, script_instance: Res<crat
             }
         }
         Err(e) => {
-            error!("Failed to load script {}: {}", script_path, e);
-        }
-    }
-}
-
-fn check_for_reload(lua_ctx: Res<LuaScriptContext>, script_instance: Res<crate::script_entities::ScriptInstance>) {
-    // Check if Lua set the reload flag
-    if let Ok(should_reload) = lua_ctx.lua.globals().get::<bool>("should_reload") {
-        if should_reload {
-            // Clear the flag
-            let _ = lua_ctx.lua.globals().set("should_reload", false);
-            
-            // Re-execute the script
-            let script_path = "assets/scripts/hot_reload.lua";
-            if let Ok(script_content) = fs::read_to_string(script_path) {
-                info!("Re-executing hot reload script");
-                match lua_ctx.execute_script_tracked(&script_content, "hot_reload.lua", &script_instance) {
-                    Ok(instance_id) => {
-                        info!("Script re-executed with new instance ID: {}", instance_id);
-                    }
-                    Err(e) => {
-                        error!("Failed to re-execute script: {}", e);
-                    }
-                }
-            }
+            error!("Failed to load script {:?}: {}", script_path, e);
         }
     }
 }

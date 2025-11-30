@@ -14,6 +14,7 @@ types = [
     "bevy::input::mouse::MouseButtonInput",
     "bevy::input::mouse::MouseWheel",
     "bevy::input::mouse::MouseMotion",
+    "bevy_lua_ecs::lua_file_watcher::LuaFileChangeEvent",
 ]
 
 [lib]
@@ -27,7 +28,7 @@ proc-macro2 = "1.0"
 toml = "0.8"
 
 [dependencies]
-bevy = { workspace = true }
+bevy = { workspace = true, features = ["file_watcher"] }
 mlua = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }

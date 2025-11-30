@@ -160,7 +160,7 @@ impl LuaScriptContext {
     }
     
     /// Execute a Lua script from a string
-    pub fn execute_script(&self, script_content: &str, script_name: &str) -> Result<(), LuaError> {
+    pub fn execute_script_untracked(&self, script_content: &str, script_name: &str) -> Result<(), LuaError> {
         self.lua.load(script_content).set_name(script_name).exec()?;
         Ok(())
     }
@@ -177,6 +177,24 @@ impl LuaScriptContext {
         
         self.lua.load(script_content).set_name(script_name).exec()?;
         // Note: We DON'T clear script_instance here so entities spawned via queues get tagged
+        
+        Ok(instance_id)
+    }
+    
+    /// Execute a script with automatic script ownership tracking AND register it in ScriptRegistry
+    /// This enables automatic reload on file changes
+    pub fn execute_script(
+        &self,
+        script_content: &str,
+        script_name: &str,
+        script_path: std::path::PathBuf,
+        script_instance: &crate::script_entities::ScriptInstance,
+        script_registry: &crate::script_registry::ScriptRegistry,
+    ) -> Result<u64, LuaError> {
+        let instance_id = self.execute_script_tracked(script_content, script_name, script_instance)?;
+        
+        // Register in script registry for auto-reload
+        script_registry.register_script(script_path, instance_id, script_content.to_string());
         
         Ok(instance_id)
     }
@@ -218,6 +236,10 @@ impl Plugin for LuaSpawnPlugin {
         app.init_resource::<crate::serde_components::SerdeComponentRegistry>();
         app.init_resource::<crate::resource_lua_trait::LuaResourceRegistry>();
         app.init_resource::<crate::script_entities::ScriptInstance>();
+        app.init_resource::<crate::script_registry::ScriptRegistry>();
+        
+        // Add file watcher plugin for auto-reload
+        app.add_plugins(crate::lua_file_watcher::LuaFileWatcherPlugin);
         
         // Register auto-generated resource method bindings
         // This must happen after LuaResourceRegistry is initialized
@@ -237,11 +259,13 @@ impl Plugin for LuaSpawnPlugin {
         app.add_systems(PostStartup, log_available_events);
         app.add_systems(Update, (
             crate::entity_spawner::process_spawn_queue,
+            crate::component_updater::process_component_updates,
             crate::lua_systems::run_lua_systems,
             crate::component_updater::process_component_updates,
             crate::despawn_queue::process_despawn_queue,
             crate::asset_loading::process_pending_assets,
             crate::resource_inserter::process_resource_queue,
+            auto_reload_changed_scripts,
         ));
     }
 }
@@ -333,4 +357,127 @@ fn setup_lua_context(
             error!("Failed to initialize Lua context: {}", e);
         }
     }
+}
+
+/// System that automatically reloads scripts when file changes are detected
+fn auto_reload_changed_scripts(
+    mut events: EventReader<crate::lua_file_watcher::LuaFileChangeEvent>,
+    script_registry: Res<crate::script_registry::ScriptRegistry>,
+    lua_ctx: Res<LuaScriptContext>,
+    script_instance: Res<crate::script_entities::ScriptInstance>,
+    world: &World,
+) {
+    for event in events.read() {
+        info!("File change detected: {:?}", event.path);
+        
+        // Get all active instances of this script
+        let instances = script_registry.get_active_instances(&event.path);
+        
+        if instances.is_empty() {
+            debug!("No active instances found for {:?}", event.path);
+            continue;
+        }
+        
+        // Read the new script content
+        let script_content = match std::fs::read_to_string(&event.path) {
+            Ok(content) => content,
+            Err(e) => {
+                error!("Failed to read script file {:?}: {}", event.path, e);
+                continue;
+            }
+        };
+        
+        let script_name = event.path.file_name()
+            .and_then(|n| n.to_str())
+            .unwrap_or("unknown.lua");
+        
+        info!("Reloading {} active instance(s) of '{}'", instances.len(), script_name);
+        
+        for (instance_id, _old_content) in instances {
+            // Cleanup the instance
+            cleanup_script_instance(instance_id, world);
+            
+            // Re-execute the script with the same instance tracking
+            match lua_ctx.execute_script_tracked(&script_content, script_name, &script_instance) {
+                Ok(new_instance_id) => {
+                    info!("✓ Reloaded instance {} -> {} for '{}'", instance_id, new_instance_id, script_name);
+                    
+                    // Register the new instance in the registry
+                    script_registry.register_script(
+                        event.path.clone(),
+                        new_instance_id,
+                        script_content.clone()
+                    );
+                    
+                    // Remove the old instance from the registry
+                    script_registry.remove_instance(instance_id);
+                }
+                Err(e) => {
+                    error!("Failed to reload script '{}': {}", script_name, e);
+                }
+            }
+        }
+    }
+}
+
+/// Helper function to clean up a script instance (despawn entities, remove resources, clear systems)
+fn cleanup_script_instance(instance_id: u64, world: &World) {
+    // SAFETY: We need mutable access to cleanup. This is safe because we're in an exclusive system.
+    #[allow(invalid_reference_casting)]
+    let world_mut = unsafe { &mut *(world as *const World as *mut World) };
+    
+    // 1. Get list of entities to be despawned BEFORE despawning them
+    let entities_to_despawn = {
+        let mut entities = Vec::new();
+        // Query using world_mut (which is already created)
+        let mut query_state = world_mut.query::<(Entity, &crate::script_entities::ScriptOwned)>();
+        for (entity, script_owned) in query_state.iter(world_mut) {
+            if script_owned.instance_id == instance_id {
+                entities.push(entity);
+            }
+        }
+        entities
+    };
+    
+    // 2. Clear pending component updates for these entities
+    if !entities_to_despawn.is_empty() {
+        let component_update_queue = world.resource::<crate::component_update_queue::ComponentUpdateQueue>().clone();
+        let cleared_keys = component_update_queue.clear_for_entities(&entities_to_despawn);
+        
+        let num_cleared = cleared_keys.len();
+        
+        // Clean up the Lua registry keys to prevent memory leaks
+        if let Some(lua_ctx) = world.get_resource::<LuaScriptContext>() {
+            for key in cleared_keys {
+                let _ = lua_ctx.lua.remove_registry_value(key);
+            }
+        }
+        
+        debug!("Cleared {} pending component updates for {} entities", 
+               num_cleared, entities_to_despawn.len());
+    }
+    
+    // 3. Clear all systems registered by this instance
+    let system_registry = world.resource::<LuaSystemRegistry>().clone();
+    system_registry.clear_instance_systems(instance_id);
+    
+    // 4. Remove all resources inserted by this instance
+    let resource_queue = world.resource::<crate::resource_queue::ResourceQueue>().clone();
+    let resources_to_clear = resource_queue.get_instance_resources(instance_id);
+    
+    if !resources_to_clear.is_empty() {
+        let serde_registry = world.resource::<crate::serde_components::SerdeComponentRegistry>().clone();
+        let builder_registry = world.resource::<crate::resource_builder::ResourceBuilderRegistry>().clone();
+        
+        for resource_name in &resources_to_clear {
+            if !builder_registry.try_remove(resource_name, world_mut) {
+                serde_registry.try_remove_resource(resource_name, world_mut);
+            }
+        }
+    }
+    
+    resource_queue.clear_instance_tracking(instance_id);
+    
+    // 5. Despawn all entities owned by this instance
+    crate::script_entities::despawn_instance_entities(world_mut, instance_id);
 }

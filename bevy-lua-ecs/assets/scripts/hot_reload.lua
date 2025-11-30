@@ -1,12 +1,11 @@
 -- Hot Reload Example Script
--- Spawns moving rectangle sprites, then hot reloads after 5 seconds
+-- Automatically reloads when you save changes to this file!
 -- Everything spawned by this script is destroyed and recreated on reload
 
 print("=== Hot Reload Script Starting ===")
 
--- Global state for reload timer and count
-if not _G.reload_timer then
-    _G.reload_timer = 0
+-- Global state for reload count
+if not _G.reload_count then
     _G.reload_count = 0
 end
 
@@ -63,7 +62,7 @@ for i = 1, 6 do
     spawn({
         Sprite = {
             color = colors[i],
-            custom_size = { x = 80, y = 80 }  -- Both formats work now!
+            custom_size = { x = 80, y = 80 }
         },
         Transform = {
             translation = {x = x, y = y, z = 0}
@@ -80,8 +79,8 @@ end
 
 -- Spawn instruction text
 spawn({
-    Text = { text = "Hot Reload Demo - Everything despawns and respawns every 5 seconds!" },
-    TextFont = { font_size = 28 },
+    Text2d = { text = "Hot Reload Demo - Edit and save to auto-reload!" },
+    TextFont = { font_size = 24 },
     TextColor = { color = {r = 1.0, g = 1.0, b = 1.0, a = 1.0} },
     TextLayout = {},
     Transform = { translation = {x = 0, y = 280, z = 0} }
@@ -89,48 +88,78 @@ spawn({
 
 -- Spawn reload counter text
 spawn({
-    Text = { text = "Reload Count: " .. _G.reload_count },
-    TextFont = { font_size = 24 },
+    Text2d = { text = "Reload Count: " .. _G.reload_count },
+    TextFont = { font_size = 32 },
     TextColor = { color = {r = 1.0, g = 1.0, b = 0.3, a = 1.0} },
     TextLayout = {},
     Transform = { translation = {x = 0, y = -280, z = 0} }
+})
+
+-- Spawn manual reload button
+spawn({
+    Button = {},
+    BackgroundColor = { color = {r = 0.2, g = 0.6, b = 0.8, a = 1.0} },
+    Text = { text = "Manual Reload" },
+    TextFont = { font_size = 20 },
+    TextColor = { color = {r = 1.0, g = 1.0, b = 1.0, a = 1.0} },
+    OnClick = function(world)
+        print("=== Manual Reload Button Clicked ===")
+        world:reload_current_script()
+    end
+})
+
+-- Spawn stop button
+spawn({
+    Button = {},
+    BackgroundColor = { color = {r = 0.8, g = 0.2, b = 0.2, a = 1.0} },
+    Node = {
+        top = { Px = 0 },
+        left = { Px = 200 }
+    },
+    Text = { text = "Stop Script" },
+    TextFont = { font_size = 20 },
+    TextColor = { color = {r = 1.0, g = 1.0, b = 1.0, a = 1.0} },
+    OnClick = function(world)
+        print("=== Stop Script Button Clicked ===")
+        world:stop_current_script()
+    end
 })
 
 -- Movement system
 function movement_system(world)
     local dt = world:delta_time()
     local entities = world:query({"Transform", "Velocity"}, nil)
-    
+
     for i, entity in ipairs(entities) do
         local transform = entity:get("Transform")
         local velocity = entity:get("Velocity")
-        
+
         if transform and velocity then
             -- Update position
             local new_x = transform.translation.x + velocity.x * dt
             local new_y = transform.translation.y + velocity.y * dt
-            
+
             -- Bounce off screen edges (assuming 800x600 window)
             local new_vx = velocity.x
             local new_vy = velocity.y
-            
+
             if new_x > 400 or new_x < -400 then
                 new_vx = -velocity.x
                 new_x = math.max(-400, math.min(400, new_x))
             end
-            
+
             if new_y > 300 or new_y < -300 then
                 new_vy = -velocity.y
                 new_y = math.max(-300, math.min(300, new_y))
             end
-            
+
             -- Update transform
             entity:set("Transform", {
                 translation = {x = new_x, y = new_y, z = 0},
                 rotation = transform.rotation,
                 scale = transform.scale
             })
-            
+
             -- Update velocity if bounced
             if new_vx ~= velocity.x or new_vy ~= velocity.y then
                 entity:set("Velocity", {x = new_vx, y = new_vy})
@@ -139,31 +168,27 @@ function movement_system(world)
     end
 end
 
--- Hot reload system - automatically reloads the script every 5 seconds
-function hot_reload_system(world)
-    local dt = world:delta_time()
-    _G.reload_timer = _G.reload_timer + dt
+-- Button click handling system
+function button_system(world)
+    local buttons = world:query({"Button", "Interaction", "OnClick"}, {"Interaction"})
     
-    if _G.reload_timer >= 5.0 then
-        print("=== Hot Reload Triggered! ===")
-        print(_G.reload_timer, dt)
-        
-        -- Despawn ALL entities spawned by this script automatically
-        world:reload_script()
-        print("Despawned all entities from this script")
-        
-        -- Reset timer
-        _G.reload_timer = 0
-        
-        -- Set flag to trigger re-execution from Rust
-        _G.should_reload = true
-        
-        print("=== Reload Requested - Waiting for script re-execution ===")
+    for i, entity in ipairs(buttons) do
+        local interaction = entity:get("Interaction")
+        if interaction == "Pressed" then
+            local on_click = entity:get("OnClick")
+            if on_click and type(on_click) == "function" then
+                on_click(world)
+            end
+        end
     end
 end
 
 -- Register systems
 register_system("Update", movement_system)
-register_system("Update", hot_reload_system)
+register_system("Update", button_system)
 
 print("=== Hot Reload Script Initialized ===")
+print("💡 Try these:")
+print("   1. Edit this file and save to see auto-reload")
+print("   2. Click 'Manual Reload' button to trigger reload via Lua (sets _G.manual_reload = true)")
+print("   3. Change colors, positions, or text and see them update instantly!")

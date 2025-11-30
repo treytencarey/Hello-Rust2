@@ -145,67 +145,138 @@ fn run_single_lua_system(
             }
         })?)?;
         
-        // reload_script() - despawn all entities from current script instance and re-execute it
-        // Note: This only despawns entities, the actual re-execution must be triggered externally
-        world_table.set("reload_script", scope.create_function({
+        // Helper function to cleanup a script instance (shared by reload and stop)
+        let cleanup_script_instance = |lua_ctx: &Lua, instance_id: u64, script_name: &str| -> Result<(), LuaError> {
+            let script_registry = world.resource::<crate::script_registry::ScriptRegistry>().clone();
             let system_registry = world.resource::<LuaSystemRegistry>().clone();
             let resource_queue = world.resource::<crate::resource_queue::ResourceQueue>().clone();
             let serde_registry = world.resource::<crate::serde_components::SerdeComponentRegistry>().clone();
             let builder_registry = world.resource::<crate::resource_builder::ResourceBuilderRegistry>().clone();
+            
+            // Clear all systems registered by this instance
+            system_registry.clear_instance_systems(instance_id);
+            
+            // Get list of resources inserted by this instance
+            let resources_to_clear = resource_queue.get_instance_resources(instance_id);
+            
+            if !resources_to_clear.is_empty() {
+                // SAFETY: We need mutable access to remove resources
+                #[allow(invalid_reference_casting)]
+                let world_mut = unsafe { &mut *(world as *const World as *mut World) };
+                
+                for resource_name in &resources_to_clear {
+                    if !builder_registry.try_remove(resource_name, world_mut) {
+                        serde_registry.try_remove_resource(resource_name, world_mut);
+                    }
+                }
+            }
+            
+            // Clear resource tracking for this instance
+            resource_queue.clear_instance_tracking(instance_id);
+            
+            // SAFETY: We need mutable access to despawn entities
+            #[allow(invalid_reference_casting)]
+            let world_mut = unsafe { &mut *(world as *const World as *mut World) };
+            
+            // Get list of entities to be despawned BEFORE despawning
+            let entities_to_despawn: Vec<Entity> = {
+                let mut query_state = world_mut.query::<(Entity, &crate::script_entities::ScriptOwned)>();
+                query_state.iter(world_mut)
+                    .filter(|(_, script_owned)| script_owned.instance_id == instance_id)
+                    .map(|(entity, _)| entity)
+                    .collect()
+            };
+            
+            // Clear pending component updates for these entities
+            if !entities_to_despawn.is_empty() {
+                let component_update_queue = world.resource::<crate::component_update_queue::ComponentUpdateQueue>().clone();
+                let cleared_keys = component_update_queue.clear_for_entities(&entities_to_despawn);
+                
+                // Clean up the Lua registry keys
+                for key in cleared_keys {
+                    let _ = lua_ctx.remove_registry_value(key);
+                }
+            }
+            
+            // Despawn all entities from this instance
+            crate::script_entities::despawn_instance_entities(world_mut, instance_id);
+            
+            // Remove old instance from registry
+            script_registry.remove_instance(instance_id);
+            
+            Ok(())
+        };
+        
+        // reload_current_script() - cleanup and reload the current script instance
+        world_table.set("reload_current_script", scope.create_function({
+            let script_registry = world.resource::<crate::script_registry::ScriptRegistry>().clone();
+            let cleanup = cleanup_script_instance.clone();
             move |lua_ctx, _self: LuaTable| {
                 // Get the instance ID from Lua global (set by execute_script_tracked)
                 let instance_id: u64 = lua_ctx.globals().get("__INSTANCE_ID__")?;
                 let script_name: String = lua_ctx.globals().get("__SCRIPT_NAME__")?;
                 
-                // Clear all systems registered by this instance
-                system_registry.clear_instance_systems(instance_id);
+                info!("Manual reload requested for script instance {} ('{}')", instance_id, script_name);
                 
-                // Get list of resources inserted by this instance
-                let resources_to_clear = resource_queue.get_instance_resources(instance_id);
+                // Get script path and content from registry
+                let script_path = script_registry.get_instance_path(instance_id)
+                    .ok_or_else(|| LuaError::RuntimeError(format!("Script instance {} not found in registry", instance_id)))?;
                 
-                if !resources_to_clear.is_empty() {
-                    info!("Removing {} resources from script instance {} ('{}')", 
-                          resources_to_clear.len(), instance_id, script_name);
-                    
-                    // SAFETY: We need mutable access to remove resources
-                    #[allow(invalid_reference_casting)]
-                    let world_mut = unsafe { &mut *(world as *const World as *mut World) };
-                    
-                    let mut removed_count = 0;
-                    let mut not_found_count = 0;
-                    
-                    for resource_name in &resources_to_clear {
-                        // Try builder registry first
-                        if builder_registry.try_remove(resource_name, world_mut) {
-                            removed_count += 1;
-                        }
-                        // Then try serde registry
-                        else if serde_registry.try_remove_resource(resource_name, world_mut) {
-                            removed_count += 1;
-                        } else {
-                            not_found_count += 1;
-                            warn!("No removal handler found for resource '{}'", resource_name);
-                        }
+                let script_content = script_registry.get_instance_content(instance_id)
+                    .ok_or_else(|| LuaError::RuntimeError(format!("Script content for instance {} not found", instance_id)))?;
+                
+                // Use shared cleanup logic
+                cleanup(lua_ctx, instance_id, &script_name)?;
+                
+                // Get Lua context and re-execute the script
+                let lua_ctx_res = world.resource::<crate::lua_integration::LuaScriptContext>().clone();
+                let script_instance = world.resource::<crate::script_entities::ScriptInstance>().clone();
+                
+                // Re-execute the script
+                match lua_ctx_res.execute_script_tracked(&script_content, &script_name, &script_instance) {
+                    Ok(new_instance_id) => {
+                        info!("✓ Script reloaded: instance {} -> {}", instance_id, new_instance_id);
+                        
+                        // Register the new instance
+                        script_registry.register_script(script_path, new_instance_id, script_content);
+                        
+                        Ok(())
                     }
-                    
-                    if removed_count > 0 {
-                        info!("✓ Removed {} resources", removed_count);
-                    }
-                    if not_found_count > 0 {
-                        warn!("⚠ {} resources could not be removed (no removal handler)", not_found_count);
+                    Err(e) => {
+                        Err(LuaError::RuntimeError(format!("Failed to reload script: {}", e)))
                     }
                 }
+            }
+        })?)?;
+        
+        // stop_current_script() - cleanup and stop the current script (no reload)
+        world_table.set("stop_current_script", scope.create_function({
+            let script_registry = world.resource::<crate::script_registry::ScriptRegistry>().clone();
+            let cleanup = cleanup_script_instance.clone();
+            move |lua_ctx, _self: LuaTable| {
+                // Get the instance ID from Lua global (set by execute_script_tracked)
+                let instance_id: u64 = lua_ctx.globals().get("__INSTANCE_ID__")?;
+                let script_name: String = lua_ctx.globals().get("__SCRIPT_NAME__")?;
                 
-                // Clear resource tracking for this instance
-                resource_queue.clear_instance_tracking(instance_id);
+                info!("Stop requested for script instance {} ('{}')", instance_id, script_name);
                 
-                // SAFETY: We need mutable access to despawn entities
-                #[allow(invalid_reference_casting)]
-                let world_mut = unsafe { &mut *(world as *const World as *mut World) };
+                // Mark as stopped in registry (prevents auto-reload)
+                script_registry.mark_stopped(instance_id);
                 
-                // Despawn all entities from this instance (uses despawn queue which handles cleanup)
-                crate::script_entities::despawn_instance_entities(world_mut, instance_id);
+                // Use shared cleanup logic
+                cleanup(lua_ctx, instance_id, &script_name)?;
+                
+                info!("✓ Script instance {} stopped", instance_id);
                 Ok(())
+            }
+        })?)?;
+        
+        // Legacy reload_script() - kept for backwards compatibility, calls reload_current_script()
+        world_table.set("reload_script", scope.create_function({
+            move |_lua_ctx, self_table: LuaTable| {
+                // Just delegate to reload_current_script
+                let reload_fn: LuaFunction = self_table.get("reload_current_script")?;
+                reload_fn.call::<()>(self_table)
             }
         })?)?;
         

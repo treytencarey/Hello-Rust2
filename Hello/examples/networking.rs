@@ -58,16 +58,32 @@ fn setup(mut commands: Commands) {
     commands.spawn(Camera2d);
 }
 
-fn load_and_run_script(lua_ctx: Res<LuaScriptContext>) {
-    let script_path = "Hello/assets/scripts/networking_example.lua";
-    match fs::read_to_string(script_path) {
+fn load_and_run_script(
+    lua_ctx: Res<LuaScriptContext>,
+    script_instance: Res<crate::script_entities::ScriptInstance>,
+    script_registry: Res<crate::script_registry::ScriptRegistry>,
+) {
+    let script_path = std::path::PathBuf::from("assets/scripts/networking_example.lua");
+    match fs::read_to_string(&script_path) {
         Ok(script_content) => {
-            if let Err(e) = lua_ctx.execute_script(&script_content, "networking_example.lua") {
-                error!("Failed to execute script: {}", e);
+            info!("Loaded hot reload script: {:?}", script_path);
+            match lua_ctx.execute_script(
+                &script_content,
+                "networking_example.lua",
+                script_path,
+                &script_instance,
+                &script_registry,
+            ) {
+                Ok(instance_id) => {
+                    info!("Script executed with instance ID: {}", instance_id);
+                }
+                Err(e) => {
+                    error!("Failed to execute script: {}", e);
+                }
             }
         }
         Err(e) => {
-            error!("Failed to load script {}: {}", script_path, e);
+            error!("Failed to load script {:?}: {}", script_path, e);
         }
     }
 }

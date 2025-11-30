@@ -20,6 +20,8 @@ pub mod auto_bindings;
 pub mod os_utilities;
 pub mod reflection;
 pub mod script_entities;
+pub mod script_registry;
+pub mod lua_file_watcher;
 
 
 // Re-export commonly used types
@@ -42,6 +44,8 @@ pub use resource_lua_trait::LuaResourceRegistry;
 pub use event_reader::reflection_to_lua;
 pub use auto_bindings::{register_auto_bindings, register_auto_events};
 pub use script_entities::{ScriptOwned, ScriptInstance, despawn_instance_entities};
+pub use script_registry::ScriptRegistry;
+pub use lua_file_watcher::{LuaFileWatcherPlugin, LuaFileChangeEvent};
 
 
 /// Register common Bevy event types for Lua access via world:read_events()
