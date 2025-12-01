@@ -182,7 +182,10 @@ pub fn execute_query(
     let mut results = Vec::new();
     let type_registry = component_registry.type_registry().read();
     
-    // Iterate all entities
+    // Iterate all entities using world entities iterator
+    // In Bevy 0.17, we can use world.iter_entities() but it's deprecated
+    // The recommended way is to use a system with Query, but since we're in a Lua context
+    // we'll use the entities iterator
     for entity_ref in world.iter_entities() {
         let mut matches = true;
         let mut component_data = HashMap::new();
@@ -190,7 +193,22 @@ pub fn execute_query(
         
         // Check with() filters and collect component data
         for component_name in &query_builder.with_components {
-            // 1. Check if it's a known Rust component
+            // 1. Check if it's a non-reflected component (like Lightyear components)
+            if let Some(type_id) = component_registry.get_non_reflected_type_id(component_name) {
+                // Check if entity has this component via world.components()
+                if let Some(component_id) = world.components().get_id(*type_id) {
+                    if entity_ref.contains_id(component_id) {
+                        // Component exists on this entity, add placeholder data
+                        component_data.insert(component_name.clone(), "{}".to_string());
+                        continue;
+                    }
+                }
+                // Component not found on entity
+                matches = false;
+                break;
+            }
+            
+            // 2. Check if it's a known Rust component (with Reflect)
             if let Some(type_path) = component_registry.get_type_path(component_name) {
                 if let Some(registration) = type_registry.get_with_type_path(&type_path) {
                     if let Some(reflect_component) = registration.data::<ReflectComponent>() {
@@ -215,7 +233,7 @@ pub fn execute_query(
                 break;
             } 
             
-            // 2. Check if it's a generic Lua component
+            // 3. Check if it's a generic Lua component
             if let Some(custom_components) = entity_ref.get::<LuaCustomComponents>() {
                 if let Some(key) = custom_components.components.get(component_name) {
                     // Found it!

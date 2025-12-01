@@ -2,8 +2,8 @@ use bevy::prelude::*;
 use std::path::{Path, PathBuf};
 use std::time::Duration;
 
-/// Event emitted when a Lua script file changes
-#[derive(Event, Clone, Debug, Reflect)]
+/// Message emitted when a Lua script file changes
+#[derive(Message, Clone, Debug, Reflect)]
 #[reflect(Debug)]
 pub struct LuaFileChangeEvent {
     pub path: PathBuf,
@@ -14,7 +14,7 @@ pub struct LuaFileWatcherPlugin;
 
 impl Plugin for LuaFileWatcherPlugin {
     fn build(&self, app: &mut App) {
-        app.add_event::<LuaFileChangeEvent>();
+        app.add_message::<LuaFileChangeEvent>();
         app.add_systems(Startup, setup_file_watcher);
         app.add_systems(Update, poll_file_changes);
     }
@@ -44,7 +44,7 @@ fn setup_file_watcher(mut commands: Commands) {
 
 fn poll_file_changes(
     mut state: ResMut<FileWatcherState>,
-    mut events: EventWriter<LuaFileChangeEvent>,
+    mut events: MessageWriter<LuaFileChangeEvent>,
 ) {
     let script_dir = Path::new("assets/scripts");
     

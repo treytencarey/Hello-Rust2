@@ -60,9 +60,7 @@ pub fn reflection_to_lua(
         }
         ReflectRef::Map(m) => {
             let table = lua.create_table()?;
-            for i in 0..m.len() {
-                let key = m.get_at(i).unwrap().0;
-                let value = m.get_at(i).unwrap().1;
+            for (key, value) in m.iter() {
                 let lua_key = reflection_to_lua(lua, key, registry)?;
                 let lua_value = reflection_to_lua(lua, value, registry)?;
                 table.set(lua_key, lua_value)?;

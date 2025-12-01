@@ -61,3 +61,8 @@ required-features = ["networking"]
 name = "lightyear_chat"
 path = "examples/lightyear_chat.rs"
 required-features = ["lightyear_net"]
+
+[[example]]
+name = "lightyear_messaging"
+path = "examples/lightyear_messaging.rs"
+required-features = ["lightyear_net"]

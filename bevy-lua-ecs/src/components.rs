@@ -21,6 +21,8 @@ pub struct ComponentRegistry {
     handlers: HashMap<String, ComponentHandler>,
     type_registry: AppTypeRegistry,
     asset_registry: Option<crate::asset_loading::AssetRegistry>,
+    /// Map of non-reflected component names to their TypeIds (for components that don't implement Reflect)
+    non_reflected_components: HashMap<String, std::any::TypeId>,
 }
 
 impl ComponentRegistry {
@@ -30,6 +32,7 @@ impl ComponentRegistry {
             handlers: HashMap::new(),
             type_registry: type_registry.clone(),
             asset_registry: None,
+            non_reflected_components: HashMap::new(),
         };
         
         // Auto-discover and register all components
@@ -84,6 +87,12 @@ impl ComponentRegistry {
     
     /// Get the full type path for a component by short name
     pub fn get_type_path(&self, short_name: &str) -> Option<String> {
+        // Check non-reflected components first
+        if let Some(type_id) = self.non_reflected_components.get(short_name) {
+            return Some(std::any::type_name_of_val(type_id).to_string());
+        }
+        
+        // Fall back to reflected components
         let type_registry = self.type_registry.read();
         for registration in type_registry.iter() {
             if registration.data::<ReflectComponent>().is_some() {
@@ -94,6 +103,22 @@ impl ComponentRegistry {
             }
         }
         None
+    }
+    
+    /// Register a component that doesn't implement Reflect for queryability
+    pub fn register_non_reflected_component<C: Component + 'static>(&mut self, short_name: &str) {
+        use std::any::TypeId;
+        self.non_reflected_components.insert(short_name.to_string(), TypeId::of::<C>());
+    }
+    
+    /// Check if a non-reflected component is registered
+    pub fn is_non_reflected_component(&self, short_name: &str) -> bool {
+        self.non_reflected_components.contains_key(short_name)
+    }
+    
+    /// Get the TypeId of a non-reflected component
+    pub fn get_non_reflected_type_id(&self, short_name: &str) -> Option<&std::any::TypeId> {
+        self.non_reflected_components.get(short_name)
     }
     
     /// Get access to the type registry

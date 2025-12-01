@@ -135,11 +135,11 @@ entity:set("ComponentName", { field = new_value })
 
 #### Reading Events
 
-Read **any** Bevy event using generic reflection:
+Read **any** Bevy event using generic reflection. Both `read_events()` and `query_events()` are supported (they are aliases):
 
 ```lua
 function handle_input(world)
-    -- File drag and drop
+    -- File drag and drop (using read_events)
     local file_events = world:read_events("bevy_window::event::FileDragAndDrop")
     for i, event in ipairs(file_events) do
         if event.DroppedFile then
@@ -155,14 +155,14 @@ function handle_input(world)
         print("Cursor at:", event.position.x, event.position.y)
     end
     
-    -- Keyboard input
-    local key_events = world:read_events("bevy_input::keyboard::KeyboardInput")
+    -- Keyboard input (using query_events alias)
+    local key_events = world:query_events("bevy_input::keyboard::KeyboardInput")
     for i, event in ipairs(key_events) do
         print("Key:", event.key_code, "State:", event.state)
     end
     
     -- Mouse buttons
-    local mouse_events = world:read_events("bevy_input::mouse::MouseButtonInput")
+    local mouse_events = world:query_events("bevy_input::mouse::MouseButtonInput")
     for i, event in ipairs(mouse_events) do
         print("Button:", event.button, "State:", event.state)
     end
@@ -231,6 +231,51 @@ if world:query_resource("MyResource") then
     print("Resource exists!")
 end
 ```
+
+#### Component Method Bindings
+
+Call methods on entity components directly from Lua:
+
+```lua
+-- Query for entities with MessageSender component
+local senders = world:query({"MessageSender"}, nil)
+for _, sender in ipairs(senders) do
+    -- Call send() method on the component
+    world:call_component_method(sender, "MessageSender", "send", message_json)
+end
+
+-- Query for entities with MessageReceiver component  
+local receivers = world:query({"MessageReceiver"}, nil)
+for _, receiver in ipairs(receivers) do
+    -- Call receive() method and get results
+    local messages = world:call_component_method(receiver, "MessageReceiver", "receive")
+    for _, msg in ipairs(messages) do
+        print("Received:", msg)
+    end
+end
+```
+
+**Game developers register component methods in Rust**:
+
+```rust
+use bevy_lua_ecs::LuaComponentRegistry;
+
+fn register_components(registry: Res<LuaComponentRegistry>) {
+    // Register methods for your component types
+    registry.register_component::<MyComponent, _>("MyComponent", |methods| {
+        methods.add("do_something", |component, _lua, arg: String| {
+            component.internal_method(arg);
+            Ok(true)  // Return value must implement IntoLua
+        });
+    });
+}
+```
+
+**Key Features**:
+- 🎯 **Generic Infrastructure**: Library has ZERO knowledge of specific components/plugins
+- ✅ **Type-Safe**: Methods use Rust's type system for safety
+- 🔄 **Auto-Mutability Detection**: Only mutable components can register methods (Bevy 0.16)
+- 🎮 **Game-Specific Registration**: Keep plugin bindings in your game code, not the library
 
 ## Advanced: Resource Management
 

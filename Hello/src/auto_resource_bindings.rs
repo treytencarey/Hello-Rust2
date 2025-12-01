@@ -1,1 +1,1 @@
-pub fn register_auto_resource_bindings (registry : & bevy_lua_ecs :: LuaResourceRegistry) { } pub fn register_auto_constructors (lua : & mlua :: Lua) -> Result < () , mlua :: Error > { Ok (()) }
+pub fn register_auto_resource_bindings (registry : & bevy_lua_ecs :: LuaResourceRegistry) { } pub fn register_auto_component_bindings (registry : & bevy_lua_ecs :: LuaComponentRegistry) { } pub fn register_auto_constructors (lua : & mlua :: Lua) -> Result < () , mlua :: Error > { Ok (()) }

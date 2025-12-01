@@ -70,7 +70,8 @@ impl LuaScriptContext {
             }
             
             // Convert u64 to Entity
-            let parent = Entity::from_raw(parent_id as u32);
+            let parent = Entity::from_raw_u32(parent_id as u32)
+                .ok_or_else(|| LuaError::RuntimeError("Invalid entity ID".to_string()))?;
             
             // Queue spawn with parent
             queue_for_parent.clone().queue_spawn_with_parent(parent, all_components, Vec::new());
@@ -176,7 +177,8 @@ impl LuaScriptContext {
         
         // Create despawn function
         let despawn = lua_clone.create_function(move |_lua_ctx, entity_id: u64| {
-            let entity = Entity::from_raw(entity_id as u32);
+            let entity = Entity::from_raw_u32(entity_id as u32)
+                .ok_or_else(|| LuaError::RuntimeError("Invalid entity ID".to_string()))?;
             despawn_queue.queue_despawn(entity);
             Ok(())
         })?;
@@ -277,6 +279,7 @@ impl Plugin for LuaSpawnPlugin {
         app.init_resource::<crate::resource_builder::ResourceBuilderRegistry>();
         app.init_resource::<crate::serde_components::SerdeComponentRegistry>();
         app.init_resource::<crate::resource_lua_trait::LuaResourceRegistry>();
+        app.init_resource::<crate::component_lua_trait::LuaComponentRegistry>();
         app.init_resource::<crate::script_entities::ScriptInstance>();
         app.init_resource::<crate::script_registry::ScriptRegistry>();
         
@@ -306,6 +309,8 @@ impl Plugin for LuaSpawnPlugin {
             crate::component_updater::process_component_updates,
             crate::despawn_queue::process_despawn_queue,
             crate::asset_loading::process_pending_assets,
+        ));
+        app.add_systems(Update, (
             crate::resource_inserter::process_resource_queue,
             auto_reload_changed_scripts,
         ));
@@ -405,7 +410,7 @@ fn setup_lua_context(
 
 /// System that automatically reloads scripts when file changes are detected
 fn auto_reload_changed_scripts(
-    mut events: EventReader<crate::lua_file_watcher::LuaFileChangeEvent>,
+    mut events: MessageReader<crate::lua_file_watcher::LuaFileChangeEvent>,
     script_registry: Res<crate::script_registry::ScriptRegistry>,
     lua_ctx: Res<LuaScriptContext>,
     script_instance: Res<crate::script_entities::ScriptInstance>,

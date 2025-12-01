@@ -145,6 +145,30 @@ fn run_single_lua_system(
             }
         })?)?;
         
+        // call_component_method(entity, component_name, method_name, ...args) - call a registered method on an entity's component
+        world_table.set("call_component_method", scope.create_function({
+            let component_registry_for_method = world.resource::<crate::component_lua_trait::LuaComponentRegistry>().clone();
+            move |lua_ctx, (_, entity_snapshot, component_name, method_name, args): (LuaTable, mlua::AnyUserData, String, String, mlua::MultiValue)| {
+                // Get the entity from the snapshot
+                let snapshot = entity_snapshot.borrow::<crate::lua_world_api::LuaEntitySnapshot>()?;
+                let entity = snapshot.entity;
+                drop(snapshot); // Drop borrow before calling method
+                
+                // SAFETY: We need mutable access to call component methods
+                #[allow(invalid_reference_casting)]
+                let world_mut = unsafe { &mut *(world as *const World as *mut World) };
+                
+                component_registry_for_method.call_method(
+                    lua_ctx,
+                    world_mut,
+                    entity,
+                    &component_name,
+                    &method_name,
+                    args
+                )
+            }
+        })?)?;
+        
         // Helper function to cleanup a script instance (shared by reload and stop)
         let cleanup_script_instance = |lua_ctx: &Lua, instance_id: u64, script_name: &str| -> Result<(), LuaError> {
             let script_registry = world.resource::<crate::script_registry::ScriptRegistry>().clone();
