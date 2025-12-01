@@ -316,7 +316,7 @@ fn run_single_lua_system(
         })?)?;
 
         // read_events(event_type_name) - read any Bevy event via reflection
-        world_table.set("read_events", scope.create_function({
+        let read_events_fn = scope.create_function({
             move |lua_ctx, (_self, event_type_name): (LuaTable, String)| {
                 let type_registry = component_registry.type_registry();
                 let registry = type_registry.read();
@@ -377,7 +377,12 @@ fn run_single_lua_system(
 
                 Ok(results)
             }
-        })?)?;
+        })?;
+        
+        world_table.set("read_events", read_events_fn.clone())?;
+        
+        // query_events(event_type_name) - alias for read_events for API consistency
+        world_table.set("query_events", read_events_fn)?;
 
         // Call the Lua system function
         func.call::<()>(world_table)?;

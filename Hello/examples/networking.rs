@@ -44,6 +44,7 @@ fn main() {
 fn setup_networking_registries(
     mut serde_registry: ResMut<SerdeComponentRegistry>,
     builder_registry: Res<ResourceBuilderRegistry>,
+    method_registry: Res<LuaResourceRegistry>,
 ) {
     // Register Replicated marker component for this example
     #[cfg(feature = "networking")]
@@ -52,6 +53,10 @@ fn setup_networking_registries(
     // Register networking constructors from library (generic infrastructure)
     #[cfg(feature = "networking")]
     networking::register_networking_constructors(&builder_registry);
+    
+    // Register networking method bindings (send_message, receive_message, etc.)
+    #[cfg(feature = "networking")]
+    networking::register_networking_methods(&method_registry);
 }
 
 fn setup(mut commands: Commands) {

@@ -13,6 +13,7 @@ impl LuaScriptContext {
     /// Create a new Lua context with component-based spawn function
     pub fn new(
         queue: SpawnQueue,
+        despawn_queue: crate::despawn_queue::DespawnQueue,
         resource_queue: crate::resource_queue::ResourceQueue,
         system_registry: LuaSystemRegistry,
         _builder_registry: crate::resource_builder::ResourceBuilderRegistry,
@@ -26,7 +27,11 @@ impl LuaScriptContext {
         let lua_for_closure = lua_clone.clone();
         let lua_for_resource = lua_clone.clone();
         
+        // Track entity ID counter for immediate return (will be synced in process_spawn_queue)
+        let entity_counter = Arc::new(std::sync::atomic::AtomicU32::new(0));
+        
         // Create component-based spawn function that returns an entity ID
+        let counter_clone = entity_counter.clone();
         let spawn = lua_clone.create_function(move |_lua_ctx, components: LuaTable| {
             let mut all_components = Vec::new();
             
@@ -39,13 +44,40 @@ impl LuaScriptContext {
                 all_components.push((component_name, registry_key));
             }
             
-            // Pass empty list for lua_components, we'll sort it out in the spawner
+            // Queue spawn
             queue_clone.clone().queue_spawn(all_components, Vec::new());
             
-            // Note: We can't return the actual entity ID here because spawning is queued
-            // The entity won't exist until the next frame. Return nil for now.
-            // TODO: Implement a callback system or deferred ID retrieval
-            Ok(())
+            // Generate a temporary entity ID (will be replaced with real ID in spawner)
+            // For now we use a counter, but this won't match real entity IDs
+            let temp_id = counter_clone.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+            Ok(temp_id as u64)
+        })?;
+
+        // Create spawn_with_parent function
+        let queue_for_parent = queue.clone();
+        let lua_for_parent = lua_clone.clone();
+        let counter_for_parent = entity_counter.clone();
+        let spawn_with_parent = lua_clone.create_function(move |_lua_ctx, (parent_id, components): (u64, LuaTable)| {
+            let mut all_components = Vec::new();
+            
+            // Iterate over components table
+            for pair in components.pairs::<String, LuaValue>() {
+                let (component_name, component_value) = pair?;
+                
+                // Store everything as registry value
+                let registry_key = lua_for_parent.create_registry_value(component_value)?;
+                all_components.push((component_name, registry_key));
+            }
+            
+            // Convert u64 to Entity
+            let parent = Entity::from_raw(parent_id as u32);
+            
+            // Queue spawn with parent
+            queue_for_parent.clone().queue_spawn_with_parent(parent, all_components, Vec::new());
+            
+            // Return temporary ID
+            let temp_id = counter_for_parent.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+            Ok(temp_id as u64)
         })?;
 
 
@@ -140,6 +172,16 @@ impl LuaScriptContext {
         
         // Inject into globals
         lua_clone.globals().set("spawn", spawn)?;
+        lua_clone.globals().set("spawn_with_parent", spawn_with_parent)?;
+        
+        // Create despawn function
+        let despawn = lua_clone.create_function(move |_lua_ctx, entity_id: u64| {
+            let entity = Entity::from_raw(entity_id as u32);
+            despawn_queue.queue_despawn(entity);
+            Ok(())
+        })?;
+        lua_clone.globals().set("despawn", despawn)?;
+        
         lua_clone.globals().set("insert_resource", insert_resource)?;
         lua_clone.globals().set("register_system", register_system)?;
         lua_clone.globals().set("copy_file", copy_file)?;
@@ -319,6 +361,7 @@ fn log_available_events(type_registry: Res<AppTypeRegistry>) {
 fn setup_lua_context(
     mut commands: Commands,
     queue: Res<SpawnQueue>,
+    despawn_queue: Res<crate::despawn_queue::DespawnQueue>,
     resource_queue: Res<crate::resource_queue::ResourceQueue>,
     builder_registry: Res<crate::resource_builder::ResourceBuilderRegistry>,
     asset_server: Res<AssetServer>,
@@ -335,6 +378,7 @@ fn setup_lua_context(
     
     match LuaScriptContext::new(
         queue.clone(),
+        despawn_queue.clone(),
         resource_queue.clone(),
         system_registry.clone(),
         builder_registry.clone(),

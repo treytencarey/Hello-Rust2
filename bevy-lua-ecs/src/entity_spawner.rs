@@ -22,6 +22,13 @@ pub fn process_spawn_queue(
     for request in requests {
         // Spawn entity
         let entity_id = commands.spawn_empty().id();
+        
+        // Store the entity ID as u64 in Lua globals so scripts can access it
+        // This allows spawn() to return the entity ID
+        if let Err(e) = lua_ctx.lua.globals().set("__LAST_SPAWNED_ENTITY__", entity_id.to_bits() as u64) {
+            warn!("Failed to set last spawned entity: {}", e);
+        }
+        
         let mut entity = commands.entity(entity_id);
         let mut lua_custom_components = crate::components::LuaCustomComponents::default();
         let mut _has_interaction = false;
@@ -84,6 +91,11 @@ pub fn process_spawn_queue(
         // Automatically tag entity with script ownership if a script instance is executing
         if let Some(instance_id) = current_script.get_id() {
             entity.insert(crate::script_entities::ScriptOwned { instance_id });
+        }
+        
+        // Set parent after all components are added
+        if let Some(parent_entity) = request.parent {
+            commands.entity(parent_entity).add_child(entity_id);
         }
     }
 }

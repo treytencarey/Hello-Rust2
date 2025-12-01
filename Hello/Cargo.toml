@@ -34,6 +34,7 @@ default = ["physics", "tiled", "networking"]
 physics = ["dep:bevy_rapier2d"]
 tiled = ["dep:bevy_ecs_tiled"]
 networking = ["dep:bevy_replicon", "dep:bevy_replicon_renet", "dep:bevy_renet", "dep:renet", "dep:serde", "dep:mlua"]
+lightyear_net = ["dep:lightyear", "dep:serde", "dep:serde_json", "dep:mlua"]
 bevy_rapier2d = ["dep:bevy_rapier2d"]
 
 [dependencies]
@@ -45,12 +46,18 @@ bevy_replicon = { workspace = true, optional = true }
 bevy_replicon_renet = { workspace = true, optional = true }
 bevy_renet = { workspace = true, optional = true }
 renet = { workspace = true, optional = true }
+lightyear = { workspace = true, optional = true }
 serde = { workspace = true, optional = true }
+serde_json = { workspace = true, optional = true }
 mlua = { workspace = true, optional = true }
+rand = "0.8"
 
 [[example]]
 name = "networking"
 path = "examples/networking.rs"
 required-features = ["networking"]
 
-
+[[example]]
+name = "lightyear_chat"
+path = "examples/lightyear_chat.rs"
+required-features = ["lightyear_net"]

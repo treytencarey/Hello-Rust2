@@ -667,7 +667,9 @@ fn write_generated_bindings(bindings: Vec<proc_macro2::TokenStream>, event_types
     
     // Generate event registration code
     let event_registrations: Vec<_> = event_types.iter().map(|event_type| {
-        let type_path = syn::parse_str::<syn::Path>(event_type).unwrap();
+        // Replace bevy_lua_ecs:: with crate:: for internal types
+        let adjusted_type = event_type.replace("bevy_lua_ecs::", "crate::");
+        let type_path = syn::parse_str::<syn::Path>(&adjusted_type).unwrap();
         quote::quote! {
             app.register_type::<#type_path>();
             app.register_type::<bevy::prelude::Events<#type_path>>();
@@ -696,7 +698,9 @@ fn write_empty_bindings_with_events(event_types: Vec<String>) {
     
     // Generate event registration code
     let event_registrations: Vec<_> = event_types.iter().map(|event_type| {
-        let type_path = syn::parse_str::<syn::Path>(event_type).unwrap();
+        // Replace bevy_lua_ecs:: with crate:: for internal types
+        let adjusted_type = event_type.replace("bevy_lua_ecs::", "crate::");
+        let type_path = syn::parse_str::<syn::Path>(&adjusted_type).unwrap();
         quote::quote! {
             app.register_type::<#type_path>();
             app.register_type::<bevy::prelude::Events<#type_path>>();

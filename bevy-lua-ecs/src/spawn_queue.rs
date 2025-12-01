@@ -6,6 +6,7 @@ use std::sync::{Arc, Mutex};
 pub struct SpawnRequest {
     pub components: Vec<(String, LuaRegistryKey)>,
     pub lua_components: Vec<(String, LuaRegistryKey)>,
+    pub parent: Option<Entity>,
 }
 
 /// Resource that holds the spawn queue
@@ -35,6 +36,22 @@ impl SpawnQueue {
         let request = SpawnRequest {
             components,
             lua_components,
+            parent: None,
+        };
+        self.queue.lock().unwrap().push(request);
+    }
+    
+    /// Add a spawn request with a parent entity
+    pub fn queue_spawn_with_parent(
+        &self, 
+        parent: Entity,
+        components: Vec<(String, LuaRegistryKey)>,
+        lua_components: Vec<(String, LuaRegistryKey)>
+    ) {
+        let request = SpawnRequest {
+            components,
+            lua_components,
+            parent: Some(parent),
         };
         self.queue.lock().unwrap().push(request);
     }
