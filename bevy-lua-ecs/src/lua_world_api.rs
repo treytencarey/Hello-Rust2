@@ -92,7 +92,7 @@ impl LuaUserData for LuaEntitySnapshot {
         });
         
         methods.add_method("id", |_, this, ()| {
-            Ok(format!("{:?}", this.entity))
+            Ok(this.entity.to_bits())
         });
         
         methods.add_method("set", |lua, this, (component_name, component_data): (String, LuaTable)| {

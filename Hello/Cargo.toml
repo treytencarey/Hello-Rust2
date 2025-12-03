@@ -30,27 +30,60 @@ constructors = [
 ]
 
 [features]
-default = ["physics", "tiled", "networking"]
+default = ["physics", "tiled", "networking", "bevy_mod_xr"]
 physics = ["dep:bevy_rapier2d"]
+physics3d = ["dep:bevy_rapier3d"]
 tiled = ["dep:bevy_ecs_tiled"]
 networking = ["dep:bevy_replicon", "dep:bevy_replicon_renet", "dep:bevy_renet", "dep:renet", "dep:serde", "dep:mlua"]
-lightyear_net = ["dep:lightyear", "dep:serde", "dep:serde_json", "dep:mlua"]
+replicon_server = ["bevy_replicon/server"]
+replicon_client = ["bevy_replicon/client"]
+lightyear_net = [
+    "dep:lightyear", 
+    "dep:lightyear_examples_common",
+    "dep:serde", 
+    "dep:serde_json", 
+    "dep:mlua",
+    "lightyear/netcode",
+    "lightyear/interpolation",
+    "lightyear/prediction",
+    "lightyear/replication",
+    "lightyear/client",
+    "lightyear/server",
+    "lightyear/udp",
+    "lightyear/std",
+    "lightyear_examples_common/client",
+    "lightyear_examples_common/server",
+    "lightyear_examples_common/gui",
+    "lightyear_examples_common/netcode",
+    "lightyear_examples_common/udp"
+]
 bevy_rapier2d = ["dep:bevy_rapier2d"]
+renet_netcode = []
+bevy_mod_xr = ["dep:bevy_mod_xr"]
 
 [dependencies]
 bevy = { workspace = true, features = ["default"] }
 bevy-lua-ecs = { path = "../bevy-lua-ecs", features = ["auto-bindings"] }
-bevy_rapier2d = { version = "0.31", features = ["serde-serialize"], optional = true }
-bevy_ecs_tiled = { version = "0.7", optional = true }
+bevy_rapier2d = { version = "0.32", features = ["serde-serialize"], optional = true }
+bevy_rapier3d = { version = "0.32", features = ["serde-serialize"], optional = true }
+bevy_ecs_tiled = { version = "0.10", optional = true }
 bevy_replicon = { workspace = true, optional = true }
 bevy_replicon_renet = { workspace = true, optional = true }
 bevy_renet = { workspace = true, optional = true }
 renet = { workspace = true, optional = true }
 lightyear = { workspace = true, optional = true }
+lightyear_examples_common = { workspace = true, optional = true }
 serde = { workspace = true, optional = true }
 serde_json = { workspace = true, optional = true }
 mlua = { workspace = true, optional = true }
+bevy_mod_xr = { workspace = true, optional = true }
 rand = "0.8"
+clap = { version = "4.1", features = ["derive"] }
+fastrand = "2.3"
+fastrand-contrib = "0.1"
+pathfinding = "4.14"
+bevy_mod_openxr = "0.4.0"
+openxr = "0.19.0"
 
 [[example]]
 name = "networking"
@@ -66,3 +99,18 @@ required-features = ["lightyear_net"]
 name = "lightyear_messaging"
 path = "examples/lightyear_messaging.rs"
 required-features = ["lightyear_net"]
+
+[[example]]
+name = "replicon_renet_simple_button"
+path = "examples/replicon_renet_simple_button.rs"
+required-features = ["replicon_server", "replicon_client", "renet_netcode"]
+
+[[example]]
+name = "physics_3d"
+path = "examples/physics_3d.rs"
+required-features = ["physics3d"]
+
+[[example]]
+name = "vr_simple"
+path = "examples/vr_simple.rs"
+required-features = ["bevy_mod_xr"]

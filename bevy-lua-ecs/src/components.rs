@@ -181,6 +181,7 @@ fn spawn_component_via_reflection(
             }
             
             TypeInfo::TupleStruct(struct_info) => {
+                debug!("[COMPONENT_SPAWN] TupleStruct detected: {} with {} fields", type_path, struct_info.field_len());
                 // Special case: single-field tuple struct (newtype wrapper) with scalar value
                 // This handles types like GravityScale(f32), Restitution { coefficient: f32, ... }
                 // where Lua can just pass a number instead of a table
@@ -213,6 +214,14 @@ fn spawn_component_via_reflection(
                 // Handle single-field tuple structs like Text(String)
                 // Try to get the value from common keys
                 let lua_value: LuaValue = 'search: {
+                    // Check "_0" (reflection-style field name)
+                    if let Ok(val) = data_table.raw_get::<LuaValue>("_0") {
+                        if !matches!(val, LuaValue::Nil) {
+                            debug!("[COMPONENT_SPAWN] Found _0 field for {}: {:?}", type_path, val);
+                            break 'search val;
+                        }
+                    }
+                    
                     // Check "value"
                     if let Ok(val) = data_table.raw_get::<LuaValue>("value") {
                         if !matches!(val, LuaValue::Nil) { break 'search val; }
@@ -247,13 +256,21 @@ fn spawn_component_via_reflection(
                 };
                 
                 if matches!(lua_value, LuaValue::Nil) {
+                     debug!("[COMPONENT_SPAWN] ERROR: Failed to access tuple struct data for {}", type_path);
                      return Err(LuaError::RuntimeError("Failed to access tuple struct data".to_string()));
                 }
                 
                 let reflect_mut = component.reflect_mut();
                 if let ReflectMut::TupleStruct(tuple_mut) = reflect_mut {
                     if let Some(field) = tuple_mut.field_mut(0) {
+                        debug!("[COMPONENT_SPAWN] Setting tuple struct field 0 for {} with value: {:?}", type_path, lua_value);
                         set_field_from_lua(field, &lua_value, asset_registry)?;
+                        debug!("[COMPONENT_SPAWN] Successfully set tuple struct field for {}", type_path);
+                        
+                        // Debug: Print the actual field value after setting
+                        if type_path.contains("Mesh3d") || type_path.contains("MeshMaterial3d") {
+                            debug!("[COMPONENT_SPAWN] DEBUG: Field value after setting: {:?}", field);
+                        }
                     }
                 }
             }
@@ -456,14 +473,23 @@ fn set_field_from_lua(
     // Fully generic Handle<T> resolution using type-erased handle setters!
     // The AssetRegistry was populated at startup with setters for all asset types in TypeRegistry.
     let type_path = field.reflect_type_path().to_string();
+    debug!("[FIELD_SET] Setting field type: {}, lua_value: {:?}", type_path, lua_value);
     if type_path.contains("Handle<") {
+        debug!("[FIELD_SET] Handle detected: {}", type_path);
         if let LuaValue::Integer(asset_id) = lua_value {
             if let Some(registry) = asset_registry {
+                debug!("[FIELD_SET] Looking up asset ID {} in registry", asset_id);
                 // Try using the generic handle setter system
                 if let Some(untyped_handle) = registry.get_untyped_handle(*asset_id as u32) {
+                    debug!("[FIELD_SET] Found untyped handle for asset ID {}: {:?}", asset_id, untyped_handle.id());
                     if registry.try_set_handle_field(field, &type_path, untyped_handle.clone()) {
+                        debug!("[FIELD_SET] ✓ Successfully set handle field {} with asset ID {}", type_path, asset_id);
                         return Ok(());
+                    } else {
+                        debug!("[FIELD_SET] WARNING: try_set_handle_field failed for {}", type_path);
                     }
+                } else {
+                    debug!("[FIELD_SET] ERROR: Asset ID {} not found in registry!", asset_id);
                 }
                 
                 // Fallback: image_handles (for loaded images via load_asset)
