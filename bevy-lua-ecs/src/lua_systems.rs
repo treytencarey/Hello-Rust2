@@ -175,7 +175,7 @@ fn run_single_lua_system(
         })?)?;
         
         // Helper function to cleanup a script instance (shared by reload and stop)
-        let cleanup_script_instance = |lua_ctx: &Lua, instance_id: u64, script_name: &str| -> Result<(), LuaError> {
+        let cleanup_script_instance = |lua_ctx: &Lua, instance_id: u64, _script_name: &str| -> Result<(), LuaError> {
             let script_registry = world.resource::<crate::script_registry::ScriptRegistry>().clone();
             let system_registry = world.resource::<LuaSystemRegistry>().clone();
             let resource_queue = world.resource::<crate::resource_queue::ResourceQueue>().clone();

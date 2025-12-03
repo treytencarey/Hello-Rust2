@@ -3,8 +3,6 @@ use bevy_lua_ecs::*;
 use std::fs;
 
 use std::ops::Deref;
-
-use bevy::prelude::*;
 use bevy_mod_openxr::{
     action_binding::{OxrSendActionBindings, OxrSuggestActionBinding},
     action_set_attaching::OxrAttachActionSet,

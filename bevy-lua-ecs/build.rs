@@ -673,37 +673,6 @@ fn write_bindings_to_parent_crate(
     println!("cargo:warning=✓ Wrote bindings to {:?}", generated_file);
 }
 
-fn write_generated_bindings(bindings: Vec<proc_macro2::TokenStream>, event_types: Vec<String>) {
-    let out_dir = PathBuf::from(env::var("OUT_DIR").unwrap());
-    let generated_file = out_dir.join("auto_bindings.rs");
-    
-    // Generate event registration code
-    let event_registrations: Vec<_> = event_types.iter().map(|event_type| {
-        // Replace bevy_lua_ecs:: with crate:: for internal types
-        let adjusted_type = event_type.replace("bevy_lua_ecs::", "crate::");
-        let type_path = syn::parse_str::<syn::Path>(&adjusted_type).unwrap();
-        quote::quote! {
-            app.register_type::<#type_path>();
-            app.register_type::<bevy::prelude::Events<#type_path>>();
-        }
-    }).collect();
-    
-    let full_code = quote! {
-        /// Auto-generated Lua resource bindings
-        pub fn register_auto_bindings(registry: &crate::resource_lua_trait::LuaResourceRegistry) {
-            #(#bindings)*
-        }
-        
-        /// Auto-generated event registrations
-        pub fn register_auto_events(app: &mut bevy::prelude::App) {
-            #(#event_registrations)*
-        }
-    };
-    
-    fs::write(generated_file, full_code.to_string())
-        .expect("Failed to write generated bindings");
-}
-
 fn write_empty_bindings_with_events(event_types: Vec<String>) {
     let out_dir = PathBuf::from(env::var("OUT_DIR").unwrap());
     let generated_file = out_dir.join("auto_bindings.rs");
@@ -715,6 +684,7 @@ fn write_empty_bindings_with_events(event_types: Vec<String>) {
         let type_path = syn::parse_str::<syn::Path>(&adjusted_type).unwrap();
         quote::quote! {
             app.register_type::<#type_path>();
+            #[allow(deprecated)]
             app.register_type::<bevy::prelude::Events<#type_path>>();
         }
     }).collect();

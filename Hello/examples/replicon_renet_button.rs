@@ -9,8 +9,6 @@ use std::fs;
 use bevy_replicon::prelude::*;
 #[cfg(feature = "networking")]
 use bevy_replicon_renet::RepliconRenetPlugins;
-#[cfg(feature = "networking")]
-use renet::{RenetClient, RenetServer};
 
 #[cfg(feature = "networking")]
 mod renet_lua {

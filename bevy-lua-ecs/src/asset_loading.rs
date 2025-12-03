@@ -504,7 +504,7 @@ fn construct_asset_from_lua(
     registration: &TypeRegistration,
     registry_key: &RegistryKey,
     lua: &Lua,
-    type_registry: &AppTypeRegistry,
+    _type_registry: &AppTypeRegistry,
 ) -> LuaResult<Box<dyn Reflect>> {
     use bevy::reflect::{DynamicStruct, ReflectFromReflect};
     

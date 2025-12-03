@@ -4,7 +4,6 @@
 
 use bevy::prelude::*;
 use bevy_lua_ecs::*;
-use std::fs;
 
 fn main() {
     App::new()
