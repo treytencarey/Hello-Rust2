@@ -314,12 +314,16 @@ impl Plugin for LuaSpawnPlugin {
         app.add_systems(Startup, setup_lua_context);
         app.add_systems(PostStartup, log_available_events);
         app.add_systems(Update, (
-            crate::entity_spawner::process_spawn_queue,
-            crate::component_updater::process_component_updates,
+            // Despawn old entities first (critical for hot-reload)
+            crate::despawn_queue::process_despawn_queue,
+            // Then create new assets
+            crate::asset_loading::process_pending_assets.after(crate::despawn_queue::process_despawn_queue),
+            // Then spawn new entities with those assets
+            crate::entity_spawner::process_spawn_queue.after(crate::asset_loading::process_pending_assets),
+            // Finally apply component updates
+            crate::component_updater::process_component_updates.after(crate::entity_spawner::process_spawn_queue),
             crate::lua_systems::run_lua_systems,
             crate::component_updater::process_component_updates,
-            crate::despawn_queue::process_despawn_queue,
-            crate::asset_loading::process_pending_assets,
         ));
         app.add_systems(Update, (
             crate::resource_inserter::process_resource_queue,
