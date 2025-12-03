@@ -19,9 +19,12 @@ pub fn process_spawn_queue(
         return;
     }
     
+    debug!("[SPAWN_QUEUE] Processing {} spawn requests", requests.len());
+    
     for request in requests {
         // Spawn entity
         let entity_id = commands.spawn_empty().id();
+        debug!("[SPAWN_QUEUE] Spawning entity {:?} with {} components", entity_id, request.components.len());
         
         // Store the entity ID as u64 in Lua globals so scripts can access it
         // This allows spawn() to return the entity ID
@@ -38,6 +41,7 @@ pub fn process_spawn_queue(
         
         // Apply each component
         for (component_name, registry_key) in request.components {
+            debug!("[SPAWN_QUEUE] Processing component: {}", component_name);
             // Retrieve the Lua value from the registry (can be string, table, number, etc.)
             let data_value: LuaValue = match lua_ctx.lua.registry_value(&registry_key) {
                 Ok(value) => value,
@@ -57,6 +61,7 @@ pub fn process_spawn_queue(
             }
             // Check if it's a known Rust component (Reflect)
             else if let Some(handler) = component_registry.get(&component_name) {
+                debug!("[SPAWN_QUEUE] Applying component {} via Reflect handler", component_name);
                 // Apply component via Reflect
                 if let Err(e) = handler(&data_value, &mut entity) {
                     error!("Failed to add component {}: {}", component_name, e);
@@ -68,6 +73,7 @@ pub fn process_spawn_queue(
             }
             // It's a generic Lua component! Store it.
             else {
+                debug!("[SPAWN_QUEUE] WARNING: Component {} not found in registry, treating as custom Lua component", component_name);
                 // We keep the registry key alive in the component
                 lua_custom_components.components.insert(component_name, std::sync::Arc::new(registry_key));
                 // We don't remove the registry value here because it's stored in Arc
