@@ -171,6 +171,16 @@ impl LuaScriptContext {
                 .map_err(|e| LuaError::RuntimeError(e))
         })?;
         
+        // Get command-line arguments
+        let get_args = lua_clone.create_function(|lua_ctx, ()| {
+            let args: Vec<String> = std::env::args().collect();
+            let table = lua_ctx.create_table()?;
+            for (i, arg) in args.iter().enumerate() {
+                table.set(i + 1, arg.as_str())?;
+            }
+            Ok(table)
+        })?;
+        
         // Inject into globals
         lua_clone.globals().set("spawn", spawn)?;
         lua_clone.globals().set("spawn_with_parent", spawn_with_parent)?;
@@ -194,6 +204,7 @@ impl LuaScriptContext {
         lua_clone.globals().set("bind_udp_socket", bind_udp_socket)?;
         lua_clone.globals().set("current_time", current_time)?;
         lua_clone.globals().set("parse_socket_addr", parse_socket_addr)?;
+        lua_clone.globals().set("get_args", get_args)?;
         
         // Note: load_asset will be added via add_asset_loading_to_lua()
         // Note: query_resource will be added to world table in lua_systems
