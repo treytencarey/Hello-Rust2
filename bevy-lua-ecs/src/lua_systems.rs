@@ -98,6 +98,11 @@ fn run_single_lua_system(
         // Create world table
         let world_table = lua.create_table()?;
         
+        // Apply _world_mt metatable if it exists (allows extending world API from Lua)
+        if let Ok(mt) = lua.globals().get::<LuaTable>("_world_mt") {
+            world_table.set_metatable(Some(mt));
+        }
+        
         // delta_time() - returns delta time in seconds
         world_table.set("delta_time", scope.create_function(|_lua_ctx, _self: LuaTable| {
             let time = world.resource::<Time>();

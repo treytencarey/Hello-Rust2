@@ -13,15 +13,19 @@ use std::time::{Duration, SystemTime};
 pub fn register_networking_methods(registry: &bevy_lua_ecs::LuaResourceRegistry) {
     use bevy_replicon_renet::renet::{RenetClient, RenetServer};
     
+    bevy::log::debug!("🔌 Registering networking methods for Lua...");
+    
     // Register RenetClient methods
     registry.register_resource::<RenetClient, _>("RenetClient", |methods| {
         methods.add("send_message", |client: &mut RenetClient, _lua, (channel_id, message): (u8, LuaString)| {
+            bevy::log::debug!("📤 RenetClient.send_message called: channel={}, size={}", channel_id, message.as_bytes().len());
             client.send_message(channel_id, message.as_bytes().to_vec());
             Ok(LuaValue::Nil)
         });
         
         methods.add("receive_message", |client: &mut RenetClient, lua, channel_id: u8| {
             if let Some(message) = client.receive_message(channel_id) {
+                bevy::log::debug!("📥 RenetClient.receive_message: channel={}, size={}", channel_id, message.len());
                 lua.create_string(&message).map(LuaValue::String)
             } else {
                 Ok(LuaValue::Nil)
@@ -29,19 +33,23 @@ pub fn register_networking_methods(registry: &bevy_lua_ecs::LuaResourceRegistry)
         });
         
         methods.add("is_connected", |client: &mut RenetClient, _lua, ()| {
-            Ok(client.is_connected())
+            let connected = client.is_connected();
+            bevy::log::debug!("🔗 RenetClient.is_connected: {}", connected);
+            Ok(connected)
         });
     });
     
     // Register RenetServer methods
     registry.register_resource::<RenetServer, _>("RenetServer", |methods| {
         methods.add("send_message", |server: &mut RenetServer, _lua, (client_id, channel_id, message): (u64, u8, LuaString)| {
+            bevy::log::debug!("📤 RenetServer.send_message called: client={}, channel={}, size={}", client_id, channel_id, message.as_bytes().len());
             server.send_message(client_id, channel_id, message.as_bytes().to_vec());
             Ok(LuaValue::Nil)
         });
         
         methods.add("receive_message", |server: &mut RenetServer, lua, (client_id, channel_id): (u64, u8)| {
             if let Some(message) = server.receive_message(client_id, channel_id) {
+                bevy::log::debug!("📥 RenetServer.receive_message: client={}, channel={}, size={}", client_id, channel_id, message.len());
                 lua.create_string(&message).map(LuaValue::String)
             } else {
                 Ok(LuaValue::Nil)
@@ -50,9 +58,12 @@ pub fn register_networking_methods(registry: &bevy_lua_ecs::LuaResourceRegistry)
         
         methods.add("clients_id", |server: &mut RenetServer, lua, ()| {
             let clients: Vec<u64> = server.clients_id().into_iter().collect();
+            bevy::log::debug!("👥 RenetServer.clients_id: {} clients", clients.len());
             lua.create_sequence_from(clients).map(LuaValue::Table)
         });
     });
+    
+    bevy::log::debug!("✅ Networking methods registered successfully");
 }
 
 /// Register networking resource constructors for Hello
@@ -104,6 +115,22 @@ pub fn register_networking_constructors(registry: &bevy_lua_ecs::ResourceBuilder
                         resend_time: Duration::from_millis(200),
                     },
                 },
+                // Channel 3: For player movement (our custom channel)
+                ChannelConfig {
+                    channel_id: 3,
+                    max_memory_usage_bytes: 1 * 1024 * 1024,  // 1MB
+                    send_type: SendType::ReliableOrdered {
+                        resend_time: Duration::from_millis(200),
+                    },
+                },
+                // Channel 4: For generic Lua events
+                ChannelConfig {
+                    channel_id: 4,
+                    max_memory_usage_bytes: 1 * 1024 * 1024,  // 1MB
+                    send_type: SendType::ReliableOrdered {
+                        resend_time: Duration::from_millis(200),
+                    },
+                },
             ],
             server_channels_config: vec![
                 // Channel 0: For replication updates
@@ -126,6 +153,22 @@ pub fn register_networking_constructors(registry: &bevy_lua_ecs::ResourceBuilder
                 ChannelConfig {
                     channel_id: 2,
                     max_memory_usage_bytes: 5 * 1024 * 1024,  // 5MB
+                    send_type: SendType::ReliableOrdered {
+                        resend_time: Duration::from_millis(200),
+                    },
+                },
+                // Channel 3: For player movement (our custom channel)
+                ChannelConfig {
+                    channel_id: 3,
+                    max_memory_usage_bytes: 1 * 1024 * 1024,  // 1MB
+                    send_type: SendType::ReliableOrdered {
+                        resend_time: Duration::from_millis(200),
+                    },
+                },
+                // Channel 4: For generic Lua events
+                ChannelConfig {
+                    channel_id: 4,
+                    max_memory_usage_bytes: 1 * 1024 * 1024,  // 1MB
                     send_type: SendType::ReliableOrdered {
                         resend_time: Duration::from_millis(200),
                     },
