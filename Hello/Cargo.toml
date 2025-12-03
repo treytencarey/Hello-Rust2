@@ -41,7 +41,6 @@ lightyear_net = [
     "dep:lightyear", 
     "dep:lightyear_examples_common",
     "dep:serde", 
-    "dep:serde_json", 
     "dep:mlua",
     "lightyear/netcode",
     "lightyear/interpolation",
@@ -74,7 +73,8 @@ renet = { workspace = true, optional = true }
 lightyear = { workspace = true, optional = true }
 lightyear_examples_common = { workspace = true, optional = true }
 serde = { workspace = true, optional = true }
-serde_json = { workspace = true, optional = true }
+serde_json = { workspace = true }  # Required for replicon_lua
+bincode = "1.3"  # Required for renet_lua message serialization
 mlua = { workspace = true, optional = true }
 bevy_mod_xr = { workspace = true, optional = true }
 rand = "0.8"
@@ -114,3 +114,8 @@ required-features = ["physics3d"]
 name = "vr_simple"
 path = "examples/vr_simple.rs"
 required-features = ["bevy_mod_xr"]
+
+[[example]]
+name = "replicon_renet_button"
+path = "examples/replicon_renet_button.rs"
+required-features = ["networking"]
