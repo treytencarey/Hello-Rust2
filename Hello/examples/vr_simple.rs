@@ -48,8 +48,7 @@ fn main() -> AppExit {
     // Add Lua plugin (auto-initializes all resources and systems)
     app.add_plugins(LuaSpawnPlugin);
     
-    app.add_systems(PostStartup, load_and_run_script)
-        .run();
+    app.add_systems(PostStartup, load_and_run_script);
 
     app.run()
 }
