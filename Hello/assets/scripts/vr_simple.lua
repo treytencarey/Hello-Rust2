@@ -102,11 +102,13 @@ register_system("Update", function(world)
     if sphere_entity ~= nil then
         local bounce_y = base_y + math.sin(dt * bounce_speed) * bounce_amplitude
         local entities = world:query({"Transform", "Mesh3d"}, nil)
-        entities[1]:set("Transform", {
-            translation = { x = 0.0, y = bounce_y, z = -1.5 },
-            rotation = { x = 0.0, y = 0.0, z = 0.0, w = 1.0 },
-            scale = { x = 0.5, y = 0.5, z = 0.5 }
-        })
+        if #entities > 0 then
+            entities[1]:set("Transform", {
+                translation = { x = 0.0, y = bounce_y, z = -1.5 },
+                rotation = { x = 0.0, y = 0.0, z = 0.0, w = 1.0 },
+                scale = { x = 0.5, y = 0.5, z = 0.5 }
+            })
+        end
     end
 end)
 
