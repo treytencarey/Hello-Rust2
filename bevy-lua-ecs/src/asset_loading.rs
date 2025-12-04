@@ -440,6 +440,14 @@ fn create_mesh_from_primitive(
                 return Err(LuaError::RuntimeError("Failed to downcast to Capsule3d".to_string()));
             }
         }
+        "Plane3d" => {
+            use bevy::math::primitives::Plane3d;
+            if let Some(plane) = primitive_instance.downcast_ref::<Plane3d>() {
+                (*plane).into()
+            } else {
+                return Err(LuaError::RuntimeError("Failed to downcast to Plane3d".to_string()));
+            }
+        }
         "Torus" => {
             use bevy::math::primitives::Torus;
             if let Some(torus) = primitive_instance.downcast_ref::<Torus>() {
@@ -450,7 +458,7 @@ fn create_mesh_from_primitive(
         }
         _ => {
             return Err(LuaError::RuntimeError(
-                format!("Primitive type {} doesn't support conversion to Mesh. Supported: Cuboid, Sphere, Cylinder, Capsule3d, Torus", shape_name)
+                format!("Primitive type {} doesn't support conversion to Mesh. Supported: Cuboid, Sphere, Cylinder, Capsule3d, Plane3d, Torus", shape_name)
             ));
         }
     };
@@ -684,7 +692,43 @@ fn set_basic_field(field: &mut dyn PartialReflect, lua_value: &LuaValue) -> LuaR
             }
         }
         LuaValue::Table(table) => {
-            // Generic table handling using reflection - works for any struct
+            // FIRST: Try generic FromReflect construction for ANY reflected type
+            if let Ok(true) = try_from_reflect_construction(field, table) {
+                return Ok(());
+            }
+            
+            // FALLBACK: Hardcoded handling for common types
+            // TODO: Remove once FromReflect handles all cases
+            use bevy::prelude::{Color, Vec2, Vec3, Quat};
+            
+            if let Some(color_field) = field.try_downcast_mut::<Color>() {
+                let r: f32 = table.get("r").unwrap_or(1.0);
+                let g: f32 = table.get("g").unwrap_or(1.0);
+                let b: f32 = table.get("b").unwrap_or(1.0);
+                let a: f32 = table.get("a").unwrap_or(1.0);
+                *color_field = Color::srgba(r, g, b, a);
+                return Ok(());
+            } else if let Some(vec3_field) = field.try_downcast_mut::<Vec3>() {
+                let x: f32 = table.get("x").unwrap_or(0.0);
+                let y: f32 = table.get("y").unwrap_or(0.0);
+                let z: f32 = table.get("z").unwrap_or(0.0);
+                *vec3_field = Vec3::new(x, y, z);
+                return Ok(());
+            } else if let Some(vec2_field) = field.try_downcast_mut::<Vec2>() {
+                let x: f32 = table.get("x").unwrap_or(0.0);
+                let y: f32 = table.get("y").unwrap_or(0.0);
+                *vec2_field = Vec2::new(x, y);
+                return Ok(());
+            } else if let Some(quat_field) = field.try_downcast_mut::<Quat>() {
+                let x: f32 = table.get("x").unwrap_or(0.0);
+                let y: f32 = table.get("y").unwrap_or(0.0);
+                let z: f32 = table.get("z").unwrap_or(0.0);
+                let w: f32 = table.get("w").unwrap_or(1.0);
+                *quat_field = Quat::from_xyzw(x, y, z, w);
+                return Ok(());
+            }
+            
+            // LAST RESORT: Generic struct iteration (for structs without FromReflect)
             match field.reflect_mut() {
                 ReflectMut::Struct(struct_mut) => {
                     // Iterate through struct fields and populate from table
@@ -698,13 +742,165 @@ fn set_basic_field(field: &mut dyn PartialReflect, lua_value: &LuaValue) -> LuaR
                         }
                     }
                 }
-                _ => {}
+                _ => {
+                    debug!("Lua table for non-struct field type: {:?}", field.reflect_type_path());
+                }
             }
         }
         _ => {}
     }
     
     Ok(())
+}
+
+/// Helper: Build a dynamic reflect value from a Lua value
+/// This is used by FromReflect to construct types generically
+fn lua_value_to_reflect_value(lua_value: &LuaValue) -> LuaResult<Box<dyn bevy::reflect::PartialReflect>> {
+    match lua_value {
+        LuaValue::Number(n) => Ok(Box::new(*n as f32)),
+        LuaValue::Integer(i) => Ok(Box::new(*i)),
+        LuaValue::Boolean(b) => Ok(Box::new(*b)),
+        LuaValue::String(s) => Ok(Box::new(s.to_str()?.to_owned())),
+        _ => Err(LuaError::RuntimeError(format!("Cannot convert {:?} to reflect value", lua_value)))
+    }
+}
+
+/// Try to construct a field's value using FromReflect from a Lua table
+/// This is the GENERIC approach that works for ANY type implementing FromReflect
+fn try_from_reflect_construction(
+    field: &mut dyn bevy::reflect::PartialReflect,
+    table: &mlua::Table,
+) -> LuaResult<bool> {
+    use bevy::reflect::{DynamicStruct, TypeInfo, Reflect};
+    
+    // Get the type info for this field
+    let Some(type_info) = field.get_represented_type_info() else {
+        return Ok(false);
+    };
+    
+    // Build a dynamic representation based on the type
+    match type_info {
+        TypeInfo::Struct(struct_info) => {
+            let mut dynamic_struct = DynamicStruct::default();
+            dynamic_struct.set_represented_type(Some(type_info));
+            
+            // Populate each field from the Lua table
+            for field_info in struct_info.iter() {
+                let field_name = field_info.name();
+                if let Ok(lua_val) = table.get::<LuaValue>(field_name) {
+                    match lua_value_to_reflect_value(&lua_val) {
+                        Ok(reflect_val) => {
+                            dynamic_struct.insert_boxed(field_name, reflect_val);
+                        },
+                        Err(_) => {
+                            // If we encounter a value we can't convert (like a nested Table),
+                            // we must abort generic construction and let the recursive fallback handle it.
+                            return Ok(false);
+                        }
+                    }
+                }
+            }
+            
+            // Try to apply the dynamic struct to the field
+            field.apply(dynamic_struct.as_partial_reflect());
+            Ok(true)
+        }
+        TypeInfo::TupleStruct(tuple_info) => {
+            use bevy::reflect::DynamicTuple;
+            let mut dynamic_tuple = DynamicTuple::default();
+            
+            // Try fields named _0, _1, _2, etc.
+            for i in 0..tuple_info.field_len() {
+                let field_key = format!("_{}", i);
+                if let Ok(lua_val) = table.get::<LuaValue>(field_key.as_str()) {
+                    match lua_value_to_reflect_value(&lua_val) {
+                        Ok(reflect_val) => {
+                            dynamic_tuple.insert_boxed(reflect_val);
+                        },
+                        Err(_) => {
+                            return Ok(false);
+                        }
+                    }
+                }
+            }
+            
+            field.apply(dynamic_tuple.as_partial_reflect());
+            Ok(true)
+        }
+        TypeInfo::Enum(enum_info) => {
+            // For enums, the Lua table should have ONE key that matches a variant name
+            // e.g., { Image = asset_id } for RenderTarget::Image variant
+            
+            // Try to find which variant is specified in the table
+            for variant_info in enum_info.iter() {
+                let variant_name = variant_info.name();
+                
+                // Check if this variant is in the Lua table
+                if let Ok(variant_value) = table.get::<LuaValue>(variant_name) {
+                    // Found the variant! Now construct it based on its type
+                    match variant_info {
+                        bevy::reflect::VariantInfo::Tuple(tuple_variant) => {
+                            // Tuple variant like Image(Handle<Image>)
+                            use bevy::reflect::DynamicEnum;
+                            
+                            // For single-field tuple variants, the value can be passed directly
+                            if tuple_variant.field_len() == 1 {
+                                // Convert the Lua value to a reflected value
+                                let reflected_value = lua_value_to_reflect_value(&variant_value)?;
+                                
+                                // Create a dynamic tuple with just this value
+                                let mut dynamic_tuple = bevy::reflect::DynamicTuple::default();
+                                dynamic_tuple.insert_boxed(reflected_value);
+                                
+                                // Create the enum variant
+                                let dynamic_enum = DynamicEnum::new(variant_name, dynamic_tuple);
+                                
+                                // Apply to the field
+                                field.apply(dynamic_enum.as_partial_reflect());
+                                return Ok(true);
+                            }
+                        }
+                        bevy::reflect::VariantInfo::Struct(struct_variant) => {
+                            // Struct variant like Something { field1: T1, field2: T2 }
+                            use bevy::reflect::{DynamicEnum, DynamicStruct};
+                            
+                            if let LuaValue::Table(variant_table) = variant_value {
+                                let mut variant_struct = DynamicStruct::default();
+                                
+                                // Populate struct fields
+                                for field_info in struct_variant.iter() {
+                                    if let Ok(lua_val) = variant_table.get::<LuaValue>(field_info.name()) {
+                                        if let Ok(reflect_val) = lua_value_to_reflect_value(&lua_val) {
+                                            variant_struct.insert_boxed(field_info.name(), reflect_val);
+                                        }
+                                    }
+                                }
+                                
+                                let dynamic_enum = DynamicEnum::new(variant_name, variant_struct);
+                                field.apply(dynamic_enum.as_partial_reflect());
+                                return Ok(true);
+                            }
+                        }
+                        bevy::reflect::VariantInfo::Unit(_unit_variant) => {
+                            // Unit variant like None or SomeVariant
+                            use bevy::reflect::DynamicEnum;
+                            
+                            let dynamic_enum = DynamicEnum::new(variant_name, ());
+                            field.apply(dynamic_enum.as_partial_reflect());
+                            return Ok(true);
+                        }
+                    }
+                }
+            }
+            
+            // No matching variant found
+            Ok(false)
+        }
+        _ => {
+            // Other types not yet supported
+            Ok(false)
+        }
+    }
 }
 
 /// Add asset loading and creation capabilities to Lua context

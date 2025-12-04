@@ -173,7 +173,7 @@ fn spawn_component_via_reflection(
                         if let Ok(lua_value) = data_table.get::<LuaValue>(field_name) {
                             // Get mutable field
                             if let Some(field) = struct_mut.field_at_mut(i) {
-                                set_field_from_lua(field, &lua_value, asset_registry, Some(field_name))?;
+                                set_field_from_lua(field, &lua_value, asset_registry, type_registry, Some(field_name))?;
                             }
                         }
                     }
@@ -191,7 +191,7 @@ fn spawn_component_via_reflection(
                         let reflect_mut = component.reflect_mut();
                         if let ReflectMut::TupleStruct(tuple_mut) = reflect_mut {
                             if let Some(field) = tuple_mut.field_mut(0) {
-                                if set_field_from_lua(field, data, asset_registry, Some("_0")).is_ok() {
+                                if set_field_from_lua(field, data, asset_registry, type_registry, Some("_0")).is_ok() {
                                     // Successfully set the field from scalar value
                                     entity.insert_reflect(component);
                                     return Ok(());
@@ -264,7 +264,7 @@ fn spawn_component_via_reflection(
                 if let ReflectMut::TupleStruct(tuple_mut) = reflect_mut {
                     if let Some(field) = tuple_mut.field_mut(0) {
                         debug!("[COMPONENT_SPAWN] Setting tuple struct field 0 for {} with value: {:?}", type_path, lua_value);
-                        set_field_from_lua(field, &lua_value, asset_registry, Some("_0"))?;
+                        set_field_from_lua(field, &lua_value, asset_registry, type_registry, Some("_0"))?;
                         debug!("[COMPONENT_SPAWN] Successfully set tuple struct field for {}", type_path);
                         
                         // Debug: Print the actual field value after setting
@@ -465,10 +465,12 @@ fn spawn_component_via_reflection(
 }
 
 /// Set a reflected field value from a Lua value
+/// Set a reflected field value from a Lua value
 fn set_field_from_lua(
     field: &mut dyn PartialReflect,
     lua_value: &LuaValue,
     asset_registry: Option<&crate::asset_loading::AssetRegistry>,
+    type_registry: &bevy::prelude::AppTypeRegistry,
     field_name: Option<&str>,
 ) -> LuaResult<()> {
     // Fully generic Handle<T> resolution using type-erased handle setters!
@@ -559,7 +561,7 @@ fn set_field_from_lua(
         }
     } else if let LuaValue::Table(nested_table) = lua_value {
         // Generic nested struct/enum handling using reflection
-        if let Err(e) = set_nested_field_from_lua(field, nested_table, asset_registry) {
+        if let Err(e) = set_nested_field_from_lua(field, nested_table, asset_registry, type_registry) {
             // Silently continue if nested field setting fails - might not be a nested struct
             let _ = e;
         }
@@ -662,6 +664,7 @@ fn set_nested_field_from_lua(
     field: &mut dyn PartialReflect,
     table: &LuaTable,
     asset_registry: Option<&crate::asset_loading::AssetRegistry>,
+    type_registry: &bevy::prelude::AppTypeRegistry,
 ) -> LuaResult<()> {
     use bevy::reflect::{DynamicStruct, DynamicTuple, DynamicEnum, DynamicVariant};
     
@@ -673,7 +676,7 @@ fn set_nested_field_from_lua(
                     let field_name_owned = field_name.to_string();
                     if let Ok(lua_value) = table.get::<LuaValue>(field_name) {
                         if let Some(nested_field) = struct_mut.field_at_mut(i) {
-                            set_field_from_lua(nested_field, &lua_value, asset_registry, Some(&field_name_owned))?;
+                            set_field_from_lua(nested_field, &lua_value, asset_registry, type_registry, Some(&field_name_owned))?;
                         }
                     }
                 }
