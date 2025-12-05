@@ -39,7 +39,7 @@ impl Default for FileWatcherState {
 
 fn setup_file_watcher(mut commands: Commands) {
     commands.insert_resource(FileWatcherState::default());
-    info!("Lua file watcher initialized (polling mode)");
+    debug!("Lua file watcher initialized (polling mode)");
 }
 
 fn poll_file_changes(
@@ -53,9 +53,24 @@ fn poll_file_changes(
     }
     
     // Recursively walk the scripts directory
-    if let Ok(entries) = std::fs::read_dir(script_dir) {
+    visit_lua_files(script_dir, &mut state, &mut events);
+}
+
+/// Recursively visit all .lua files in a directory
+fn visit_lua_files(
+    dir: &Path,
+    state: &mut FileWatcherState,
+    events: &mut MessageWriter<LuaFileChangeEvent>,
+) {
+    if let Ok(entries) = std::fs::read_dir(dir) {
         for entry in entries.flatten() {
             let path = entry.path();
+            
+            // Recursively check subdirectories
+            if path.is_dir() {
+                visit_lua_files(&path, state, events);
+                continue;
+            }
             
             // Only check .lua files
             if path.extension().and_then(|s| s.to_str()) != Some("lua") {

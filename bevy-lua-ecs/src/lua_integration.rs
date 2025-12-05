@@ -3,11 +3,14 @@ use mlua::prelude::*;
 use crate::spawn_queue::SpawnQueue;
 use crate::lua_systems::LuaSystemRegistry;
 use std::sync::Arc;
+use std::collections::HashSet;
 
 /// Resource that holds the Lua context
 #[derive(Resource, Clone)]
 pub struct LuaScriptContext {
     pub lua: Arc<Lua>,
+    pub script_cache: crate::script_cache::ScriptCache,
+    pub script_instance: crate::script_entities::ScriptInstance,
 }
 impl LuaScriptContext {
     /// Create a new Lua context with component-based spawn function
@@ -17,6 +20,7 @@ impl LuaScriptContext {
         resource_queue: crate::resource_queue::ResourceQueue,
         system_registry: LuaSystemRegistry,
         _builder_registry: crate::resource_builder::ResourceBuilderRegistry,
+        script_instance: crate::script_entities::ScriptInstance,
     ) -> Result<Self, LuaError> {
         let lua = Lua::new();
         
@@ -32,7 +36,12 @@ impl LuaScriptContext {
         
         // Create component-based spawn function that returns an entity ID
         let counter_clone = entity_counter.clone();
-        let spawn = lua_clone.create_function(move |_lua_ctx, components: LuaTable| {
+        let spawn = lua_clone.create_function(move |lua_ctx, components: LuaTable| {
+            // Capture current __INSTANCE_ID__ at queue time
+            let instance_id: Option<u64> = lua_ctx.globals().get("__INSTANCE_ID__").ok();
+            
+            debug!("[SPAWN] Queuing entity with instance_id: {:?}", instance_id);
+            
             let mut all_components = Vec::new();
             
             // Iterate over components table
@@ -44,8 +53,8 @@ impl LuaScriptContext {
                 all_components.push((component_name, registry_key));
             }
             
-            // Queue spawn
-            queue_clone.clone().queue_spawn(all_components, Vec::new());
+            // Queue spawn with captured instance_id
+            queue_clone.clone().queue_spawn(all_components, Vec::new(), instance_id);
             
             // Generate a temporary entity ID (will be replaced with real ID in spawner)
             // For now we use a counter, but this won't match real entity IDs
@@ -57,8 +66,11 @@ impl LuaScriptContext {
         let queue_for_parent = queue.clone();
         let lua_for_parent = lua_clone.clone();
         let counter_for_parent = entity_counter.clone();
-        let spawn_with_parent = lua_clone.create_function(move |_lua_ctx, (parent_id, components): (u64, LuaTable)| {
+        let spawn_with_parent = lua_clone.create_function(move |lua_ctx, (parent_id, components): (u64, LuaTable)| {
             let mut all_components = Vec::new();
+            
+            // Capture current __INSTANCE_ID__ at queue time
+            let instance_id: Option<u64> = lua_ctx.globals().get("__INSTANCE_ID__").ok();
             
             // Iterate over components table
             for pair in components.pairs::<String, LuaValue>() {
@@ -73,8 +85,8 @@ impl LuaScriptContext {
             let parent = Entity::from_raw_u32(parent_id as u32)
                 .ok_or_else(|| LuaError::RuntimeError("Invalid entity ID".to_string()))?;
             
-            // Queue spawn with parent
-            queue_for_parent.clone().queue_spawn_with_parent(parent, all_components, Vec::new());
+            // Queue spawn with parent and captured instance_id
+            queue_for_parent.clone().queue_spawn_with_parent(parent, all_components, Vec::new(), instance_id);
             
             // Return temporary ID
             let temp_id = counter_for_parent.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
@@ -181,6 +193,197 @@ impl LuaScriptContext {
             Ok(table)
         })?;
         
+        // Create script cache for module loading
+        let script_cache = crate::script_cache::ScriptCache::new();
+        let cache_for_require = script_cache.clone();
+        
+        // Synchronous require() function
+        let lua_for_require = lua_clone.clone();
+        let require = lua_clone.create_function(move |lua_ctx, (path, options): (String, Option<LuaTable>)| {
+            let should_reload = options
+                .as_ref()
+                .and_then(|t| t.get("reload").ok())
+                .unwrap_or(true); // Default true for sync require
+
+            // Resolve path relative to current script if possible
+            let resolved_path = if let Ok(current_script) = lua_ctx.globals().get::<String>("__SCRIPT_NAME__") {
+                let current_path = std::path::Path::new(&current_script);
+                if let Some(parent) = current_path.parent() {
+                    let relative = parent.join(&path);
+                    // Check if this file exists relative to assets/scripts/
+                    let full_check_path = std::path::Path::new("assets/scripts").join(&relative);
+                    if full_check_path.exists() {
+                        relative.to_string_lossy().to_string().replace("\\", "/")
+                    } else {
+                        path.clone()
+                    }
+                } else {
+                    path.clone()
+                }
+            } else {
+                path.clone()
+            };
+
+            // Normalize path separators to forward slashes for consistent lookups
+            let resolved_path = resolved_path.replace("\\", "/");
+
+            // Check if module is already cached
+            if let Some(cached_key) = cache_for_require.get_module(&resolved_path) {
+                // Update dependency tracking even if cached
+                if let Ok(current_script) = lua_ctx.globals().get::<String>("__SCRIPT_NAME__") {
+                    let current_script = current_script.replace("\\", "/");
+                    cache_for_require.add_dependency(resolved_path.clone(), current_script, should_reload);
+                }
+                
+                let cached_value: LuaValue = lua_for_require.registry_value(&*cached_key)?;
+                return Ok(cached_value);
+            }
+            
+            // Load module source
+            let (source, _full_path) = crate::script_cache::load_module_source(&resolved_path)
+                .map_err(|e| LuaError::RuntimeError(e))?;
+            
+            // Execute module
+            let module_name = format!("@{}", resolved_path);
+            let result = crate::script_cache::execute_module(&lua_for_require, &source, &module_name)?;
+            
+            // Cache the result
+            let registry_key = lua_for_require.create_registry_value(result.clone())?;
+            cache_for_require.cache_module(resolved_path.clone(), Arc::new(registry_key));
+            
+            // Track dependency (if we're currently executing a script)
+            if let Ok(current_script) = lua_ctx.globals().get::<String>("__SCRIPT_NAME__") {
+                let current_script = current_script.replace("\\", "/");
+                cache_for_require.add_dependency(resolved_path.clone(), current_script, should_reload);
+            }
+            
+            // Track parent-child relationship for entity cleanup
+            // For synchronous require, we track the parent relationship but don't create
+            // a separate instance ID unless the module spawns entities (which is rare for sync require)
+            let parent_instance_id: u64 = lua_ctx.globals().get("__INSTANCE_ID__").unwrap_or(0);
+            if parent_instance_id != 0 {
+                // Check if this module already has an instance for this parent
+                if let Some(module_instance_id) = cache_for_require.get_module_instance(&resolved_path, parent_instance_id) {
+                    // Module has instance, ensure parent relationship is set
+                    if module_instance_id != parent_instance_id {
+                        cache_for_require.set_module_parent(module_instance_id, parent_instance_id);
+                    }
+                }
+                // Note: We don't create instance IDs here because sync modules typically don't spawn entities
+                // If they do spawn entities via nested require_async, those will create their own instances
+            }
+            
+            Ok(result)
+        })?;
+        
+        // Asynchronous require_async() function
+        let lua_for_async = lua_clone.clone();
+        let cache_for_async = script_cache.clone();
+        let script_instance_for_async = script_instance.clone();
+        let require_async = lua_clone.create_function(move |lua_ctx, (path, callback, options): (String, LuaFunction, Option<LuaTable>)| {
+            let should_reload = options
+                .as_ref()
+                .and_then(|t| t.get("reload").ok())
+                .unwrap_or(false); // Default false for async require
+
+            // Resolve path relative to current script if possible
+            let resolved_path = if let Ok(current_script) = lua_ctx.globals().get::<String>("__SCRIPT_NAME__") {
+                let current_path = std::path::Path::new(&current_script);
+                if let Some(parent) = current_path.parent() {
+                    let relative = parent.join(&path);
+                    // Check if this file exists relative to assets/scripts/
+                    let full_check_path = std::path::Path::new("assets/scripts").join(&relative);
+                    if full_check_path.exists() {
+                        relative.to_string_lossy().to_string().replace("\\", "/")
+                    } else {
+                        path.clone()
+                    }
+                } else {
+                    path.clone()
+                }
+            } else {
+                path.clone()
+            };
+
+            // Normalize path separators to forward slashes for consistent lookups
+            let resolved_path = resolved_path.replace("\\", "/");
+
+            // Get or create module instance ID for entity tracking
+            // Each (path, parent) combination gets its own instance
+            let current_parent_id: u64 = lua_ctx.globals().get("__INSTANCE_ID__").unwrap_or(0);
+            
+            let module_instance_id = if let Some(existing_id) = cache_for_async.get_module_instance(&resolved_path, current_parent_id) {
+                // Reuse existing instance for this (path, parent) combination
+                debug!("require_async('{}') reusing instance {} for parent {}", resolved_path, existing_id, current_parent_id);
+                existing_id
+            } else {
+                // First time this parent is loading this module, create new instance
+                let new_id = script_instance_for_async.start(resolved_path.clone());
+                cache_for_async.set_module_instance(resolved_path.clone(), current_parent_id, new_id);
+                debug!("require_async('{}') created NEW instance {} for parent {}", resolved_path, new_id, current_parent_id);
+                new_id
+            };
+            
+            // Always update parent-child relationship when require_async is called
+            // This ensures the module instance is linked to the current parent
+            if current_parent_id != 0 {
+                cache_for_async.set_module_parent(module_instance_id, current_parent_id);
+            }
+
+            // If should_reload is true, register the callback for hot reload with parent context
+            if should_reload {
+                let callback_key = lua_for_async.create_registry_value(callback.clone())?;
+                cache_for_async.register_hot_reload_callback(resolved_path.clone(), Arc::new(callback_key), current_parent_id);
+            }
+
+            // Always execute module to run side effects, even if cached
+            // This ensures top-level require_async calls in modules always execute
+            let (source, _full_path) = crate::script_cache::load_module_source(&resolved_path)
+                .map_err(|e| LuaError::RuntimeError(e))?;
+            
+            // Save current __INSTANCE_ID__ to restore later
+            let previous_instance_id: Option<u64> = lua_ctx.globals().get("__INSTANCE_ID__").ok();
+            
+            // Set __INSTANCE_ID__ to module's instance BEFORE executing module
+            // This ensures any require_async calls within the module use correct parent
+            lua_ctx.globals().set("__INSTANCE_ID__", module_instance_id)?;
+            debug!("Executing module '{}' with __INSTANCE_ID__ = {}", resolved_path, module_instance_id);
+            
+            // Execute module
+            let module_name = format!("@{}", resolved_path);
+            let result = crate::script_cache::execute_module(&lua_for_async, &source, &module_name)?;
+            debug!("Module '{}' executed successfully", resolved_path);
+            
+            // Cache the result if not already cached
+            if cache_for_async.get_module(&resolved_path).is_none() {
+                let registry_key = lua_for_async.create_registry_value(result.clone())?;
+                cache_for_async.cache_module(resolved_path.clone(), Arc::new(registry_key));
+            }
+            
+            // Track dependency (but don't reload script for async require, we use callback)
+            if let Ok(current_script) = lua_ctx.globals().get::<String>("__SCRIPT_NAME__") {
+                let current_script = current_script.replace("\\", "/");
+                cache_for_async.add_dependency(resolved_path.clone(), current_script.clone(), false);
+                // Also track as async dependency so this module gets invalidated when resolved_path changes
+                cache_for_async.add_async_dependency(resolved_path.clone(), current_script);
+            }
+            
+            // __INSTANCE_ID__ is already set to module's instance from above
+            // Call the callback with the loaded module
+            let callback_result = callback.call::<()>(result);
+            
+            // Restore previous __INSTANCE_ID__
+            if let Some(prev_id) = previous_instance_id {
+                lua_ctx.globals().set("__INSTANCE_ID__", prev_id)?;
+            } else {
+                lua_ctx.globals().set("__INSTANCE_ID__", LuaNil)?;
+            }
+            
+            callback_result?;
+            
+            Ok(())
+        })?;
+        
         // Inject into globals
         lua_clone.globals().set("spawn", spawn)?;
         lua_clone.globals().set("spawn_with_parent", spawn_with_parent)?;
@@ -206,11 +409,17 @@ impl LuaScriptContext {
         lua_clone.globals().set("parse_socket_addr", parse_socket_addr)?;
         lua_clone.globals().set("get_args", get_args)?;
         
+        // Script importing
+        lua_clone.globals().set("require", require)?;
+        lua_clone.globals().set("require_async", require_async)?;
+        
         // Note: load_asset will be added via add_asset_loading_to_lua()
         // Note: query_resource will be added to world table in lua_systems
         
         Ok(Self {
             lua: lua_clone,
+            script_cache,
+            script_instance,
         })
     }
     
@@ -314,8 +523,10 @@ impl Plugin for LuaSpawnPlugin {
         app.add_systems(Startup, setup_lua_context);
         app.add_systems(PostStartup, log_available_events);
         app.add_systems(Update, (
+            // Auto-reload must run first to queue despawns/spawns before processing
+            auto_reload_changed_scripts,
             // Despawn old entities first (critical for hot-reload)
-            crate::despawn_queue::process_despawn_queue,
+            crate::despawn_queue::process_despawn_queue.after(auto_reload_changed_scripts),
             // Then create new assets
             crate::asset_loading::process_pending_assets.after(crate::despawn_queue::process_despawn_queue),
             // Then spawn new entities with those assets
@@ -327,7 +538,6 @@ impl Plugin for LuaSpawnPlugin {
         ));
         app.add_systems(Update, (
             crate::resource_inserter::process_resource_queue,
-            auto_reload_changed_scripts,
         ));
     }
 }
@@ -364,9 +574,9 @@ fn log_available_events(type_registry: Res<AppTypeRegistry>) {
                 if let Some(event_type) = inner.strip_suffix(">") {
                     count += 1;
                     if count == 1 {
-                        info!("Events available in Lua via world:read_events():");
+                        debug!("Events available in Lua via world:read_events():");
                     }
-                    info!("  ✓ {}", event_type);
+                    debug!("  ✓ {}", event_type);
                 }
             }
         }
@@ -387,6 +597,7 @@ fn setup_lua_context(
     asset_server: Res<AssetServer>,
     mut component_registry: ResMut<crate::components::ComponentRegistry>,
     type_registry: Res<AppTypeRegistry>,
+    script_instance: Res<crate::script_entities::ScriptInstance>,
 ) {
     let system_registry = LuaSystemRegistry::default();
     
@@ -402,6 +613,7 @@ fn setup_lua_context(
         resource_queue.clone(),
         system_registry.clone(),
         builder_registry.clone(),
+        script_instance.clone(),
     ) {
         Ok(ctx) => {
             // Add asset loading to Lua
@@ -434,6 +646,172 @@ fn auto_reload_changed_scripts(
     for event in events.read() {
         info!("File change detected: {:?}", event.path);
         
+        let mut reloaded_paths = std::collections::HashSet::new();
+        
+        // Check if this is a module file (in assets/scripts/ but not a main script)
+        // Invalidate module cache if it's a module
+        if event.path.starts_with("assets/scripts/") {
+            // Get relative path from assets/scripts/
+            if let Ok(relative_path) = event.path.strip_prefix("assets/scripts/") {
+                let module_path = relative_path.to_string_lossy().to_string().replace("\\", "/");
+                
+                // Invalidate the module cache and get all dependent scripts
+                let invalidated = lua_ctx.script_cache.invalidate_module(&module_path);
+                
+                if !invalidated.is_empty() {
+                    debug!("Invalidated module cache for: {:?}", invalidated);
+                    
+                    // Update source cache for the changed module
+                    // This ensures hot reload uses the new source
+                    if let Ok((new_source, _)) = lua_ctx.script_cache.load_module_source(&module_path) {
+                        // load_module_source already updated the cache, but we force it here to be explicit
+                        lua_ctx.script_cache.update_source(&module_path, new_source);
+                    }
+                    
+                    // For each invalidated module, reload scripts that depend on it
+                    for invalidated_path in &invalidated {
+                        // Find and reload any main scripts that imported this module
+                        // We need to construct the full path for the script registry lookup
+                        let full_path = std::path::Path::new("assets/scripts").join(invalidated_path);
+                        
+                        // Get active instances for this dependent script
+                        let instances = script_registry.get_active_instances(&full_path);
+                        
+                        if !instances.is_empty() {
+                            debug!("Reloading {} dependent instance(s) of '{}'", instances.len(), invalidated_path);
+                            
+                            // Read script content
+                            let script_content = match std::fs::read_to_string(&full_path) {
+                                Ok(c) => c,
+                                Err(e) => {
+                                    error!("Failed to read dependent script {:?}: {}", full_path, e);
+                                    continue;
+                                }
+                            };
+                            
+                            for (instance_id, _old_content) in instances {
+                                cleanup_script_instance(instance_id, world, true); // Recursive: main script reload
+                                
+                                // Clear the module cache for all dependencies of this script
+                                // This ensures nested require() calls see fresh versions
+                                lua_ctx.script_cache.clear_dependency_caches(invalidated_path);
+                                
+                                match lua_ctx.execute_script_tracked(&script_content, invalidated_path, &script_instance) {
+                                    Ok(new_id) => {
+                                        debug!("✓ Reloaded dependent instance {} -> {} for '{}'", instance_id, new_id, invalidated_path);
+                                        script_registry.register_script(full_path.clone(), new_id, script_content.clone());
+                                        script_registry.remove_instance(instance_id);
+                                    }
+                                    Err(e) => error!("Failed to reload dependent script '{}': {}", invalidated_path, e),
+                                }
+                            }
+                            reloaded_paths.insert(full_path);
+                        }
+                    }
+                }
+                
+                // Trigger hot reload callbacks
+                let callbacks = lua_ctx.script_cache.get_hot_reload_callbacks(&module_path);
+                if !callbacks.is_empty() {
+                    debug!("Triggering {} hot reload callbacks for '{}'", callbacks.len(), module_path);
+                    
+                    // Get ALL instance IDs for this module (one per parent that required it)
+                    let old_instance_ids = lua_ctx.script_cache.get_all_module_instances(&module_path);
+                    
+                    // For each module instance, also get all its descendants (nested requires)
+                    // This ensures we clean up entities spawned in nested callbacks
+                    let mut all_instances_to_cleanup = HashSet::new();
+                    for old_id in &old_instance_ids {
+                        all_instances_to_cleanup.insert(*old_id);
+                        // Add all descendants (modules loaded within this instance's callbacks)
+                        let descendants = lua_ctx.script_cache.get_all_descendant_instances(*old_id);
+                        all_instances_to_cleanup.extend(descendants);
+                    }
+                    
+                    // Clean up entities from ALL previous module instances and their descendants
+                    if !all_instances_to_cleanup.is_empty() {
+                        debug!("Hot reload: Cleaning up {} total instance(s) for '{}' (including descendants): {:?}", 
+                            all_instances_to_cleanup.len(), module_path, all_instances_to_cleanup);
+                        for old_id in &all_instances_to_cleanup {
+                            debug!("Hot reload: Cleaning up instance {} for '{}' or its descendants", old_id, module_path);
+                            cleanup_script_instance(*old_id, world, false); // Non-recursive: we collected all descendants
+                        }
+                    } else {
+                        warn!("Hot reload: No module instances found for '{}'", module_path);
+                    }
+                    
+                    // Clear all instance mappings for this module (they'll be recreated when we re-execute)
+                    lua_ctx.script_cache.clear_module_instances(&module_path);
+                    
+                    // Load the module source (uses cache if unchanged, disk if new)
+                    if let Ok((source, _)) = lua_ctx.script_cache.load_module_source(&module_path) {
+                        // Note: source cache was already updated by load_module_source if it read from disk
+                        let module_name = format!("@{}", module_path);
+                        
+                        // Execute module and call callbacks - each with its parent's __INSTANCE_ID__ context
+                        // We need to execute the module separately for each parent because module execution
+                        // has side effects (nested require_async calls) that depend on __INSTANCE_ID__
+                        for (callback_key, parent_instance_id) in callbacks {
+                            // Check if parent instance was cleaned up (it might be in all_instances_to_cleanup)
+                            // If so, skip this callback to avoid creating instances with stale parents
+                            if all_instances_to_cleanup.contains(&parent_instance_id) {
+                                debug!("Hot reload: Skipping callback for parent {} (was cleaned up)", parent_instance_id);
+                                continue;
+                            }
+                            
+                            if let Ok(callback) = lua_ctx.lua.registry_value::<LuaFunction>(&*callback_key) {
+                                // Save current __INSTANCE_ID__ 
+                                let previous_instance_id: Option<u64> = lua_ctx.lua.globals().get("__INSTANCE_ID__").ok();
+                                
+                                // Create NEW module instance for this (module, parent) combination
+                                let new_module_instance_id = script_instance.start(module_path.clone());
+                                lua_ctx.script_cache.set_module_instance(module_path.clone(), parent_instance_id, new_module_instance_id);
+                                lua_ctx.script_cache.set_module_parent(new_module_instance_id, parent_instance_id);
+                                debug!("Hot reload: Created new instance {} for '{}' with parent {}", new_module_instance_id, module_path, parent_instance_id);
+                                
+                                // Set __INSTANCE_ID__ to the MODULE's instance before executing
+                                // This ensures nested require_async calls use correct parent
+                                if let Err(e) = lua_ctx.lua.globals().set("__INSTANCE_ID__", new_module_instance_id) {
+                                    error!("Failed to set module __INSTANCE_ID__: {}", e);
+                                    continue;
+                                }
+                                
+                                // Execute the module with this instance context
+                                match crate::script_cache::execute_module(&lua_ctx.lua, &source, &module_name) {
+                                    Ok(result) => {
+                                        // Cache the result (will overwrite previous, but they should be equivalent)
+                                        if let Ok(registry_key) = lua_ctx.lua.create_registry_value(result.clone()) {
+                                            lua_ctx.script_cache.cache_module(module_path.clone(), Arc::new(registry_key));
+                                        }
+                                        
+                                        // Execute callback - entities spawned will be tagged with module's instance
+                                        if let Err(e) = callback.call::<()>(result) {
+                                            error!("Error in hot reload callback for '{}': {}", module_path, e);
+                                        }
+                                    }
+                                    Err(e) => {
+                                        error!("Failed to execute module '{}' during hot reload: {}", module_path, e);
+                                    }
+                                }
+                                
+                                // Restore previous __INSTANCE_ID__
+                                if let Some(prev_id) = previous_instance_id {
+                                    let _ = lua_ctx.lua.globals().set("__INSTANCE_ID__", prev_id);
+                                } else {
+                                    let _ = lua_ctx.lua.globals().set("__INSTANCE_ID__", mlua::Nil);
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        
+        // Check if we already reloaded this file as a dependent
+        if reloaded_paths.contains(&event.path) {
+            continue;
+        }
+        
         // Get all active instances of this script
         let instances = script_registry.get_active_instances(&event.path);
         
@@ -455,16 +833,23 @@ fn auto_reload_changed_scripts(
             .and_then(|n| n.to_str())
             .unwrap_or("unknown.lua");
         
-        info!("Reloading {} active instance(s) of '{}'", instances.len(), script_name);
+        debug!("Reloading {} active instance(s) of '{}'", instances.len(), script_name);
         
         for (instance_id, _old_content) in instances {
             // Cleanup the instance
-            cleanup_script_instance(instance_id, world);
+            cleanup_script_instance(instance_id, world, true); // Recursive: main script reload
+            
+            // Clear the module cache for all dependencies of this script
+            // This ensures nested require() calls see fresh versions
+            if let Ok(relative_path) = event.path.strip_prefix("assets/scripts/") {
+                let module_path = relative_path.to_string_lossy().to_string().replace("\\", "/");
+                lua_ctx.script_cache.clear_dependency_caches(&module_path);
+            }
             
             // Re-execute the script with the same instance tracking
             match lua_ctx.execute_script_tracked(&script_content, script_name, &script_instance) {
                 Ok(new_instance_id) => {
-                    info!("✓ Reloaded instance {} -> {} for '{}'", instance_id, new_instance_id, script_name);
+                    debug!("✓ Reloaded instance {} -> {} for '{}'", instance_id, new_instance_id, script_name);
                     
                     // Register the new instance in the registry
                     script_registry.register_script(
@@ -485,10 +870,25 @@ fn auto_reload_changed_scripts(
 }
 
 /// Helper function to clean up a script instance (despawn entities, remove resources, clear systems)
-fn cleanup_script_instance(instance_id: u64, world: &World) {
+/// If recursive is true, also cleans up all child module instances (for main script reload)
+/// If recursive is false, only cleans up this specific instance (caller handles tree traversal)
+fn cleanup_script_instance(instance_id: u64, world: &World, recursive: bool) {
     // SAFETY: We need mutable access to cleanup. This is safe because we're in an exclusive system.
     #[allow(invalid_reference_casting)]
     let world_mut = unsafe { &mut *(world as *const World as *mut World) };
+    
+    // If recursive, clean up all child module instances first
+    if recursive {
+        let child_instances = if let Some(lua_ctx) = world.get_resource::<LuaScriptContext>() {
+            lua_ctx.script_cache.get_child_instances(instance_id)
+        } else {
+            Vec::new()
+        };
+        
+        for child_id in child_instances {
+            cleanup_script_instance(child_id, world, true);
+        }
+    }
     
     // 1. Get list of entities to be despawned BEFORE despawning them
     let entities_to_despawn = {
@@ -542,6 +942,12 @@ fn cleanup_script_instance(instance_id: u64, world: &World) {
     
     resource_queue.clear_instance_tracking(instance_id);
     
-    // 5. Despawn all entities owned by this instance
+    // 5. Remove hot reload callbacks registered by this instance
+    // This prevents callback accumulation when scripts are reloaded
+    if let Some(lua_ctx) = world.get_resource::<LuaScriptContext>() {
+        lua_ctx.script_cache.remove_callbacks_for_instance(instance_id);
+    }
+    
+    // 6. Despawn all entities owned by this instance
     crate::script_entities::despawn_instance_entities(world_mut, instance_id);
 }

@@ -22,6 +22,7 @@ pub mod os_utilities;
 pub mod reflection;
 pub mod script_entities;
 pub mod script_registry;
+pub mod script_cache;
 pub mod lua_file_watcher;
 
 
@@ -47,6 +48,7 @@ pub use event_reader::reflection_to_lua;
 pub use auto_bindings::{register_auto_bindings, register_auto_events};
 pub use script_entities::{ScriptOwned, ScriptInstance, despawn_instance_entities};
 pub use script_registry::ScriptRegistry;
+pub use script_cache::ScriptCache;
 pub use lua_file_watcher::{LuaFileWatcherPlugin, LuaFileChangeEvent};
 
 

@@ -167,7 +167,7 @@ fn load_and_run_script(
     // Try both paths
     let paths = vec![
         std::path::PathBuf::from("Hello/assets/scripts/lightyear_chat.lua"),
-        std::path::PathBuf::from("assets/scripts/lightyear_chat.lua"),
+        std::path::PathBuf::from("assets/scripts/examples/lightyear_chat.lua"),
     ];
     
     let mut script_content = None;

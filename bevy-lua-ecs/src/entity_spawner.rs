@@ -11,7 +11,7 @@ pub fn process_spawn_queue(
     component_registry: Res<ComponentRegistry>,
     serde_registry: Res<crate::serde_components::SerdeComponentRegistry>,
     lua_ctx: Res<LuaScriptContext>,
-    current_script: Res<crate::script_entities::ScriptInstance>,
+    query: Query<Entity>,
 ) {
     let requests = queue.drain();
     
@@ -19,7 +19,10 @@ pub fn process_spawn_queue(
         return;
     }
     
-    debug!("[SPAWN_QUEUE] Processing {} spawn requests", requests.len());
+    let entity_count_before = query.iter().count();
+    debug!("[SPAWN_QUEUE] Processing {} spawn requests (current world has {} entities)", requests.len(), entity_count_before);
+    
+    let mut spawned_count = 0;
     
     for request in requests {
         // Spawn entity
@@ -94,8 +97,8 @@ pub fn process_spawn_queue(
             entity.insert(lua_custom_components);
         }
         
-        // Automatically tag entity with script ownership if a script instance is executing
-        if let Some(instance_id) = current_script.get_id() {
+        // Tag entity with script ownership using the captured instance_id
+        if let Some(instance_id) = request.instance_id {
             entity.insert(crate::script_entities::ScriptOwned { instance_id });
         }
         
@@ -103,5 +106,9 @@ pub fn process_spawn_queue(
         if let Some(parent_entity) = request.parent {
             commands.entity(parent_entity).add_child(entity_id);
         }
+        
+        spawned_count += 1;
     }
+    let entity_count = entity_count_before + spawned_count;
+    debug!("[SPAWN_QUEUE] Total entities in the game: {}", entity_count);
 }

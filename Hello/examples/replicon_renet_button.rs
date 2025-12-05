@@ -78,7 +78,7 @@ fn load_and_run_script(
     script_instance: Res<ScriptInstance>,
     script_registry: Res<ScriptRegistry>,
 ) {
-    let script_path = std::path::PathBuf::from("assets/scripts/hybrid_button.lua");
+    let script_path = std::path::PathBuf::from("assets/scripts/examples/hybrid_button.lua");
     match fs::read_to_string(&script_path) {
         Ok(script_content) => {
             info!("Loaded script: {:?}", script_path);

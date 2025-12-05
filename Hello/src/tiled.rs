@@ -10,7 +10,7 @@ pub struct TiledIntegrationPlugin;
 impl Plugin for TiledIntegrationPlugin {
     fn build(&self, app: &mut App) {
         // Add the bevy_ecs_tiled plugin with default configuration
-        app.add_plugins(TiledMapPlugin::default());
+        app.add_plugins(TiledPlugin::default());
         
         info!("✓ Tiled map plugin initialized");
     }

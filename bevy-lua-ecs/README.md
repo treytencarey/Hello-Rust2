@@ -80,8 +80,59 @@ function my_system(world)
 - **Generic Lua Components**: Store arbitrary Lua data as components
 - **Marker Components**: Register serializable marker components for special purposes
 - **Time Access**: Get delta time and frame information
+- **Script Importing**: Load Lua modules with `require()` and `require_async()`
+- **Hot Reload**: Automatic cache invalidation and dependent script reloading
 
 ### Lua API
+
+#### Script Importing
+
+Load Lua modules to organize code into reusable components:
+
+```lua
+-- Synchronous loading (blocks until loaded)
+local helpers = require("math_helpers.lua")
+local result = helpers.add(5, 3)
+
+-- Optional: Disable automatic reloading (default: true)
+local static = require("math_helpers.lua", { reload = false })
+
+-- Asynchronous loading (callback-based)
+require_async("heavy_data.lua", function(data)
+    print("Data loaded!")
+end)
+
+-- Optional: Re-trigger callback on hot reload (default: false)
+require_async("config.lua", function(config)
+    print("Config updated!")
+end, { reload = true })
+```
+
+**Module Pattern**:
+```lua
+-- math_helpers.lua
+local M = {}
+function M.add(a, b) return a + b end
+return M
+```
+
+**Hot Reload Behavior**:
+- When a module file changes, its cache is invalidated
+- Scripts that imported it with `reload = true` (default for sync) are reloaded
+- Callbacks registered with `reload = true` (default false for async) are re-triggered
+- Next `require()` loads the updated version
+
+**Path Resolution**:
+1. **Relative**: Tried first, relative to the current script's directory
+   - `require("helpers.lua")` inside `scripts/utils/main.lua` → `scripts/utils/helpers.lua`
+2. **Root-Relative**: Fallback, relative to `assets/scripts/`
+   - `require("utils/math.lua")` → `assets/scripts/utils/math.lua`
+
+**Caching**: Modules load once and are cached (singleton pattern)
+```lua
+local h1 = require("helpers.lua")
+local h2 = require("helpers.lua")  -- Same instance as h1
+```
 
 #### Loading and Creating Assets
 

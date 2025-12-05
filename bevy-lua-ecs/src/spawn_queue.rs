@@ -7,6 +7,7 @@ pub struct SpawnRequest {
     pub components: Vec<(String, LuaRegistryKey)>,
     pub lua_components: Vec<(String, LuaRegistryKey)>,
     pub parent: Option<Entity>,
+    pub instance_id: Option<u64>,
 }
 
 /// Resource that holds the spawn queue
@@ -31,12 +32,14 @@ impl SpawnQueue {
     pub fn queue_spawn(
         &self, 
         components: Vec<(String, LuaRegistryKey)>,
-        lua_components: Vec<(String, LuaRegistryKey)>
+        lua_components: Vec<(String, LuaRegistryKey)>,
+        instance_id: Option<u64>,
     ) {
         let request = SpawnRequest {
             components,
             lua_components,
             parent: None,
+            instance_id,
         };
         self.queue.lock().unwrap().push(request);
     }
@@ -46,12 +49,14 @@ impl SpawnQueue {
         &self, 
         parent: Entity,
         components: Vec<(String, LuaRegistryKey)>,
-        lua_components: Vec<(String, LuaRegistryKey)>
+        lua_components: Vec<(String, LuaRegistryKey)>,
+        instance_id: Option<u64>,
     ) {
         let request = SpawnRequest {
             components,
             lua_components,
             parent: Some(parent),
+            instance_id,
         };
         self.queue.lock().unwrap().push(request);
     }

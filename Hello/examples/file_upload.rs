@@ -96,7 +96,7 @@ fn load_and_run_script(
     info!("✓ Starting in {} mode", mode);
 
     // Load the pure Lua file upload script
-    let script_path = std::path::PathBuf::from("assets/scripts/file_upload.lua");
+    let script_path = std::path::PathBuf::from("assets/scripts/examples/file_upload.lua");
     match fs::read_to_string(&script_path) {
         Ok(script_content) => {
             info!("Loaded hot reload script: {:?}", script_path);

@@ -1,24 +1,25 @@
 use bevy::prelude::*;
 use std::sync::{Arc, Mutex};
+use std::collections::HashSet;
 
 /// Queue for despawning entities from Lua
 #[derive(Resource, Clone)]
 pub struct DespawnQueue {
-    queue: Arc<Mutex<Vec<Entity>>>,
+    queue: Arc<Mutex<HashSet<Entity>>>,
 }
 
 impl Default for DespawnQueue {
     fn default() -> Self {
         Self {
-            queue: Arc::new(Mutex::new(Vec::new())),
+            queue: Arc::new(Mutex::new(HashSet::new())),
         }
     }
 }
 
 impl DespawnQueue {
-    /// Queue an entity for despawning
+    /// Queue an entity for despawning (duplicates are automatically ignored)
     pub fn queue_despawn(&self, entity: Entity) {
-        self.queue.lock().unwrap().push(entity);
+        self.queue.lock().unwrap().insert(entity);
     }
 }
 
@@ -30,7 +31,7 @@ pub fn process_despawn_queue(
     lua_ctx: Res<crate::lua_integration::LuaScriptContext>,
 ) {
     let mut queue = despawn_queue.queue.lock().unwrap();
-    let entities_to_despawn: Vec<Entity> = queue.drain(..).collect();
+    let entities_to_despawn: Vec<Entity> = queue.drain().collect();
     drop(queue);
     
     if entities_to_despawn.is_empty() {

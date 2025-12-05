@@ -21,7 +21,7 @@ fn load_and_run_script(
     script_instance: Res<crate::script_entities::ScriptInstance>,
     script_registry: Res<crate::script_registry::ScriptRegistry>,
 ) {
-    let script_path = std::path::PathBuf::from("assets/scripts/asset_test.lua");
+    let script_path = std::path::PathBuf::from("assets/scripts/examples/asset_test.lua");
     match fs::read_to_string(&script_path) {
         Ok(script_content) => {
             info!("Loaded hot reload script: {:?}", script_path);
