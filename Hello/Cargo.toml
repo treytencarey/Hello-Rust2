@@ -29,6 +29,11 @@ constructors = [
     "renet::ConnectionConfig::default",
 ]
 
+# Bitflags types for automatic registration - declare flag variants here
+# These get generated into register_auto_bitflags() for runtime resolution
+[package.metadata.lua_bitflags]
+TextureUsages = ["COPY_SRC", "COPY_DST", "TEXTURE_BINDING", "STORAGE_BINDING", "RENDER_ATTACHMENT"]
+
 [features]
 default = ["physics", "tiled", "networking", "bevy_mod_xr"]
 physics = ["dep:bevy_rapier2d"]

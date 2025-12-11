@@ -125,7 +125,7 @@ pub fn setup_renet_lua_bindings(
         return;
     }
     
-    info!("✓ Registered Renet Lua bindings");
+    debug!("✓ Registered Renet Lua bindings");
 }
 
 /// System to sync Lua event queue to Bevy resource

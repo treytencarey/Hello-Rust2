@@ -69,7 +69,7 @@ fn spawn_from_reflection(
     struct_info: &StructInfo,
     type_path: &str,
 ) -> LuaResult<()> {
-    info!("Spawning {} via reflection", type_path);
+    debug!("Spawning {} via reflection", type_path);
     
     // For now, we'll use a simplified approach
     // Full implementation would use DynamicStruct and FromReflect

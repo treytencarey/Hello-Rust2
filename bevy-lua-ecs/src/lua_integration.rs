@@ -34,7 +34,7 @@ impl LuaScriptContext {
         // Track entity ID counter for immediate return (will be synced in process_spawn_queue)
         let entity_counter = Arc::new(std::sync::atomic::AtomicU32::new(0));
         
-        // Create component-based spawn function that returns an entity ID
+        // Create component-based spawn function that returns a chainable SpawnBuilder
         let counter_clone = entity_counter.clone();
         let spawn = lua_clone.create_function(move |lua_ctx, components: LuaTable| {
             // Capture current __INSTANCE_ID__ at queue time
@@ -54,18 +54,21 @@ impl LuaScriptContext {
             }
             
             // Queue spawn with captured instance_id
-            queue_clone.clone().queue_spawn(all_components, Vec::new(), instance_id);
+            let temp_id = queue_clone.generate_temp_id();
+            queue_clone.clone().queue_spawn(all_components, Vec::new(), instance_id, temp_id);
             
-            // Generate a temporary entity ID (will be replaced with real ID in spawner)
-            // For now we use a counter, but this won't match real entity IDs
-            let temp_id = counter_clone.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
-            Ok(temp_id as u64)
+            // Return SpawnBuilder for chainable API
+            let builder = crate::lua_spawn_builder::LuaSpawnBuilder::new(
+                temp_id,
+                queue_clone.clone(),
+                lua_for_closure.clone(),
+            );
+            Ok(builder)
         })?;
 
-        // Create spawn_with_parent function
+        // Create spawn_with_parent function (legacy - prefer spawn().with_parent())
         let queue_for_parent = queue.clone();
         let lua_for_parent = lua_clone.clone();
-        let counter_for_parent = entity_counter.clone();
         let spawn_with_parent = lua_clone.create_function(move |lua_ctx, (parent_id, components): (u64, LuaTable)| {
             let mut all_components = Vec::new();
             
@@ -81,17 +84,19 @@ impl LuaScriptContext {
                 all_components.push((component_name, registry_key));
             }
             
-            // Convert u64 to Entity
-            let parent = Entity::from_raw_u32(parent_id as u32)
-                .ok_or_else(|| LuaError::RuntimeError("Invalid entity ID".to_string()))?;
+            // Queue spawn with parent temp_id (will be resolved during spawn queue processing)
+            let temp_id = queue_for_parent.generate_temp_id();
+            queue_for_parent.clone().queue_spawn_with_parent(parent_id, all_components, Vec::new(), instance_id, temp_id);
             
-            // Queue spawn with parent and captured instance_id
-            queue_for_parent.clone().queue_spawn_with_parent(parent, all_components, Vec::new(), instance_id);
-            
-            // Return temporary ID
-            let temp_id = counter_for_parent.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
-            Ok(temp_id as u64)
+            // Return SpawnBuilder for chainable API (can still add observers)
+            let builder = crate::lua_spawn_builder::LuaSpawnBuilder::new(
+                temp_id,
+                queue_for_parent.clone(),
+                lua_for_parent.clone(),
+            );
+            Ok(builder)
         })?;
+
 
 
         
@@ -502,6 +507,7 @@ impl Plugin for LuaSpawnPlugin {
         app.init_resource::<crate::component_lua_trait::LuaComponentRegistry>();
         app.init_resource::<crate::script_entities::ScriptInstance>();
         app.init_resource::<crate::script_registry::ScriptRegistry>();
+        app.init_resource::<crate::lua_observers::LuaObserverRegistry>();
         
         // Add file watcher plugin for auto-reload
         app.add_plugins(crate::lua_file_watcher::LuaFileWatcherPlugin);
@@ -531,8 +537,12 @@ impl Plugin for LuaSpawnPlugin {
             crate::asset_loading::process_pending_assets.after(crate::despawn_queue::process_despawn_queue),
             // Then spawn new entities with those assets
             crate::entity_spawner::process_spawn_queue.after(crate::asset_loading::process_pending_assets),
+            // Process observer registrations after entities are spawned
+            crate::lua_observers::process_observer_registrations.after(crate::entity_spawner::process_spawn_queue),
+            // Attach observers to entities that have callbacks
+            crate::lua_observers::attach_lua_observers.after(crate::lua_observers::process_observer_registrations),
             // Finally apply component updates
-            crate::component_updater::process_component_updates.after(crate::entity_spawner::process_spawn_queue),
+            crate::component_updater::process_component_updates.after(crate::lua_observers::attach_lua_observers),
             crate::lua_systems::run_lua_systems,
             crate::component_updater::process_component_updates,
         ));
@@ -604,6 +614,9 @@ fn setup_lua_context(
     // Create AssetRegistry with handle setters for all asset types
     let asset_registry = crate::asset_loading::AssetRegistry::from_type_registry(&type_registry);
     
+    // Auto-discover asset types from TypeRegistry (supplements build-time config)
+    asset_registry.discover_and_register_handle_creators(&type_registry);
+    
     // Update ComponentRegistry with AssetRegistry reference
     component_registry.set_asset_registry(asset_registry.clone());
     
@@ -644,7 +657,7 @@ fn auto_reload_changed_scripts(
     world: &World,
 ) {
     for event in events.read() {
-        info!("File change detected: {:?}", event.path);
+        debug!("File change detected: {:?}", event.path);
         
         let mut reloaded_paths = std::collections::HashSet::new();
         

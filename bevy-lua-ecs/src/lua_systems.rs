@@ -34,7 +34,7 @@ impl LuaSystemRegistry {
         
         let removed_count = initial_count - systems.len();
         if removed_count > 0 {
-            info!("Cleared {} systems from instance {}", removed_count, instance_id);
+            debug!("Cleared {} systems from instance {}", removed_count, instance_id);
         }
     }
 }
@@ -245,7 +245,7 @@ fn run_single_lua_system(
                 let instance_id: u64 = lua_ctx.globals().get("__INSTANCE_ID__")?;
                 let script_name: String = lua_ctx.globals().get("__SCRIPT_NAME__")?;
                 
-                info!("Manual reload requested for script instance {} ('{}')", instance_id, script_name);
+                debug!("Manual reload requested for script instance {} ('{}')", instance_id, script_name);
                 
                 // Get script path and content from registry
                 let script_path = script_registry.get_instance_path(instance_id)
@@ -264,7 +264,7 @@ fn run_single_lua_system(
                 // Re-execute the script
                 match lua_ctx_res.execute_script_tracked(&script_content, &script_name, &script_instance) {
                     Ok(new_instance_id) => {
-                        info!("✓ Script reloaded: instance {} -> {}", instance_id, new_instance_id);
+                        debug!("✓ Script reloaded: instance {} -> {}", instance_id, new_instance_id);
                         
                         // Register the new instance
                         script_registry.register_script(script_path, new_instance_id, script_content);
@@ -287,7 +287,7 @@ fn run_single_lua_system(
                 let instance_id: u64 = lua_ctx.globals().get("__INSTANCE_ID__")?;
                 let script_name: String = lua_ctx.globals().get("__SCRIPT_NAME__")?;
                 
-                info!("Stop requested for script instance {} ('{}')", instance_id, script_name);
+                debug!("Stop requested for script instance {} ('{}')", instance_id, script_name);
                 
                 // Mark as stopped in registry (prevents auto-reload)
                 script_registry.mark_stopped(instance_id);
@@ -295,7 +295,7 @@ fn run_single_lua_system(
                 // Use shared cleanup logic
                 cleanup(lua_ctx, instance_id, &script_name)?;
                 
-                info!("✓ Script instance {} stopped", instance_id);
+                debug!("✓ Script instance {} stopped", instance_id);
                 Ok(())
             }
         })?)?;
@@ -412,6 +412,80 @@ fn run_single_lua_system(
         
         // query_events(event_type_name) - alias for read_events for API consistency
         world_table.set("query_events", read_events_fn)?;
+
+        // send_event(event_type_name, data_table) - queue an event to be sent
+        // Events are converted to JSON and dispatched by the generated system
+        let pending_events = world.get_resource::<crate::event_sender::PendingLuaEvents>()
+            .cloned()
+            .unwrap_or_default();
+        
+        let send_event_fn = scope.create_function({
+            let pending_events = pending_events.clone();
+            move |_lua_ctx, (_self, event_type_name, data_table): (LuaTable, String, LuaTable)| {
+                // Convert Lua table to JSON value
+                fn lua_to_json(value: &LuaValue) -> serde_json::Value {
+                    match value {
+                        LuaValue::Nil => serde_json::Value::Null,
+                        LuaValue::Boolean(b) => serde_json::Value::Bool(*b),
+                        LuaValue::Integer(i) => serde_json::json!(*i),
+                        LuaValue::Number(n) => serde_json::json!(*n),
+                        LuaValue::String(s) => {
+                            match s.to_str() {
+                                Ok(cow) => serde_json::Value::String(cow.to_string()),
+                                Err(_) => serde_json::Value::String(String::new()),
+                            }
+                        }
+                        LuaValue::Table(t) => {
+                            // Determine if array or object
+                            let mut is_array = true;
+                            let mut max_key = 0i64;
+                            for pair in t.clone().pairs::<LuaValue, LuaValue>() {
+                                if let Ok((key, _)) = pair {
+                                    match key {
+                                        LuaValue::Integer(i) if i > 0 => {
+                                            max_key = max_key.max(i);
+                                        }
+                                        _ => {
+                                            is_array = false;
+                                            break;
+                                        }
+                                    }
+                                }
+                            }
+                            
+                            if is_array && max_key > 0 {
+                                let mut arr = Vec::new();
+                                for i in 1..=max_key {
+                                    if let Ok(val) = t.get::<LuaValue>(i) {
+                                        arr.push(lua_to_json(&val));
+                                    }
+                                }
+                                serde_json::Value::Array(arr)
+                            } else {
+                                let mut map = serde_json::Map::new();
+                                for pair in t.clone().pairs::<String, LuaValue>() {
+                                    if let Ok((key, val)) = pair {
+                                        map.insert(key, lua_to_json(&val));
+                                    }
+                                }
+                                serde_json::Value::Object(map)
+                            }
+                        }
+                        _ => serde_json::Value::Null,
+                    }
+                }
+                
+                let json_data = lua_to_json(&LuaValue::Table(data_table.clone()));
+                
+                debug!("[SEND_EVENT] Queueing event '{}': {:?}", event_type_name, json_data);
+                pending_events.queue_event(event_type_name.clone(), json_data);
+                
+                Ok(())
+            }
+        })?;
+        
+        world_table.set("send_event", send_event_fn.clone())?;
+        world_table.set("write_event", send_event_fn)?;
 
         // Call the Lua system function
         func.call::<()>(world_table)?;

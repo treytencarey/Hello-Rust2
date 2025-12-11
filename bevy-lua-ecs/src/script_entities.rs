@@ -61,7 +61,7 @@ pub fn despawn_instance_entities(world: &mut World, instance_id: u64) -> Vec<Ent
         debug!("Queued despawn for entity {:?} owned by instance {}", entity, instance_id);
     }
     
-    info!("Queued {} entities from instance {} for despawn", count, instance_id);
+    debug!("Queued {} entities from instance {} for despawn", count, instance_id);
     
     entities_to_despawn
 }

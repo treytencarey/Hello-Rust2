@@ -18,7 +18,7 @@ impl Plugin for RapierIntegrationPlugin {
         // Register Rapier components that need serde (don't implement Reflect)
         app.add_systems(PreStartup, register_rapier_serde_components);
         
-        info!("✓ Rapier physics integration enabled");
+        debug!("✓ Rapier physics integration enabled");
     }
 }
 

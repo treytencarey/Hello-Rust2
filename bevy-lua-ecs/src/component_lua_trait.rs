@@ -100,7 +100,7 @@ impl LuaComponentRegistry {
         self.components.lock().unwrap().insert(type_id, methods_builder.into_map());
         self.type_names.lock().unwrap().insert(type_name.to_string(), type_id);
         
-        info!("✓ Registered Lua component: {}", type_name);
+        debug!("✓ Registered Lua component: {}", type_name);
     }
     
     /// Call a method on a component

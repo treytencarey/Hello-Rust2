@@ -86,7 +86,7 @@ fn visit_lua_files(
                             // Check debounce
                             if let Ok(duration) = modified.duration_since(*last_mod) {
                                 if duration >= state.debounce_duration {
-                                    info!("Detected change in Lua script: {:?}", path);
+                                    debug!("Detected change in Lua script: {:?}", path);
                                     events.write(LuaFileChangeEvent {
                                         path: path.clone(),
                                     });

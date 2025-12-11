@@ -114,3 +114,74 @@ pub fn reflection_to_lua(
         }
     }
 }
+
+/// Convert a Lua value to a reflected value (reverse of reflection_to_lua)
+/// This is a helper function for event writing via reflection
+/// Used by world:write_event() to convert Lua tables to Bevy event fields
+pub fn lua_to_reflection(
+    _lua: &Lua,
+    lua_value: &LuaValue,
+    field: &mut dyn bevy::reflect::PartialReflect,
+    _registry: &AppTypeRegistry,
+) -> LuaResult<()> {
+    match lua_value {
+        LuaValue::Number(n) => {
+            if let Some(f32_field) = field.try_downcast_mut::<f32>() {
+                *f32_field = *n as f32;
+            } else if let Some(f64_field) = field.try_downcast_mut::<f64>() {
+                *f64_field = *n;
+            }
+        }
+        LuaValue::Integer(i) => {
+            if let Some(i32_field) = field.try_downcast_mut::<i32>() {
+                *i32_field = *i as i32;
+            } else if let Some(i64_field) = field.try_downcast_mut::<i64>() {
+                *i64_field = *i;
+            } else if let Some(u32_field) = field.try_downcast_mut::<u32>() {
+                *u32_field = *i as u32;
+            } else if let Some(usize_field) = field.try_downcast_mut::<usize>() {
+                *usize_field = *i as usize;
+            }
+        }
+        LuaValue::Boolean(b) => {
+            if let Some(bool_field) = field.try_downcast_mut::<bool>() {
+                *bool_field = *b;
+            }
+        }
+        LuaValue::String(s) => {
+            if let Ok(str_val) = s.to_str() {
+                if let Some(string_field) = field.try_downcast_mut::<String>() {
+                    *string_field = str_val.to_string();
+                }
+            }
+        }
+        LuaValue::Table(table) => {
+            // Handle nested structs
+            if let bevy::reflect::ReflectMut::Struct(struct_mut) = field.reflect_mut() {
+                for i in 0..struct_mut.field_len() {
+                    if let Some(field_name) = struct_mut.name_at(i) {
+                        if let Ok(nested_lua_val) = table.get::<LuaValue>(field_name) {
+                            if let Some(nested_field) = struct_mut.field_at_mut(i) {
+                                let _ = lua_to_reflection(_lua, &nested_lua_val, nested_field, _registry);
+                            }
+                        }
+                    }
+                }
+            }
+            // Handle Vec2, Vec3 specially
+            if let Some(vec2_field) = field.try_downcast_mut::<bevy::math::Vec2>() {
+                let x: f32 = table.get("x").unwrap_or(0.0);
+                let y: f32 = table.get("y").unwrap_or(0.0);
+                *vec2_field = bevy::math::Vec2::new(x, y);
+            } else if let Some(vec3_field) = field.try_downcast_mut::<bevy::math::Vec3>() {
+                let x: f32 = table.get("x").unwrap_or(0.0);
+                let y: f32 = table.get("y").unwrap_or(0.0);
+                let z: f32 = table.get("z").unwrap_or(0.0);
+                *vec3_field = bevy::math::Vec3::new(x, y, z);
+            }
+        }
+        _ => {}
+    }
+    
+    Ok(())
+}

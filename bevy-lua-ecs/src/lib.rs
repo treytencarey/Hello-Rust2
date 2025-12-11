@@ -24,10 +24,14 @@ pub mod script_entities;
 pub mod script_registry;
 pub mod script_cache;
 pub mod lua_file_watcher;
+pub mod event_sender;
+pub mod lua_spawn_builder;
+pub mod lua_observers;
+pub mod bitflags_registry;
 
 
 // Re-export commonly used types
-pub use components::{ComponentRegistry, LuaCustomComponents};
+pub use components::{ComponentRegistry, LuaCustomComponents, register_entity_wrappers_runtime};
 pub use entity_spawner::process_spawn_queue;
 pub use lua_integration::{LuaScriptContext, LuaSpawnPlugin};
 pub use spawn_queue::SpawnQueue;
@@ -36,7 +40,7 @@ pub use component_update_queue::ComponentUpdateQueue;
 pub use component_updater::process_component_updates;
 pub use serde_components::SerdeComponentRegistry;
 pub use lua_systems::{LuaSystemRegistry, run_lua_systems};
-pub use asset_loading::{AssetRegistry, add_asset_loading_to_lua};
+pub use asset_loading::{AssetRegistry, add_asset_loading_to_lua, HandleSetter, AssetAdder, AssetCloner, HandleCreator, NewtypeWrapperCreator, ReflectDirectAssetAdd, register_cloner_if_clone, register_asset_types_runtime, parse_enum_from_string};
 pub use lua_world_api::{LuaQueryBuilder, LuaEntitySnapshot, execute_query};
 pub use resource_queue::ResourceQueue;
 pub use resource_inserter::process_resource_queue;
@@ -45,11 +49,15 @@ pub use resource_constructors::{ResourceConstructorRegistry, OsUtilities};
 pub use resource_lua_trait::LuaResourceRegistry;
 pub use component_lua_trait::LuaComponentRegistry;
 pub use event_reader::reflection_to_lua;
-pub use auto_bindings::{register_auto_bindings, register_auto_events};
+pub use auto_bindings::{register_auto_bindings, register_auto_events, dispatch_lua_events};
 pub use script_entities::{ScriptOwned, ScriptInstance, despawn_instance_entities};
+pub use lua_spawn_builder::LuaSpawnBuilder;
+pub use lua_observers::{LuaObserverRegistry, process_observer_registrations, attach_lua_observers, LuaObserversAttached, set_observer_attacher, dispatch_lua_observer_internal};
 pub use script_registry::ScriptRegistry;
 pub use script_cache::ScriptCache;
 pub use lua_file_watcher::{LuaFileWatcherPlugin, LuaFileChangeEvent};
+pub use event_sender::{PendingLuaEvents, LuaEventSenderPlugin};
+pub use bitflags_registry::BitflagsRegistry;
 
 
 /// Register common Bevy event types for Lua access via world:read_events()

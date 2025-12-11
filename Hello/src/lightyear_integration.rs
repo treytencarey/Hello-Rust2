@@ -44,12 +44,12 @@ pub struct Channel1;
 
 /// Register Lua API for Lightyear messaging
 pub fn register_lightyear_lua_api(_registry: &bevy_lua_ecs::LuaResourceRegistry) {
-    info!("🚀 Registering Lightyear Lua API...");
+    debug!("🚀 Registering Lightyear Lua API...");
     
     // TODO: Add Lua bindings for:
     // - send_message(message_type, data_table)
     // - receive_messages() -> array of {type, data}
     // - is_connected()
     
-    info!("✅ Lightyear Lua API registered");
+    debug!("✅ Lightyear Lua API registered");
 }

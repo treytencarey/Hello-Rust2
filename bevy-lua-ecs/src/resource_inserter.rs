@@ -39,7 +39,7 @@ pub fn process_resource_queue(
         if let Some(result) = builder_registry.try_build(&lua_ctx.lua, &request.resource_name, data_value.clone(), world) {
             match result {
                 Ok(()) => {
-                    info!("✓ Inserted resource '{}' via builder", request.resource_name);
+                    debug!("✓ Inserted resource '{}' via builder", request.resource_name);
                     // Mark resource as inserted for query_resource tracking
                     serde_registry.mark_resource_inserted(&request.resource_name);
                 }

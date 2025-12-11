@@ -18,7 +18,7 @@ pub struct LuaCustomComponents {
 /// Registry of component handlers using reflection
 #[derive(Resource)]
 pub struct ComponentRegistry {
-    handlers: HashMap<String, ComponentHandler>,
+    pub handlers: HashMap<String, ComponentHandler>,
     type_registry: AppTypeRegistry,
     asset_registry: Option<crate::asset_loading::AssetRegistry>,
     /// Map of non-reflected component names to their TypeIds (for components that don't implement Reflect)
@@ -125,6 +125,169 @@ impl ComponentRegistry {
     pub fn type_registry(&self) -> &AppTypeRegistry {
         &self.type_registry
     }
+    
+    /// Register an entity wrapper component (newtype around Entity)
+    /// These components have pattern: pub struct ComponentName(pub Entity);
+    /// Lua table should have format: { entity = entity_id }
+    ///
+    /// # Example
+    /// ```ignore
+    /// registry.register_entity_component::<UiTargetCamera>("UiTargetCamera", UiTargetCamera);
+    /// ```
+    pub fn register_entity_component<C, F>(&mut self, short_name: &str, constructor: F)
+    where
+        C: Component,
+        F: Fn(Entity) -> C + Send + Sync + 'static,
+    {
+        let component_name = short_name.to_string();
+        
+        let handler: ComponentHandler = Box::new(move |data: &LuaValue, entity_commands: &mut EntityCommands| {
+            if let LuaValue::Table(table) = data {
+                // Get entity ID from Lua table
+                if let Ok(entity_id) = table.get::<u64>("entity") {
+                    // Create Entity from bits using Bevy 0.17 API
+                    // from_bits reconstructs the full Entity (index + generation) from to_bits()
+                    let target_entity = Entity::from_bits(entity_id);
+                    debug!("[ENTITY_COMPONENT] {} targeting entity bits {} -> {:?}", component_name, entity_id, target_entity);
+                    let component = constructor(target_entity);
+                    entity_commands.insert(component);
+                    return Ok(());
+                }
+            }
+            Err(mlua::Error::RuntimeError(format!(
+                "Failed to create {} from Lua. Expected table with 'entity' field.", 
+                component_name
+            )))
+        });
+        
+        self.handlers.insert(short_name.to_string(), handler);
+        debug!("✓ Registered entity component handler: {}", short_name);
+    }
+}
+
+/// Register entity wrapper components at runtime using TypeRegistry
+/// 
+/// This function takes a list of discovered type names and looks up each one
+/// in the TypeRegistry. If found and it's a valid entity wrapper component
+/// (a tuple struct with a single Entity field), it registers a handler.
+/// 
+/// This enables true auto-discovery without compile-time type paths.
+pub fn register_entity_wrappers_runtime(
+    component_registry: &mut ComponentRegistry,
+    type_registry: &AppTypeRegistry,
+    discovered_names: &[&str],
+) {
+    let registry = type_registry.read();
+    
+    // Blocklist of internal Bevy types that should NOT be registered as Lua entity wrappers
+    // These are internal rendering/ECS relationship types that Bevy manages automatically
+    let blocklist = [
+        "ChildOf",          // Bevy hierarchy - managed internally
+        "Children",         // Bevy hierarchy - managed internally  
+        "RenderEntity",     // Bevy render world - internal
+        "MainEntity",       // Bevy render world - internal
+        "OcclusionCullingSubviewEntities", // Internal render optimization
+        "UiCameraView",     // Internal UI rendering
+        "UiViewTarget",     // Internal UI rendering
+        "TargetCamera",     // Use the specific UiTargetCamera instead
+    ];
+    
+    for &type_name in discovered_names {
+        // Skip blocklisted internal types
+        if blocklist.contains(&type_name) {
+            debug!("[RUNTIME_ENTITY_WRAPPER] Skipping blocklisted internal type: {}", type_name);
+            continue;
+        }
+        
+        // Try to find this type by its short name
+        let mut found = false;
+        
+        for registration in registry.iter() {
+            let type_info = registration.type_info();
+            let short_path = type_info.type_path_table().short_path();
+            
+            // Check if this is the type we're looking for
+            if short_path == type_name {
+                // Verify it's a component
+                if registration.data::<ReflectComponent>().is_none() {
+                    debug!("[RUNTIME_ENTITY_WRAPPER] {} is not a Component, skipping", type_name);
+                    continue;
+                }
+                
+                // Verify it's a tuple struct (entity wrappers are tuple structs)
+                if let TypeInfo::TupleStruct(tuple_info) = type_info {
+                    // Check if it has exactly one field that could be an Entity
+                    if tuple_info.field_len() == 1 {
+                        let field_info = tuple_info.field_at(0);
+                        if let Some(field) = field_info {
+                            let field_type = field.type_path();
+                            // Check if it's an Entity wrapper
+                            if field_type.contains("Entity") {
+                                debug!("[RUNTIME_ENTITY_WRAPPER] ✓ Registering entity wrapper: {} (field: {})", type_name, field_type);
+                                
+                                // Clone what we need for the closure
+                                let type_registry_clone = type_registry.clone();
+                                let full_path = type_info.type_path().to_string();
+                                let name_for_closure = type_name.to_string();
+                                
+                                // Create a handler that uses reflection to create the component
+                                let handler: Box<dyn Fn(&LuaValue, &mut EntityCommands) -> LuaResult<()> + Send + Sync> = 
+                                    Box::new(move |data: &LuaValue, entity_commands: &mut EntityCommands| {
+                                        if let LuaValue::Table(table) = data {
+                                            if let Ok(entity_id) = table.get::<u64>("entity") {
+                                                // entity_spawner pre-resolves temp_ids -> entity bits via resolve_entity()
+                                                // so entity_id here is already the full entity bits representation
+                                                let target_entity = Entity::from_bits(entity_id);
+                                                debug!("[RUNTIME_ENTITY_WRAPPER] {} targeting entity bits {} -> {:?}", 
+                                                    name_for_closure, entity_id, target_entity);
+                                                
+                                                // Create a DynamicTupleStruct with the Entity value
+                                                // Entity wrappers don't implement Default, so we can't use ReflectDefault
+                                                // Instead, we build the tuple struct dynamically with just the Entity field
+                                                use bevy::reflect::DynamicTupleStruct;
+                                                
+                                                // Create dynamic tuple struct with the Entity as the only field
+                                                let dynamic_tuple = DynamicTupleStruct::from_iter([
+                                                    Box::new(target_entity) as Box<dyn bevy::reflect::PartialReflect>
+                                                ]);
+                                                
+                                                // Insert the component via reflection
+                                                let full_path_clone = full_path.clone();
+                                                let type_registry_for_cmd = type_registry_clone.clone();
+                                                entity_commands.queue(move |entity: bevy::prelude::EntityWorldMut| {
+                                                    let mut entity = entity;
+                                                    let reg = type_registry_for_cmd.read();
+                                                    if let Some(registration) = reg.get_with_type_path(&full_path_clone) {
+                                                        if let Some(reflect_component) = registration.data::<ReflectComponent>() {
+                                                            reflect_component.insert(&mut entity, &dynamic_tuple, &reg);
+                                                        }
+                                                    }
+                                                });
+                                                return Ok(());
+                                            }
+                                        }
+                                        Err(mlua::Error::RuntimeError(format!(
+                                            "Failed to create {} from Lua. Expected table with 'entity' field.", 
+                                            name_for_closure
+                                        )))
+                                    });
+                                
+                                component_registry.handlers.insert(type_name.to_string(), handler);
+                                found = true;
+                                break;
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        
+        if !found {
+            // This is expected - many discovered types aren't in TypeRegistry
+            // (internal types, types not registered, etc.)
+            debug!("[RUNTIME_ENTITY_WRAPPER] Type not found or not usable: {}", type_name);
+        }
+    }
 }
 
 /// Spawn component using Bevy's reflection system (with serde fallback)
@@ -218,6 +381,14 @@ fn spawn_component_via_reflection(
                     if let Ok(val) = data_table.raw_get::<LuaValue>("_0") {
                         if !matches!(val, LuaValue::Nil) {
                             debug!("[COMPONENT_SPAWN] Found _0 field for {}: {:?}", type_path, val);
+                            break 'search val;
+                        }
+                    }
+                    
+                    // Check "id" (common for handle-wrapping newtypes like Mesh3d, MeshMaterial3d)
+                    if let Ok(val) = data_table.raw_get::<LuaValue>("id") {
+                        if !matches!(val, LuaValue::Nil) {
+                            debug!("[COMPONENT_SPAWN] Found id field for {}: {:?}", type_path, val);
                             break 'search val;
                         }
                     }
@@ -332,7 +503,7 @@ fn spawn_component_via_reflection(
                         DynamicVariant::Unit
                     }
                     bevy::reflect::VariantInfo::Tuple(tuple_info) => {
-                        // Tuple variant like Val::Px(200.0)
+                        // Tuple variant like Val::Px(200.0) or RenderTarget::Image(ImageRenderTarget)
                         let data_value = variant_data.ok_or_else(|| LuaError::RuntimeError(
                             format!("Variant '{}' is a tuple variant and requires data", variant_name)
                         ))?;
@@ -341,13 +512,136 @@ fn spawn_component_via_reflection(
                         
                         // Handle single-field tuple variants (most common case)
                         if tuple_info.field_len() == 1 {
+                            // Check if this is a newtype wrapper using type_info
+                            // Handles both TupleStruct newtypes and Struct newtypes (like ImageRenderTarget)
+                            // Returns (handle_inner_type, newtype_type_info, field_name, newtype_type_path)
+                            let field_info = tuple_info.field_at(0);
+                            let newtype_info = field_info
+                                .and_then(|f| f.type_info())
+                                .and_then(|ti| {
+                                    match ti {
+                                        bevy::reflect::TypeInfo::TupleStruct(ts) => {
+                                            if ts.field_len() == 1 {
+                                                let inner = ts.field_at(0).map(|inner_f| inner_f.type_path().to_string());
+                                                let newtype_path = ti.type_path().to_string();
+                                                Some((inner, Some(ti), Some("0".to_string()), Some(newtype_path)))
+                                            } else {
+                                                None
+                                            }
+                                        }
+                                        bevy::reflect::TypeInfo::Struct(s) => {
+                                            // Check if any field is a Handle<T>
+                                            let handle_field_info = (0..s.field_len())
+                                                .find_map(|i| s.field_at(i).filter(|f| f.type_path().contains("Handle<"))
+                                                    .map(|f| (f.type_path().to_string(), f.name().to_string())));
+                                            
+                                            if let Some((inner, field_name)) = handle_field_info {
+                                                let newtype_path = ti.type_path().to_string();
+                                                Some((Some(inner), Some(ti), Some(field_name), Some(newtype_path)))
+                                            } else {
+                                                None
+                                            }
+                                        }
+                                        _ => None
+                                    }
+                                });
+                            
+                            let (newtype_inner_type, newtype_type_info, newtype_field_name, newtype_type_path) = 
+                                newtype_info.unwrap_or((None, None, None, None));
+                            let is_newtype_wrapper = newtype_inner_type.is_some();
+                            let _ = (newtype_type_info, newtype_field_name); // silence unused warnings
+                            
                             // The value can be a scalar or table
                             match &data_value {
                                 LuaValue::Number(n) => {
-                                    dynamic_tuple.insert(*n as f32);
+                                    if is_newtype_wrapper {
+                                        // This is a newtype-wrapped variant, treat number as asset ID
+                                        debug!("[ENUM_GENERIC] Detected newtype with inner type '{:?}', wrapping handle ID {}", 
+                                            newtype_inner_type, *n);
+                                        if let Some(asset_reg) = asset_registry {
+                                            if let Some(untyped_handle) = asset_reg.get_untyped_handle(*n as u32) {
+                                                // First create typed Handle<T> from UntypedHandle
+                                                let handle_box = newtype_inner_type.as_ref()
+                                                    .and_then(|inner_type| asset_reg.try_create_typed_handle_box(inner_type, untyped_handle.clone()));
+                                                
+                                                // Then try to wrap in newtype (e.g., Handle<Image> -> ImageRenderTarget)
+                                                if let Some(typed_handle) = handle_box {
+                                                    // Try to wrap in newtype if a wrapper is registered
+                                                    if let Some(ref newtype_path) = newtype_type_path {
+                                                        if let Some(wrapped) = asset_reg.try_wrap_in_newtype_with_reflection(newtype_path, typed_handle, type_registry) {
+                                                            debug!("[ENUM_GENERIC] ✓ Wrapped Handle in newtype '{}'", newtype_path);
+                                                            dynamic_tuple.insert_boxed(wrapped);
+                                                        } else {
+                                                            // Reflection fallback failed too
+                                                            debug!("[ENUM_GENERIC] ⚠ Failed to wrap in newtype '{}' even with reflection", newtype_path);
+                                                            return Err(LuaError::RuntimeError(format!(
+                                                                "Failed to wrap in newtype '{}'. Ensure type has #[derive(Reflect)] with FromReflect", newtype_path
+                                                            )));
+                                                        }
+                                                    } else {
+                                                        debug!("[ENUM_GENERIC] ⚠ No newtype path, inserting typed Handle directly");
+                                                        return Err(LuaError::RuntimeError(
+                                                            "Newtype wrapper detection failed - no type path available".to_string()
+                                                        ));
+                                                    }
+                                                } else {
+                                                    debug!("[ENUM_GENERIC] ⚠ Failed to create typed handle");
+                                                    return Err(LuaError::RuntimeError(format!(
+                                                        "Failed to create typed handle for inner type {:?}", newtype_inner_type
+                                                    )));
+                                                }
+                                            } else {
+                                                return Err(LuaError::RuntimeError(format!("Asset ID {} not found", *n as u32)));
+                                            }
+                                        } else {
+                                            return Err(LuaError::RuntimeError("Asset registry not available".to_string()));
+                                        }
+                                    } else {
+                                        dynamic_tuple.insert(*n as f32);
+                                    }
                                 }
                                 LuaValue::Integer(i) => {
-                                    dynamic_tuple.insert(*i as f32);
+                                    if is_newtype_wrapper {
+                                        // This is a newtype-wrapped variant, treat integer as asset ID
+                                        debug!("[ENUM_GENERIC] Detected newtype with inner type '{:?}', wrapping handle ID {}", 
+                                            newtype_inner_type, *i);
+                                            if let Some(asset_reg) = asset_registry {
+                                            if let Some(untyped_handle) = asset_reg.get_untyped_handle(*i as u32) {
+                                                // First create typed Handle<T> from UntypedHandle
+                                                let handle_box = newtype_inner_type.as_ref()
+                                                    .and_then(|inner_type| asset_reg.try_create_typed_handle_box(inner_type, untyped_handle.clone()));
+                                                
+                                                // Then try to wrap in newtype (e.g., Handle<Image> -> ImageRenderTarget)
+                                                if let Some(typed_handle) = handle_box {
+                                                    // Try to wrap in newtype if a wrapper is registered
+                                                    if let Some(ref newtype_path) = newtype_type_path {
+                                                        if let Some(wrapped) = asset_reg.try_wrap_in_newtype_with_reflection(newtype_path, typed_handle, type_registry) {
+                                                            debug!("[ENUM_GENERIC] ✓ Wrapped Handle in newtype '{}'", newtype_path);
+                                                            dynamic_tuple.insert_boxed(wrapped);
+                                                        } else {
+                                                            return Err(LuaError::RuntimeError(format!(
+                                                                "Failed to wrap in newtype '{}'. Ensure type has #[derive(Reflect)] with FromReflect", newtype_path
+                                                            )));
+                                                        }
+                                                    } else {
+                                                        return Err(LuaError::RuntimeError(
+                                                            "Newtype wrapper detection failed - no type path available".to_string()
+                                                        ));
+                                                    }
+                                                } else {
+                                                    return Err(LuaError::RuntimeError(format!(
+                                                        "Failed to create typed handle for inner type {:?}", newtype_inner_type
+                                                    )));
+                                                }
+                                            } else {
+                                                return Err(LuaError::RuntimeError(format!("Asset ID {} not found", *i as u32)));
+                                            }
+                                        } else {
+                                            return Err(LuaError::RuntimeError("Asset registry not available".to_string()));
+                                        }
+                                    } else {
+                                        dynamic_tuple.insert(*i as f32);
+                                    }
                                 }
                                 LuaValue::Boolean(b) => {
                                     dynamic_tuple.insert(*b);
@@ -448,6 +742,7 @@ fn spawn_component_via_reflection(
         }
         
         // Insert component via reflection
+        debug!("[COMPONENT_SPAWN] ✓ Calling insert_reflect for component: {}", type_path);
         entity.insert_reflect(component);
         return Ok(());
     }
@@ -507,6 +802,9 @@ fn set_field_from_lua(
         }
     }
     
+    // NOTE: Enum types (including RenderTarget) are handled generically via try_construct_enum_variant
+    // which detects newtype wrappers and handles asset IDs automatically
+    
     // Try to downcast to common types
     if let Some(f32_field) = field.try_downcast_mut::<f32>() {
         match lua_value {
@@ -522,6 +820,16 @@ fn set_field_from_lua(
         if let LuaValue::Integer(i) = lua_value {
             *i32_field = *i as i32;
         }
+    } else if let Some(isize_field) = field.try_downcast_mut::<isize>() {
+        // Camera::order is isize - critical for RTT (needs order = -1)
+        if let LuaValue::Integer(i) = lua_value {
+            *isize_field = *i as isize;
+            debug!("[FIELD_SET] ✓ Set isize field to {}", *i);
+        }
+    } else if let Some(usize_field) = field.try_downcast_mut::<usize>() {
+        if let LuaValue::Integer(i) = lua_value {
+            *usize_field = *i as usize;
+        }
     } else if let Some(string_field) = field.try_downcast_mut::<String>() {
         if let LuaValue::String(s) = lua_value {
             *string_field = s.to_str()?.to_string();
@@ -536,7 +844,10 @@ fn set_field_from_lua(
             let g: f32 = color_table.get("g").unwrap_or(1.0);
             let b: f32 = color_table.get("b").unwrap_or(1.0);
             let a: f32 = color_table.get("a").unwrap_or(1.0);
+            debug!("[COLOR_SET] Setting Color from table: r={}, g={}, b={}, a={}", r, g, b, a);
             *color_field = Color::srgba(r, g, b, a);
+        } else {
+            warn!("[COLOR_SET] Expected Table for Color, got: {:?}", lua_value);
         }
     } else if let Some(vec3_field) = field.try_downcast_mut::<Vec3>() {
         if let LuaValue::Table(vec_table) = lua_value {
@@ -684,7 +995,7 @@ fn set_nested_field_from_lua(
         }
         ReflectMut::Enum(_enum_mut) => {
             // Get the type info to understand the enum structure
-            let type_path = field.reflect_type_path();
+            let type_path = field.reflect_type_path().to_string();
             
             // For Option types, we want to create Some(inner_value)
             // The table represents the inner value (e.g., Rect { min, max })
@@ -765,7 +1076,7 @@ fn set_nested_field_from_lua(
                 
                 field.apply(&some_enum);
             } else {
-                // Non-Option enum (like Val) - create the enum variant from table
+                // Non-Option enum (like Val, RenderTarget) - create the enum variant from table
                 // Table should have format: { VariantName = value }
                 let mut pairs = table.pairs::<String, LuaValue>();
                 
@@ -776,6 +1087,130 @@ fn set_nested_field_from_lua(
                             "Enum table must have exactly one key (the variant name)".to_string()
                         ));
                     }
+                    // Get enum info to check if this variant's field is a newtype wrapper
+                    // Returns (is_newtype, handle_inner_type_path, newtype_type_info, field_name, newtype_type_path)
+                    let (variant_is_newtype, newtype_inner_type, newtype_type_info, newtype_field_name, newtype_type_path) = 
+                        if let Some(TypeInfo::Enum(enum_info)) = field.get_represented_type_info() {
+                            debug!("[ENUM_NEWTYPE] Found enum info for type '{}', checking variant '{}'", enum_info.type_path(), variant_name);
+                            // Debug: list all available variants
+                            let all_variants: Vec<_> = enum_info.iter().map(|v| v.name().to_string()).collect();
+                            debug!("[ENUM_NEWTYPE]   Available variants: {:?}", all_variants);
+                            
+                            // Try direct variant lookup first, fall back to iteration
+                            let variant = enum_info.variant(&variant_name)
+                                .or_else(|| {
+                                    // Fallback: search through all variants by name (case-insensitive)
+                                    debug!("[ENUM_NEWTYPE]   Direct lookup failed, trying iteration...");
+                                    enum_info.iter().find(|v| v.name().eq_ignore_ascii_case(&variant_name))
+                                });
+                            
+                            variant.and_then(|v| {
+                                    debug!("[ENUM_NEWTYPE]   Variant exists");
+                                    match v {
+                                        bevy::reflect::VariantInfo::Tuple(tv) => {
+                                            debug!("[ENUM_NEWTYPE]   Is Tuple variant with {} fields", tv.field_len());
+                                            if tv.field_len() == 1 {
+                                                let field_type_path = tv.field_at(0).map(|f| f.type_path().to_string());
+                                                debug!("[ENUM_NEWTYPE]   Field type path: {:?}", field_type_path);
+                                                let type_info = tv.field_at(0).and_then(|f| f.type_info());
+                                                debug!("[ENUM_NEWTYPE]   Has type_info: {}", type_info.is_some());
+                                                // Check if the field itself is a TupleStruct with 1 field (newtype)
+                                                // OR a Struct with 1 field whose type is Handle<T> (Bevy sometimes derives tuple structs as Struct)
+                                                type_info.and_then(|ti| {
+                                                    match ti {
+                                                        TypeInfo::TupleStruct(ts) => {
+                                                            debug!("[ENUM_NEWTYPE]   TypeInfo variant: TupleStruct (path: {})", ti.type_path());
+                                                            if ts.field_len() == 1 {
+                                                                let inner = ts.field_at(0).map(|inner_f| inner_f.type_path().to_string());
+                                                                debug!("[ENUM_NEWTYPE]   Inner type path: {:?}", inner);
+                                                                let newtype_path = ti.type_path().to_string();
+                                                                // For TupleStruct, field name is "0"
+                                                                Some((true, inner, Some(ti), Some("0".to_string()), Some(newtype_path)))
+                                                            } else {
+                                                                Some((false, None, None, None, None))
+                                                            }
+                                                        }
+                                                        TypeInfo::Struct(s) => {
+                                                            debug!("[ENUM_NEWTYPE]   TypeInfo variant: Struct (path: {})", ti.type_path());
+                                                            debug!("[ENUM_NEWTYPE]   Struct field_len: {}", s.field_len());
+                                                            // Find the Handle<T> field and get its name
+                                                            let handle_field_info = (0..s.field_len())
+                                                                .find_map(|i| s.field_at(i).filter(|f| f.type_path().contains("Handle<"))
+                                                                    .map(|f| (f.type_path().to_string(), f.name().to_string())));
+                                                            
+                                                            if let Some((inner, field_name)) = handle_field_info {
+                                                                debug!("[ENUM_NEWTYPE]   ✓ Detected Handle field '{}' with type '{}'", field_name, inner);
+                                                                let newtype_path = ti.type_path().to_string();
+                                                                Some((true, Some(inner), Some(ti), Some(field_name), Some(newtype_path)))
+                                                            } else {
+                                                                Some((false, None, None, None, None))
+                                                            }
+                                                        }
+                                                        _ => {
+                                                            debug!("[ENUM_NEWTYPE]   TypeInfo variant: {:?} (not TupleStruct or Struct)", ti.type_path());
+                                                            Some((false, None, None, None, None))
+                                                        }
+                                                    }
+                                                })
+                                            } else {
+                                                None
+                                            }
+                                        }
+                                        bevy::reflect::VariantInfo::Struct(sv) => {
+                                            // Handle Struct enum variants (e.g., RenderTarget::Image { target: ImageRenderTarget })
+                                            debug!("[ENUM_NEWTYPE]   Is Struct variant with {} fields", sv.field_len());
+                                            if sv.field_len() == 1 {
+                                                let field = sv.field_at(0);
+                                                if let Some(f) = field {
+                                                    let field_type_path = f.type_path().to_string();
+                                                    let field_name = f.name().to_string();
+                                                    debug!("[ENUM_NEWTYPE]   Single field: '{}' of type '{}'", field_name, field_type_path);
+                                                    
+                                                    // Get the type_info of the field to check if it's a newtype
+                                                    let type_info = f.type_info();
+                                                    if let Some(ti) = type_info {
+                                                        // Check if this field type is a struct/tuplestruct with Handle inside
+                                                        match ti {
+                                                            TypeInfo::TupleStruct(ts) if ts.field_len() == 1 => {
+                                                                let inner = ts.field_at(0).map(|inner_f| inner_f.type_path().to_string());
+                                                                if inner.as_ref().map(|s| s.contains("Handle<")).unwrap_or(false) {
+                                                                    debug!("[ENUM_NEWTYPE]   ✓ Struct variant with TupleStruct newtype");
+                                                                    let newtype_path = ti.type_path().to_string();
+                                                                    return Some((true, inner, Some(ti), Some("0".to_string()), Some(newtype_path)));
+                                                                }
+                                                            }
+                                                            TypeInfo::Struct(s) => {
+                                                                // Find Handle<T> field in the struct
+                                                                let handle_field_info = (0..s.field_len())
+                                                                    .find_map(|i| s.field_at(i).filter(|inner_f| inner_f.type_path().contains("Handle<"))
+                                                                        .map(|inner_f| (inner_f.type_path().to_string(), inner_f.name().to_string())));
+                                                                if let Some((inner, inner_field)) = handle_field_info {
+                                                                    debug!("[ENUM_NEWTYPE]   ✓ Struct variant with Struct newtype (Handle field: '{}')", inner_field);
+                                                                    let newtype_path = ti.type_path().to_string();
+                                                                    return Some((true, Some(inner), Some(ti), Some(inner_field), Some(newtype_path)));
+                                                                }
+                                                            }
+                                                            _ => {}
+                                                        }
+                                                    }
+                                                }
+                                            }
+                                            None
+                                        }
+                                        _ => {
+                                            debug!("[ENUM_NEWTYPE]   Not a Tuple or Struct variant");
+                                            None
+                                        }
+                                    }
+                                })
+                                .unwrap_or((false, None, None, None, None))
+                        } else {
+                            debug!("[ENUM_NEWTYPE] No enum info found for field");
+                            (false, None, None, None, None)
+                        };
+                    let _ = (newtype_type_info, newtype_field_name); // silence unused warnings
+                    
+                    debug!("[ENUM_NEWTYPE] Result: variant_is_newtype={}, inner_type={:?}", variant_is_newtype, newtype_inner_type);
                     
                     // Create the dynamic enum variant
                     let dynamic_variant = match &variant_value {
@@ -784,15 +1219,98 @@ fn set_nested_field_from_lua(
                             DynamicVariant::Unit
                         }
                         LuaValue::Number(n) => {
-                            // Tuple variant with single f32
                             let mut tuple = DynamicTuple::default();
-                            tuple.insert(*n as f32);
+                            if variant_is_newtype {
+                                // This is a newtype-wrapped variant (like RenderTarget::Image(ImageRenderTarget))
+                                // Treat number as asset ID and create properly typed Handle wrapped in DynamicStruct
+                                debug!("[ENUM_GENERIC] Detected newtype variant '{}', treating {} as asset ID, inner_type={:?}", variant_name, *n, newtype_inner_type);
+                                if let Some(registry) = asset_registry {
+                                    if let Some(untyped_handle) = registry.get_untyped_handle(*n as u32) {
+                                        // First create typed Handle<T> from UntypedHandle
+                                        let handle_box = if let Some(ref inner_type) = newtype_inner_type {
+                                            registry.try_create_typed_handle_box(inner_type, untyped_handle.clone())
+                                        } else {
+                                            None
+                                        };
+                                        
+                                        // Then try to wrap in newtype (e.g., Handle<Image> -> ImageRenderTarget)
+                                        if let Some(typed_handle) = handle_box {
+                                            if let Some(ref newtype_path) = newtype_type_path {
+                                                if let Some(wrapped) = registry.try_wrap_in_newtype_with_reflection(newtype_path, typed_handle, type_registry) {
+                                                    debug!("[ENUM_GENERIC] ✓ Wrapped Handle in newtype '{}'", newtype_path);
+                                                    tuple.insert_boxed(wrapped);
+                                                } else {
+                                                    return Err(LuaError::RuntimeError(format!(
+                                                        "Failed to wrap in newtype '{}'. Ensure type has #[derive(Reflect)] with FromReflect", newtype_path
+                                                    )));
+                                                }
+                                            } else {
+                                                return Err(LuaError::RuntimeError(
+                                                    "Newtype wrapper detection failed - no type path available".to_string()
+                                                ));
+                                            }
+                                        } else {
+                                            return Err(LuaError::RuntimeError(format!(
+                                                "Failed to create typed handle for inner type {:?}", newtype_inner_type
+                                            )));
+                                        }
+                                    } else {
+                                        return Err(LuaError::RuntimeError(format!("Asset ID {} not found", *n as u32)));
+                                    }
+                                } else {
+                                    return Err(LuaError::RuntimeError("Asset registry not available".to_string()));
+                                }
+                            } else {
+                                // Regular tuple variant with single f32
+                                tuple.insert(*n as f32);
+                            }
                             DynamicVariant::Tuple(tuple)
                         }
                         LuaValue::Integer(i) => {
-                            // Tuple variant with single i32/f32
                             let mut tuple = DynamicTuple::default();
-                            tuple.insert(*i as f32);
+                            if variant_is_newtype {
+                                // This is a newtype-wrapped variant
+                                debug!("[ENUM_GENERIC] Detected newtype variant '{}', treating {} as asset ID, inner_type={:?}", variant_name, *i, newtype_inner_type);
+                                if let Some(registry) = asset_registry {
+                                    if let Some(untyped_handle) = registry.get_untyped_handle(*i as u32) {
+                                        // First create typed Handle<T> from UntypedHandle
+                                        let handle_box = if let Some(ref inner_type) = newtype_inner_type {
+                                            registry.try_create_typed_handle_box(inner_type, untyped_handle.clone())
+                                        } else {
+                                            None
+                                        };
+                                        
+                                        // Then try to wrap in newtype (e.g., Handle<Image> -> ImageRenderTarget)
+                                        if let Some(typed_handle) = handle_box {
+                                            if let Some(ref newtype_path) = newtype_type_path {
+                                                if let Some(wrapped) = registry.try_wrap_in_newtype_with_reflection(newtype_path, typed_handle, type_registry) {
+                                                    debug!("[ENUM_GENERIC] ✓ Wrapped Handle in newtype '{}'", newtype_path);
+                                                    tuple.insert_boxed(wrapped);
+                                                } else {
+                                                    return Err(LuaError::RuntimeError(format!(
+                                                        "Failed to wrap in newtype '{}'. Ensure type has #[derive(Reflect)] with FromReflect", newtype_path
+                                                    )));
+                                                }
+                                            } else {
+                                                return Err(LuaError::RuntimeError(
+                                                    "Newtype wrapper detection failed - no type path available".to_string()
+                                                ));
+                                            }
+                                        } else {
+                                            return Err(LuaError::RuntimeError(format!(
+                                                "Failed to create typed handle for inner type {:?}", newtype_inner_type
+                                            )));
+                                        }
+                                    } else {
+                                        return Err(LuaError::RuntimeError(format!("Asset ID {} not found", *i as u32)));
+                                    }
+                                } else {
+                                    return Err(LuaError::RuntimeError("Asset registry not available".to_string()));
+                                }
+                            } else {
+                                // Regular tuple variant with single i32/f32
+                                tuple.insert(*i as f32);
+                            }
                             DynamicVariant::Tuple(tuple)
                         }
                         LuaValue::Boolean(b) => {
@@ -822,8 +1340,38 @@ fn set_nested_field_from_lua(
                         _ => DynamicVariant::Unit,
                     };
                     
-                    let dynamic_enum = DynamicEnum::new(&variant_name, dynamic_variant);
-                    field.apply(&dynamic_enum);
+                    let mut dynamic_enum = DynamicEnum::new(&variant_name, dynamic_variant);
+                    // CRITICAL: Set the represented type so apply() knows the target enum type
+                    let has_type_info = field.get_represented_type_info().is_some();
+                    if let Some(type_info) = field.get_represented_type_info() {
+                        dynamic_enum.set_represented_type(Some(type_info));
+                    }
+                    debug!("[ENUM_SET] Applying enum variant '{}' to field of type: {} (has_type_info={})", 
+                        variant_name, type_path, has_type_info);
+                    
+                    // Try to use from_reflect to create concrete enum value (preserves handles better)
+                    let registry = type_registry.read();
+                    let concrete_applied = registry.get_with_type_path(&type_path)
+                        .and_then(|reg| reg.data::<bevy::reflect::ReflectFromReflect>())
+                        .and_then(|from_reflect| from_reflect.from_reflect(&dynamic_enum))
+                        .map(|concrete| {
+                            debug!("[ENUM_SET] Created concrete enum via from_reflect");
+                            field.apply(concrete.as_ref());
+                            true
+                        })
+                        .unwrap_or(false);
+                    drop(registry); // Release read lock
+                    
+                    if !concrete_applied {
+                        // Fallback: try apply directly with DynamicEnum
+                        match field.try_apply(&dynamic_enum) {
+                            Ok(_) => debug!("[ENUM_SET] ✓ Applied DynamicEnum directly to {}", type_path),
+                            Err(e) => {
+                                warn!("[ENUM_SET] ✗ Failed to apply enum variant '{}' to {}: {:?}", variant_name, type_path, e);
+                                field.apply(&dynamic_enum);
+                            }
+                        }
+                    }
                 }
             }
         }

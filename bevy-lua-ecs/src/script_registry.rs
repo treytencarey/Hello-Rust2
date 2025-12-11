@@ -79,7 +79,7 @@ impl ScriptRegistry {
             for info in instances.iter_mut() {
                 if info.instance_id == instance_id {
                     info.stopped = true;
-                    info!("Marked script instance {} as stopped", instance_id);
+                    debug!("Marked script instance {} as stopped", instance_id);
                     return;
                 }
             }

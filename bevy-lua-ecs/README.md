@@ -71,6 +71,7 @@ function my_system(world)
 - **Component Spawning**: Create entities with any reflected Bevy component
 - **Asset Loading**: Load image files and create assets via reflection
 - **Asset Creation**: Create any Bevy asset type (layouts, materials, etc.) from Lua
+- **Newtype Wrappers**: Seamlessly construct complex enum types with newtype wrappers (e.g., `RenderTarget::Image(ImageRenderTarget)`)
 - **Resource Management**: Insert and query Bevy resources from Lua via builders
 - **Auto-Generated Bindings**: Build script automatically generates Lua method bindings for resource types
 - **Auto-Generated Event Registration**: Build script generates event registration from metadata
@@ -147,6 +148,14 @@ local layout = create_asset("bevy_sprite::texture_atlas::layout::TextureAtlasLay
     rows = 5
 })
 
+-- Auto-discovered constructors for opaque types (like Image)
+-- build.rs scans bevy crates for constructors and generates bindings
+local rtt_image = create_asset("bevy_image::image::Image", {
+    width = 512,
+    height = 512,
+    format = "Bgra8UnormSrgb"  -- Calls Image::new_target_texture()
+})
+
 -- Use assets in components
 spawn({
     Sprite = {
@@ -158,6 +167,7 @@ spawn({
     }
 })
 ```
+
 
 #### Spawning Entities
 
@@ -423,6 +433,36 @@ types = [
 
 The build script generates the registration code at compile time, ensuring consistent event order for networking protocols.
 
+### Auto-Discovered Asset Constructors
+
+**For opaque types** (like `Image`) that cannot be populated via reflection, the build script automatically discovers constructor methods:
+
+**How it works:**
+1. Build script scans bevy crates for `impl TypeName` blocks
+2. Finds methods matching patterns: `new_*`, `from_*`, `default`
+3. Parses method signatures to extract parameter names and types
+4. Generates code that extracts params from Lua tables and calls the constructor
+
+**Supported parameter types:**
+- Primitives: `u32`, `i32`, `f32`, `f64`, `usize`, `bool`, `String`
+- Enums: `TextureFormat`, `TextureDimension` (with generated match statements)
+
+**Example - Render-to-Texture Image:**
+```lua
+-- Creates Image via Image::new_target_texture(width, height, format)
+local rtt_image = create_asset("bevy_image::image::Image", {
+    width = 512,
+    height = 512,
+    format = "Bgra8UnormSrgb"
+})
+```
+
+**Benefits:**
+- Zero configuration - constructors discovered at build time
+- Works with opaque types that don't support `ReflectDefault`
+- Parameter extraction is type-safe based on parsed signatures
+- Enum parameters parsed from string variants
+
 ### Generic Resource Constructors (Moved to Game Code)
 
 **Note:** As of the latest architecture, networking-specific resource constructors have been moved to game code (e.g., `Hello/src/networking.rs`). This keeps bevy-lua-ecs as a pure ECS-Lua bridge without game-specific dependencies.
@@ -517,7 +557,52 @@ spawn({
 })
 ```
 
+### Newtype Wrappers for Complex Enums (Auto-Discovered!)
+
+Some Bevy components use complex enum types with newtype wrappers. For example, `Camera::target` uses `RenderTarget::Image(ImageRenderTarget)` where `ImageRenderTarget` wraps a `Handle<Image>`.
+
+**Zero configuration required!** The system automatically discovers and constructs newtype wrappers using Bevy's reflection.
+
+**From Lua:**
+```lua
+-- Create render target image
+local rtt_image = create_asset("bevy_image::image::Image", {
+    size = {x = 512, y = 512}
+})
+
+-- Just pass the asset ID - the system handles everything!
+spawn({
+    Camera = {
+        target = { Image = rtt_image }  -- Auto-constructs ImageRenderTarget
+    },
+    Transform = { translation = {x = 0, y = 0, z = 10} }
+})
+```
+
+**How it works:**
+1. Lua passes `{ Image = rtt_image }` (enum-style table)
+2. The system detects `Image` variant contains `ImageRenderTarget`
+3. Automatically converts asset ID → `Handle<Image>`
+4. Constructs `ImageRenderTarget` via reflection (with default field values)
+5. Inserts into `RenderTarget::Image` enum variant
+
+**Key features:**
+- ✅ **Runtime auto-discovery** - asset types found via `ReflectAsset` at startup
+- ✅ **Zero config required** - common Bevy types just work out of the box
+- ✅ **Handles TupleStruct and Struct newtypes** - adapts to Bevy version changes
+- ✅ **Automatic field defaults** - uses `ReflectDefault` or reflection fallbacks
+
+**Optional Cargo.toml override** (for custom asset types):
+```toml
+# Only needed for types NOT auto-discovered via ReflectAsset
+[package.metadata.lua_assets.types]
+types = ["my_crate::MyCustomAsset"]
+```
+
+This enables zero-friction usage of complex Bevy enums from Lua!
+
 ## Examples
+
 
 ### Asset Upload Example
 
@@ -622,6 +707,48 @@ See `examples/button.rs` and `assets/scripts/spawn_button.lua` for:
 7. **Clean Architecture**: Library remains free of game-specific dependencies
 8. **Macro-Based Asset Registration**: Use `register_handle_setters!` macro to declare which asset types your game needs
 
+## Advanced: Bitflags Handling
+
+The library provides generic bitflags support for asset construction. Use pipe-separated strings in Lua:
+
+```lua
+-- RTT Image with texture_usages
+local image = create_asset("bevy_image::image::Image", {
+    size = { width = 512, height = 512, depth_or_array_layers = 1 },
+    dimension = "D2",
+    format = "Bgra8UnormSrgb",
+    asset_usage = "RENDER_WORLD|MAIN_WORLD",
+    texture_usages = "TEXTURE_BINDING|COPY_DST|RENDER_ATTACHMENT"
+})
+```
+
+### Setup
+
+```rust
+use bevy_lua_ecs::BitflagsRegistry;
+
+fn main() {
+    App::new()
+        .init_resource::<BitflagsRegistry>()
+        .add_systems(Startup, |registry: Res<BitflagsRegistry>| {
+            crate::auto_resource_bindings::register_auto_bitflags(&registry);
+        })
+        // ...
+}
+```
+
+### Adding Custom Bitflags
+
+Update `get_known_type_definition()` in `bevy-lua-ecs/build.rs`:
+
+```rust
+"MyBitflags" => Some(TypeDefinition::Bitflags {
+    name: "MyBitflags".to_string(),
+    full_path: "my_crate::MyBitflags".to_string(),
+    flags: vec!["FLAG_A".to_string(), "FLAG_B".to_string()],
+})
+```
+
 ## Advanced: Custom Asset Type Registration
 
 For full Zero Rust compliance, you can customize which asset types are registered using the `register_handle_setters!` macro:
@@ -687,3 +814,37 @@ cargo run --example button
 # Basic Lua integration
 cargo run --example basic
 ```
+
+## Troubleshooting
+
+### Debug Logging
+
+Enable detailed logging to diagnose issues:
+```powershell
+$env:RUST_LOG="bevy_lua_ecs=debug"; cargo run --example your_example
+```
+
+### Common Issues
+
+- **Component not found**: Check spelling matches Rust type name exactly
+- **Asset not loading**: Verify path is relative to `assets/` folder
+- **Enum variant not applying**: Look for `[ENUM_SET]` logs to verify application
+
+### Enum and Newtype Debugging
+
+For complex enum types like `RenderTarget::Image(ImageRenderTarget)`:
+
+**Expected log sequence:**
+```
+[ENUM_NEWTYPE] Result: variant_is_newtype=true, inner_type=Some("Handle<Image>")
+[NEWTYPE_WRAP_REFLECT] Inserted handle into field 'handle'
+[NEWTYPE_WRAP_REFLECT] ✓ Auto-discovered newtype wrapper for 'ImageRenderTarget'
+[ENUM_SET] Created concrete enum via from_reflect
+```
+
+**If RTT not rendering:**
+1. Check asset creation succeeded: `[RTT_LUA] Created RTT image handle: 0`
+2. Verify Camera target set: `[ENUM_SET] Created concrete enum via from_reflect`
+3. Ensure UiTargetCamera points to correct entity
+
+See `build-script-bindings.md` for detailed technical documentation.
