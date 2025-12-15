@@ -142,6 +142,50 @@ fn run_single_lua_system(
             }
         })?)?;
         
+        // get_resource(resource_type_name) - get a resource by type name via reflection
+        // Returns the resource as a Lua table, or nil if not found
+        // Usage: local ray_map = world:get_resource("bevy::picking::backend::ray::RayMap")
+        world_table.set("get_resource", scope.create_function({
+            move |lua_ctx, (_self, resource_type_name): (LuaTable, String)| {
+                let type_registry = component_registry.type_registry();
+                let registry = type_registry.read();
+                
+                // Look up the resource type by name (try short name first, then full path)
+                let type_registration = registry.get_with_short_type_path(&resource_type_name)
+                    .or_else(|| registry.get_with_type_path(&resource_type_name))
+                    .ok_or_else(|| LuaError::RuntimeError(format!(
+                        "Resource type '{}' not found in TypeRegistry", resource_type_name
+                    )))?;
+                
+                // Get ReflectResource data
+                let reflect_resource = type_registration.data::<bevy::ecs::reflect::ReflectResource>()
+                    .ok_or_else(|| LuaError::RuntimeError(format!(
+                        "'{}' doesn't have ReflectResource. Add #[reflect(Resource)] to the type.", 
+                        resource_type_name
+                    )))?;
+                
+                // Access the resource via reflection (same pattern as read_events)
+                #[allow(invalid_reference_casting)]
+                let resource_ref = unsafe {
+                    let world_mut = &mut *(world as *const bevy::ecs::world::World as *mut bevy::ecs::world::World);
+                    let world_cell = world_mut.as_unsafe_world_cell();
+                    reflect_resource.reflect_unchecked_mut(world_cell)
+                };
+                
+                match resource_ref {
+                    Some(resource) => {
+                        // Convert to Lua using reflection_to_lua
+                        let lua_value = crate::event_reader::reflection_to_lua(lua_ctx, resource.as_partial_reflect(), &type_registry)?;
+                        Ok(lua_value)
+                    }
+                    None => {
+                        // Resource doesn't exist
+                        Ok(LuaValue::Nil)
+                    }
+                }
+            }
+        })?)?;
+        
         // call_resource_method(resource_name, method_name, ...args) - call a registered method on a resource
         world_table.set("call_resource_method", scope.create_function({
             let resource_registry = resource_registry.clone();
@@ -171,6 +215,19 @@ fn run_single_lua_system(
                     &method_name,
                     args
                 )
+            }
+        })?)?;
+        
+        // call_systemparam_method(param_name, method_name, ...args) - call a registered method on a SystemParam
+        // Uses the global dispatcher set by the parent crate's initialization
+        world_table.set("call_systemparam_method", scope.create_function({
+            move |lua_ctx, (_, param_name, method_name, args): (LuaTable, String, String, mlua::MultiValue)| {
+                // SAFETY: SystemParams require mutable world access via SystemState
+                #[allow(invalid_reference_casting)]
+                let world_mut = unsafe { &mut *(world as *const World as *mut World) };
+                
+                // Use the global dispatch callback set by the parent crate
+                crate::systemparam_lua_trait::call_systemparam_method_global(lua_ctx, world_mut, &param_name, &method_name, args)
             }
         })?)?;
         
@@ -344,67 +401,23 @@ fn run_single_lua_system(
             }
         })?)?;
 
-        // read_events(event_type_name) - read any Bevy event via reflection
-        let read_events_fn = scope.create_function({
-            move |lua_ctx, (_self, event_type_name): (LuaTable, String)| {
-                let type_registry = component_registry.type_registry();
-                let registry = type_registry.read();
-                
-                // Look up the event type
-                let _type_registration = registry.get_with_type_path(&event_type_name)
-                    .ok_or_else(|| LuaError::RuntimeError(format!("Event type '{}' not found", event_type_name)))?;
-                
-                // Construct Events<T> type path
-                let events_type_path = format!("bevy_ecs::event::collections::Events<{}>", event_type_name);
-                
-                // Look up Events<T>
-                let events_registration = registry.get_with_type_path(&events_type_path)
-                    .ok_or_else(|| LuaError::RuntimeError(format!("Events<{}> not found. Make sure it's registered.", event_type_name)))?;
-                
-                // Get ReflectResource
-                let reflect_resource = events_registration.data::<bevy::ecs::reflect::ReflectResource>()
-                    .ok_or_else(|| LuaError::RuntimeError(format!("Events<{}> doesn't have ReflectResource", event_type_name)))?;
-                
-                // Access Events<T> resource using unsafe cast
-                #[allow(invalid_reference_casting)]
-                let events_resource = unsafe {
-                    let world_mut = &mut *(world as *const bevy::ecs::world::World as *mut bevy::ecs::world::World);
-                    let world_cell = world_mut.as_unsafe_world_cell();
-                    reflect_resource.reflect_unchecked_mut(world_cell)
-                }.ok_or_else(|| LuaError::RuntimeError(format!("Events<{}> resource not found", event_type_name)))?;
-                
-                // Read events from the Events<T> struct
-                let results = lua_ctx.create_table()?;
-                let mut index = 1;
-                
-                if let bevy::reflect::ReflectRef::Struct(events_struct) = events_resource.reflect_ref() {
-                    // Events<T> has events_a and events_b fields which are EventSequence<T>
-                    for field_name in ["events_a", "events_b"] {
-                        if let Some(field) = events_struct.field(field_name) {
-                            // EventSequence is a struct with an "events" field that contains a Vec
-                            if let bevy::reflect::ReflectRef::Struct(sequence_struct) = field.reflect_ref() {
-                                if let Some(events_field) = sequence_struct.field("events") {
-                                    if let bevy::reflect::ReflectRef::List(event_list) = events_field.reflect_ref() {
-                                        for i in 0..event_list.len() {
-                                            if let Some(event_instance) = event_list.get(i) {
-                                                // EventInstance<T> is a struct with 'event' field
-                                                if let bevy::reflect::ReflectRef::Struct(instance_struct) = event_instance.reflect_ref() {
-                                                    if let Some(event) = instance_struct.field("event") {
-                                                        let lua_value = crate::event_reader::reflection_to_lua(lua_ctx, event, &type_registry)?;
-                                                        results.set(index, lua_value)?;
-                                                        index += 1;
-                                                    }
-                                                }
-                                            }
-                                        }
-                                    }
-                                }
-                            }
-                        }
-                    }
-                }
-
-                Ok(results)
+        // read_events(event_type_name) - read any Bevy event via generated dispatch
+        // Uses the dispatch_read_events function generated at build time which uses EventReader
+        let read_events_fn = scope.create_function(|lua_ctx, (_self, event_type_name): (LuaTable, String)| {
+            bevy::log::debug!("[READ_EVENTS] Reading events: '{}'", event_type_name);
+            
+            // Use unsafe world access - the dispatch function handles proper SystemState management
+            #[allow(invalid_reference_casting)]
+            let world_mut = unsafe {
+                &mut *(world as *const bevy::ecs::world::World as *mut bevy::ecs::world::World)
+            };
+            
+            // Call the generated dispatch function via the global callback
+            // Result is already LuaValue::Table, convert to LuaTable for return
+            match crate::systemparam_lua_trait::call_read_events_global(lua_ctx, world_mut, &event_type_name) {
+                Ok(mlua::Value::Table(t)) => Ok(t),
+                Ok(_) => Err(LuaError::RuntimeError("Expected table from read_events".into())),
+                Err(e) => Err(e),
             }
         })?;
         
@@ -412,17 +425,97 @@ fn run_single_lua_system(
         
         // query_events(event_type_name) - alias for read_events for API consistency
         world_table.set("query_events", read_events_fn)?;
+        
+        // invoke_observer(entity_id, event_type, position_table) - directly invoke Lua observer callbacks
+        // This bypasses Bevy's picking input pipeline and directly calls registered observer callbacks
+        // Useful for RTT picking where we need manual event dispatch
+        let lua_script_ctx = world.get_resource::<crate::lua_integration::LuaScriptContext>()
+            .cloned()
+            .expect("LuaScriptContext resource not found");
+        let observer_registry = world.get_resource::<crate::lua_observers::LuaObserverRegistry>()
+            .cloned()
+            .unwrap_or_default();
+        let update_queue_for_observer = world.get_resource::<crate::component_update_queue::ComponentUpdateQueue>()
+            .cloned()
+            .unwrap_or_default();
+        let spawn_queue_for_observer = world.get_resource::<crate::spawn_queue::SpawnQueue>()
+            .cloned()
+            .unwrap();
+            
+        let invoke_observer_fn = scope.create_function({
+            let lua_ctx = lua_script_ctx.clone();
+            let observer_registry = observer_registry.clone();
+            let update_queue = update_queue_for_observer.clone();
+            let spawn_queue = spawn_queue_for_observer.clone();
+            move |_lua, (_self, entity_id, event_type, position_table): (LuaTable, u64, String, Option<LuaTable>)| {
+                // Resolve temp_id to real entity using SpawnQueue
+                // This handles both temp_ids from spawn() and real entity bits from query()
+                let entity = spawn_queue.resolve_entity(entity_id);
+                
+                // Extract position from table if provided
+                let position = if let Some(pos_table) = position_table {
+                    let x: f32 = pos_table.get("x").unwrap_or(0.0);
+                    let y: f32 = pos_table.get("y").unwrap_or(0.0);
+                    Some(bevy::math::Vec2::new(x, y))
+                } else {
+                    None
+                };
+                
+                bevy::log::debug!("[INVOKE_OBSERVER] Invoking '{}' on entity {:?} (from id {}) at {:?}", 
+                    event_type, entity, entity_id, position);
+                
+                // Direct call to the internal observer dispatch
+                crate::lua_observers::dispatch_lua_observer_internal(
+                    &lua_ctx,
+                    &observer_registry,
+                    &update_queue,
+                    entity,
+                    &event_type,
+                    position,
+                );
+                
+                Ok(())
+            }
+        })?;
+        
+        world_table.set("invoke_observer", invoke_observer_fn)?;
 
-        // send_event(event_type_name, data_table) - queue an event to be sent
-        // Events are converted to JSON and dispatched by the generated system
-        let pending_events = world.get_resource::<crate::event_sender::PendingLuaEvents>()
+
+        // send_event(event_type_name, data_table) - send an event immediately using reflection
+        // Uses the dispatch_write_events function generated at build time which uses EventWriter
+        let send_event_fn = scope.create_function(|lua_ctx, (_self, event_type_name, data_table): (LuaTable, String, LuaTable)| {
+            bevy::log::debug!("[SEND_EVENT] Writing event: '{}'", event_type_name);
+            
+            // Use unsafe world access - the dispatch function handles proper SystemState management
+            #[allow(invalid_reference_casting)]
+            let world_mut = unsafe {
+                &mut *(world as *const bevy::ecs::world::World as *mut bevy::ecs::world::World)
+            };
+            
+            // Call the generated dispatch function via the global callback
+            match crate::systemparam_lua_trait::call_write_events_global(lua_ctx, world_mut, &event_type_name, &data_table) {
+                Ok(()) => {
+                    bevy::log::debug!("[SEND_EVENT] Successfully sent event: '{}'", event_type_name);
+                    Ok(())
+                }
+                Err(e) => Err(LuaError::RuntimeError(format!("Failed to send event '{}': {}", event_type_name, e))),
+            }
+        })?;
+        
+        world_table.set("send_event", send_event_fn.clone())?;
+        world_table.set("write_event", send_event_fn)?;
+
+        // write_message(message_type_name, data_table) - queue a message to be sent
+        // Messages use MessageWriter<M> instead of EventWriter<T>
+        // Used for types like PointerInput that use the message system
+        let pending_messages = world.get_resource::<crate::event_sender::PendingLuaMessages>()
             .cloned()
             .unwrap_or_default();
         
-        let send_event_fn = scope.create_function({
-            let pending_events = pending_events.clone();
-            move |_lua_ctx, (_self, event_type_name, data_table): (LuaTable, String, LuaTable)| {
-                // Convert Lua table to JSON value
+        let write_message_fn = scope.create_function({
+            let pending_messages = pending_messages.clone();
+            move |_lua_ctx, (_self, message_type_name, data_table): (LuaTable, String, LuaTable)| {
+                // Convert Lua table to JSON value (reuse the same conversion logic)
                 fn lua_to_json(value: &LuaValue) -> serde_json::Value {
                     match value {
                         LuaValue::Nil => serde_json::Value::Null,
@@ -477,15 +570,15 @@ fn run_single_lua_system(
                 
                 let json_data = lua_to_json(&LuaValue::Table(data_table.clone()));
                 
-                debug!("[SEND_EVENT] Queueing event '{}': {:?}", event_type_name, json_data);
-                pending_events.queue_event(event_type_name.clone(), json_data);
+                debug!("[WRITE_MESSAGE] Queueing message '{}': {:?}", message_type_name, json_data);
+                pending_messages.queue_message(message_type_name.clone(), json_data);
                 
                 Ok(())
             }
         })?;
         
-        world_table.set("send_event", send_event_fn.clone())?;
-        world_table.set("write_event", send_event_fn)?;
+        world_table.set("write_message", write_message_fn.clone())?;
+        world_table.set("send_message", write_message_fn)?;
 
         // Call the Lua system function
         func.call::<()>(world_table)?;

@@ -271,11 +271,121 @@ app.register_type::<Events<MyCustomEvent>>();
 
 The generic event reader works with **any** event type that has `#[derive(Event, Reflect)]`.
 
+#### SystemParam Methods (Auto-Discovered)
+
+Call methods on Bevy's SystemParam types directly from Lua. The build script automatically discovers `#[derive(SystemParam)]` types and their methods.
+
+```lua
+function raycast_system(world)
+    -- Construct a Ray3d via reflection
+    local ray = {
+        origin = { x = 0.0, y = 0.0, z = 5.0 },
+        direction = { x = 0.0, y = 0.0, z = -1.0 }
+    }
+    
+    -- Call MeshRayCast::cast_ray via SystemParam dispatch
+    local result = world:call_systemparam_method("MeshRayCast", "cast_ray", ray)
+    
+    if result then
+        print("Raycast hit:", result)
+    end
+end
+```
+
+**Auto-discovered SystemParams include:**
+- `MeshRayCast` - mesh raycasting
+- `Commands` - entity commands
+- `EventReader`/`EventWriter` - event access
+- `MessageReader`/`MessageWriter` - message access
+- And many more from `bevy_*` crates
+
+#### Sending Events
+
+Write events using the generic reflection-based event system:
+
+```lua
+function send_custom_event(world)
+    -- Send any registered event type
+    world:send_event("MyCustomEvent", {
+        data = "hello",
+        value = 42
+    })
+end
+```
+
+Aliases: `world:send_event()` and `world:write_event()` are identical.
+
+#### Sending Messages
+
+Messages are similar to events but use Bevy's `MessageWriter<T>` instead of `EventWriter<T>`. Primarily used by the picking system.
+
+```lua
+function send_pointer_input(world)
+    -- Send PointerInput message for custom picking
+    world:write_message("PointerInput", {
+        pointer_id = { Custom = 12345 },
+        location = {
+            target = { Image = rtt_image_handle },
+            position = { x = 256, y = 256 }
+        },
+        action = { Move = { delta = { x = 1.0, y = 0.0 } } }
+    })
+    
+    -- Press/Release use unit enum variants
+    world:write_message("PointerInput", {
+        pointer_id = { Custom = 12345 },
+        location = { ... },
+        action = { Press = "Primary" }  -- Unit enum as string
+    })
+end
+```
+
+Aliases: `world:write_message()` and `world:send_message()` are identical.
+
+#### Observer Callbacks
+
+Attach observer callbacks to entities for picking events:
+
+```lua
+local button = spawn({
+    Button = {},
+    Node = { width = { Px = 100 }, height = { Px = 50 } }
+})
+    :observe("Pointer<Over>", function(entity, event)
+        entity:set("BackgroundColor", { color = { r = 1, g = 0, b = 0, a = 1 } })
+    end)
+    :observe("Pointer<Out>", function(entity, event)
+        entity:set("BackgroundColor", { color = { r = 0, g = 0, b = 1, a = 1 } })
+    end)
+    :observe("Pointer<Drag>", function(entity, event)
+        -- event.x and event.y contain pointer position
+        print("Dragging at", event.x, event.y)
+    end)
+```
+
+**Available observer events:**
+- `Pointer<Over>`, `Pointer<Out>` - hover events
+- `Pointer<Down>`, `Pointer<Up>` - press/release
+- `Pointer<Click>` - click completed
+- `Pointer<Drag>`, `Pointer<DragStart>`, `Pointer<DragEnd>` - drag events
+- `Pointer<Move>` - pointer movement
+
+#### Direct Observer Invocation
+
+For advanced use cases (like render-to-texture picking), invoke observers directly:
+
+```lua
+-- Manually trigger an observer callback
+world:invoke_observer(entity_id, "Pointer<Click>", { x = 100, y = 200 })
+```
+
 #### Accessing Time
 
 ```lua
 function my_system(world)
-```
+    local dt = world:delta_time()  -- Frame delta in seconds
+end
+
 
 #### Inserting Resources
 

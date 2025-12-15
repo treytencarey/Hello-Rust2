@@ -774,14 +774,39 @@ impl AssetRegistry {
                     
                     // Check if this field is a Handle<T> type - these contain "Handle<"
                     if !handle_inserted && field_type_path.contains("Handle<") {
-                        // This is the handle field - insert our typed_handle
-                        // Clone the handle using PartialReflect's clone capability
-                        if let Ok(cloned) = typed_handle.reflect_clone() {
-                            dynamic_struct.insert_boxed(field_name, cloned.into_partial_reflect());
-                            handle_inserted = true;
-                            debug!("[NEWTYPE_WRAP_REFLECT] Inserted handle into field '{}'", field_name);
+                        // Check if input is UntypedHandle - if so, we need to convert it
+                        let input_type_path = typed_handle.reflect_type_path();
+                        
+                        if input_type_path.contains("UntypedHandle") {
+                            // Input is UntypedHandle - try to convert to typed Handle<T>
+                            // Use handle_creators registry to get the right typed handle
+                            let handle_creators = self.handle_creators.lock().unwrap();
+                            if let Some(creator) = handle_creators.get(field_type_path) {
+                                // Extract UntypedHandle from the boxed reflect value
+                                if let Some(untyped_handle) = typed_handle.try_downcast_ref::<UntypedHandle>() {
+                                    let typed_handle_box = creator(untyped_handle.clone());
+                                    dynamic_struct.insert_boxed(field_name, typed_handle_box);
+                                    handle_inserted = true;
+                                    debug!("[NEWTYPE_WRAP_REFLECT] Converted UntypedHandle to typed handle for field '{}'", field_name);
+                                }
+                            } else {
+                                // No creator registered - just insert the UntypedHandle directly
+                                // Some reflection paths might accept this
+                                if let Ok(cloned) = typed_handle.reflect_clone() {
+                                    dynamic_struct.insert_boxed(field_name, cloned.into_partial_reflect());
+                                    handle_inserted = true;
+                                    debug!("[NEWTYPE_WRAP_REFLECT] Inserted UntypedHandle directly into field '{}' (no creator)", field_name);
+                                }
+                            }
                         } else {
-                            debug!("[NEWTYPE_WRAP_REFLECT] ⚠ Failed to clone handle for field '{}'", field_name);
+                            // Input is already typed - clone and insert
+                            if let Ok(cloned) = typed_handle.reflect_clone() {
+                                dynamic_struct.insert_boxed(field_name, cloned.into_partial_reflect());
+                                handle_inserted = true;
+                                debug!("[NEWTYPE_WRAP_REFLECT] Inserted handle into field '{}'", field_name);
+                            } else {
+                                debug!("[NEWTYPE_WRAP_REFLECT] ⚠ Failed to clone handle for field '{}'", field_name);
+                            }
                         }
                     } else {
                         // For non-handle fields, try to get the value from the default instance

@@ -43,8 +43,7 @@ fn main() -> AppExit {
     app.add_systems(OxrSendActionBindings, suggest_action_bindings);
     app.add_systems(Startup, create_actions.run_if(session_available));
 
-    // Add Lua plugin (auto-initializes all resources and systems)
-    app.add_plugins(LuaSpawnPlugin);
+    app.add_plugins(crate::auto_resource_bindings::LuaBindingsPlugin);
     
     app.add_systems(PostStartup, load_and_run_script);
 

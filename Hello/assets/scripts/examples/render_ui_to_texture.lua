@@ -14,6 +14,9 @@ local elapsed_time = 0
 local cursor_position = { x = 0, y = 0 }
 local cursor_last = { x = 0, y = 0 }
 
+-- Marker component for the sphere
+RotatingSphere = {}
+
 -- Called once when script loads
 function setup()
     print("[RTT_LUA] Setting up render-to-texture UI...")
@@ -119,15 +122,16 @@ function setup()
         unlit = false
     })
     
-    -- === Step 9: Spawn 3D sphere ===
+    -- === Step 9: Spawn 3D sphere with RotatingSphere marker ===
     local sphere = spawn({
         Mesh3d = { _0 = sphere_mesh },
         ["MeshMaterial3d<StandardMaterial>"] = { _0 = material },
         Transform = {
-            translation = { x = 0.0, y = 0.0, z = -3.0 },
-            rotation = { x = 0.7, y = 0.0, z = 0.0, w = 0.7 },  -- PI rotation around X
+            translation = { x = 0.0, y = 0.0, z = 1.5 },
+            rotation = { x = 1.0, y = 0.0, z = 0.0, w = 0.0 },  -- PI rotation around X
             scale = { x = 1.0, y = 1.0, z = 1.0 }
-        }
+        },
+        RotatingSphere = {}
     })
     sphere_entity = sphere:id()
     print("[RTT_LUA] Spawned sphere: " .. tostring(sphere_entity))
@@ -136,7 +140,7 @@ function setup()
     spawn({
         Camera3d = {},
         Transform = {
-            translation = { x = 0.0, y = 0.0, z = 0.0 },
+            translation = { x = 0.0, y = 0.0, z = 5.0 },
             rotation = { x = 0.0, y = 0.0, z = 0.0, w = 1.0 }
         }
     })
@@ -148,6 +152,31 @@ function setup()
     print("[RTT_LUA] Spawned custom PointerId")
     
     print("[RTT_LUA] Setup complete!")
+end
+
+-- System: Rotate the sphere slowly
+function rotate_sphere(world)
+    local dt = world:delta_time()
+    elapsed_time = elapsed_time + dt
+    
+    local rotation_speed = 1.0
+    local entities = world:query({"RotatingSphere", "Transform"}, nil)
+    
+    for i, entity in ipairs(entities) do
+        local transform = entity:get("Transform")
+        if transform then
+            local angle = elapsed_time * rotation_speed
+            local half_angle = angle / 2
+            local sin_y = math.sin(half_angle)
+            local cos_y = math.cos(half_angle)
+            
+            entity:set("Transform", {
+                translation = transform.translation,
+                rotation = { x = 0.0, y = sin_y, z = 0.0, w = cos_y },
+                scale = transform.scale
+            })
+        end
+    end
 end
 
 -- System: Track cursor position from CursorMoved events
@@ -278,6 +307,7 @@ end
 
 -- Register systems (order matters: track cursor, then raycast)
 register_system("Update", track_cursor)
+register_system("Update", rotate_sphere)
 register_system("Update", drive_diegetic_pointer)
 
 -- Run setup

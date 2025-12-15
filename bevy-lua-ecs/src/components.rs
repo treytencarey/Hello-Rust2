@@ -640,7 +640,19 @@ fn spawn_component_via_reflection(
                                             return Err(LuaError::RuntimeError("Asset registry not available".to_string()));
                                         }
                                     } else {
-                                        dynamic_tuple.insert(*i as f32);
+                                        // Check if the field type is Uuid (for PointerId::Custom, etc.)
+                                        let field_type_path = tuple_info.field_at(0)
+                                            .map(|f| f.type_path().to_string())
+                                            .unwrap_or_default();
+                                        
+                                        if field_type_path == "uuid::Uuid" {
+                                            // Construct Uuid from integer
+                                            let uuid = uuid::Uuid::from_u128(*i as u128);
+                                            debug!("[ENUM_GENERIC] Constructed Uuid from integer for variant: {:?}", uuid);
+                                            dynamic_tuple.insert_boxed(Box::new(uuid));
+                                        } else {
+                                            dynamic_tuple.insert(*i as f32);
+                                        }
                                     }
                                 }
                                 LuaValue::Boolean(b) => {

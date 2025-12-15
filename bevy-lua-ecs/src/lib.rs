@@ -15,6 +15,7 @@ pub mod resource_inserter;
 pub mod resource_builder;
 pub mod resource_constructors;
 pub mod resource_lua_trait;
+pub mod systemparam_lua_trait;
 pub mod component_lua_trait;
 pub mod event_reader;
 pub mod auto_bindings;
@@ -47,16 +48,17 @@ pub use resource_inserter::process_resource_queue;
 pub use resource_builder::ResourceBuilderRegistry;
 pub use resource_constructors::{ResourceConstructorRegistry, OsUtilities};
 pub use resource_lua_trait::LuaResourceRegistry;
+pub use systemparam_lua_trait::{LuaSystemParamRegistry, LuaSystemParamMethods, set_systemparam_dispatcher, call_systemparam_method_global, set_event_dispatcher, call_read_events_global, set_event_write_dispatcher, call_write_events_global, set_message_write_dispatcher, call_write_messages_global};
 pub use component_lua_trait::LuaComponentRegistry;
-pub use event_reader::reflection_to_lua;
-pub use auto_bindings::{register_auto_bindings, register_auto_events, dispatch_lua_events};
+pub use event_reader::{reflection_to_lua, lua_to_reflection, lua_table_to_dynamic, lua_table_to_dynamic_with_assets};
+pub use auto_bindings::{register_auto_bindings, register_auto_events, dispatch_lua_events, dispatch_lua_messages, dispatch_systemparam_method};
 pub use script_entities::{ScriptOwned, ScriptInstance, despawn_instance_entities};
 pub use lua_spawn_builder::LuaSpawnBuilder;
 pub use lua_observers::{LuaObserverRegistry, process_observer_registrations, attach_lua_observers, LuaObserversAttached, set_observer_attacher, dispatch_lua_observer_internal};
 pub use script_registry::ScriptRegistry;
 pub use script_cache::ScriptCache;
 pub use lua_file_watcher::{LuaFileWatcherPlugin, LuaFileChangeEvent};
-pub use event_sender::{PendingLuaEvents, LuaEventSenderPlugin};
+pub use event_sender::{PendingLuaEvents, PendingLuaMessages, LuaEventSenderPlugin};
 pub use bitflags_registry::BitflagsRegistry;
 
 

@@ -135,8 +135,13 @@ pub fn dispatch_lua_observer_internal(
 ) {
     let callbacks = observer_registry.callbacks.lock().unwrap();
     
+    bevy::log::debug!("[OBSERVER_DISPATCH] Looking for entity {:?}, event '{}', registered entities: {:?}", 
+        entity, event_type, callbacks.keys().collect::<Vec<_>>());
+    
     if let Some(observers) = callbacks.get(&entity) {
+        bevy::log::debug!("[OBSERVER_DISPATCH] Found {} observers for entity {:?}", observers.len(), entity);
         for (ev_type, callback_key) in observers {
+            bevy::log::debug!("[OBSERVER_DISPATCH] Checking observer: ev_type='{}' vs event_type='{}'", ev_type, event_type);
             if ev_type == event_type {
                 if let Ok(callback) = lua_ctx.lua.registry_value::<LuaFunction>(callback_key) {
                     let entity_snapshot = crate::lua_world_api::LuaEntitySnapshot {

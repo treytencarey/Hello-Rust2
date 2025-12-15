@@ -512,6 +512,9 @@ impl Plugin for LuaSpawnPlugin {
         // Add file watcher plugin for auto-reload
         app.add_plugins(crate::lua_file_watcher::LuaFileWatcherPlugin);
         
+        // Add event/message sender plugin for Lua event and message dispatch
+        app.add_plugins(crate::event_sender::LuaEventSenderPlugin);
+        
         // Register auto-generated resource method bindings
         // This must happen after LuaResourceRegistry is initialized
         app.add_systems(PreStartup, register_resource_methods);

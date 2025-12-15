@@ -2,58 +2,100 @@
 
 **Core Philosophy: "Zero Rust"** - All game logic in Lua. Rust provides generic ECS infrastructure.
 
-## API Reference
+## World API Reference
 
-### Spawning Entities
+### Entity Operations
 ```lua
-spawn({
-    Sprite = { color = {r = 1.0, g = 0.0, b = 0.0, a = 1.0} },
-    Transform = { translation = {x = 0, y = 0, z = 0} },
-    CustomData = { value = 42 },  -- Custom Lua components
-    OnClick = function() end      -- Functions as components
-})
+spawn({ Component = {...} })  -- Create entity, returns builder
+entity:get("Component")       -- Read component data
+entity:has("Component")       -- Check component exists
+entity:set("Component", data) -- Write (queued)
+entity:id()                   -- Get entity ID
+entity:with_parent(id)        -- Set parent
+entity:observe("Event", fn)   -- Attach observer
 ```
 
-### Module System
-```lua
--- Sync: local module = require("path.lua")
--- Async: require_async("path.lua", callback)
--- Async with hot reload: require_async("path.lua", callback, { reload = true })
--- Paths relative to assets/scripts/
--- Hot reload: Module changes auto-reload dependents
-```
-
-### Assets
-```lua
-local texture_id = load_asset("image.png")
-local atlas = create_asset("bevy_sprite::texture_atlas::TextureAtlasLayout", {...})
--- Auto-discovered constructors (build.rs scans for new_*/from_* methods):
-local rtt = create_asset("bevy_image::image::Image", {width=512, height=512, format="Bgra8UnormSrgb"})
-```
-
-### Systems & Queries
+### Query & Systems
 ```lua
 register_system("Update", function(world)
     local dt = world:delta_time()
-    local entities = world:query({"Transform", "Sprite"}, nil)  -- (with, changed)
+    local entities = world:query({"Transform"}, {"Changed"})  -- (with, changed)
     for i, entity in ipairs(entities) do
-        entity:set("Transform", {...})  -- Queued update
+        entity:set("Transform", {...})
     end
 end)
 ```
 
-### Entity Operations
+### Events (Read/Write)
 ```lua
-entity:get("Component")  -- Read
-entity:has("Component")  -- Check
-entity:set("Component", data)  -- Write (queued)
-entity:id()  -- Get ID
+-- Read events (auto-discovered from bevy_window, bevy_input, etc.)
+local events = world:read_events("MouseButtonInput")
+local events = world:read_events("CursorMoved")
+local events = world:query_events("KeyboardInput")  -- Alias
+
+-- Write events
+world:send_event("EventType", { field = value })
+world:write_event("EventType", data)  -- Alias
+```
+
+### Messages (for Picking System)
+```lua
+-- Messages use MessageWriter<T> instead of EventWriter<T>
+world:write_message("PointerInput", {
+    pointer_id = { Custom = 12345 },
+    location = { target = { Image = handle }, position = { x = 0, y = 0 } },
+    action = { Move = { delta = { x = 1, y = 0 } } }
+})
+world:send_message("Type", data)  -- Alias
+
+-- Unit enum variants as strings
+action = { Press = "Primary" }
+action = { Release = "Primary" }
+```
+
+### SystemParam Methods
+```lua
+-- Call methods on auto-discovered SystemParam types
+local result = world:call_systemparam_method("MeshRayCast", "cast_ray", {
+    origin = { x = 0, y = 0, z = 5 },
+    direction = { x = 0, y = 0, z = -1 }
+})
 ```
 
 ### Resources
 ```lua
-insert_resource("TypeName", {...})  -- Must be registered in Rust
-world:query_resource("TypeName")    -- Check existence
+insert_resource("TypeName", data)     -- Insert (needs Rust builder)
+world:query_resource("TypeName")      -- Check exists
+world:call_resource_method("Type", "method", args)  -- Call method
+```
+
+### Observers (Picking Callbacks)
+```lua
+spawn({ Button = {} })
+    :observe("Pointer<Over>", function(entity, event) end)
+    :observe("Pointer<Out>", function(entity, event) end)
+    :observe("Pointer<Click>", function(entity, event) end)
+    :observe("Pointer<Drag>", function(entity, event)
+        -- event.x, event.y = pointer position
+    end)
+
+-- Manual invocation for RTT picking
+world:invoke_observer(entity_id, "Pointer<Click>", { x = 100, y = 200 })
+```
+
+### Assets
+```lua
+local id = load_asset("image.png")
+local id = create_asset("bevy_image::image::Image", { width=512, height=512, format="Bgra8UnormSrgb" })
+```
+
+### Script Management
+```lua
+local module = require("path.lua")        -- Sync load
+require_async("path.lua", callback)       -- Async load
+world:reload_current_script()             -- Hot reload
+world:stop_current_script()               -- Stop and cleanup
+world:despawn_all("TagComponent")         -- Despawn by tag
 ```
 
 ## Component Reference
@@ -61,83 +103,39 @@ world:query_resource("TypeName")    -- Check existence
 | Component | Structure |
 |-----------|----------|
 | Transform | `{translation={x,y,z}, rotation={x,y,z,w}, scale={x,y,z}}` |
-| Sprite | `{color={r,g,b,a}, custom_size={x,y}, image=id, rect={min,max}, texture_atlas=id, index=n}` |
-| Text | `{text="..."}` + `TextFont={font_size=32}` + `TextColor={color=...}` |
-| Button | `{}` + `BackgroundColor={color=...}` + `Interaction` (readonly: "None"/"Hovered"/"Pressed") |
-| Physics | `RigidBody="Fixed"/"Dynamic"`, `Collider=...`, `Restitution={coefficient=0.7}`, `GravityScale=1.0` |
-| Camera | `{target={Image=asset_id}}` (RenderTarget enum, auto-wraps in ImageRenderTarget newtype) |
+| Sprite | `{color={r,g,b,a}, image=id, rect={min,max}}` |
+| Node | `{width={Px=n}, height={Percent=50}, position_type="Absolute"}` |
+| Camera | `{target={Image=id}}` (auto-wraps in ImageRenderTarget) |
 
-## Newtype Wrappers (Complex Enums)
+## Auto-Discovery (Build Script)
 
-**Problem:** Enum variants like `RenderTarget::Image(ImageRenderTarget)` where `ImageRenderTarget` wraps `Handle<Image>` + other fields.
+**These are discovered at compile time and require no manual setup:**
 
-**Solution:** Automatic reflection-based construction (no manual registration).
+- **SystemParams**: Types with `#[derive(SystemParam)]` and their methods
+- **Events**: Types with `#[derive(Event)]` from bevy_window, bevy_input
+- **Messages**: Types using `MessageWriter<T>` (e.g., PointerInput)
+- **Assets**: Types implementing `Asset` trait
+- **Entity Wrappers**: Newtypes around `Entity` with `#[derive(Component)]`
+- **Handle Newtypes**: Types wrapping `Handle<T>` (e.g., ImageRenderTarget)
+- **Bitflags**: Common bitflags types with their flag names
 
-**Process:**
-1. Lua passes `{Image = asset_id}` for enum field
-2. System detects variant contains newtype wrapper (not raw Handle<T>)
-3. Converts asset_id → UntypedHandle → Handle<Image>
-4. Uses TypeRegistry to construct newtype:
-   - TupleStruct: `DynamicTupleStruct` with handle at index 0
-   - Struct: `DynamicStruct` inserting handle + defaults for other fields
-5. Uses `from_reflect()` to create concrete enum
+## Newtype Wrappers
 
-**Default strategies for non-handle fields:**
-- ReflectDefault trait
-- ReflectFromReflect with empty DynamicTupleStruct
-- Fallback primitives: 1.0f32, 0.0f32, 1i32, 0i32
-
-**Example:**
+**Automatic reflection-based construction for complex enums:**
 ```lua
-local rtt = create_asset("bevy_image::image::Image", {width=512, height=512, format="Bgra8UnormSrgb"})
-spawn({Camera = {target = {Image = rtt}}, Camera2d = {}})  -- Auto-wraps ImageRenderTarget
+spawn({ Camera = { target = { Image = rtt_image_id } } })
+-- Automatically constructs RenderTarget::Image(ImageRenderTarget(handle))
 ```
 
-**Files:** `asset_loading.rs` (try_wrap_in_newtype_with_reflection), `components.rs` (variant detection), `build.rs` (handle creators)
+## Debugging
 
-## Auto-Discovered Constructors
-
-**For opaque types** (e.g., Image) that can't use reflection:
-- `build.rs` scans impl blocks for `new_*`, `from_*`, `default` methods
-- Generates bindings extracting Lua params and calling constructor
-- Supported params: u32, i32, f32, f64, bool, String, TextureFormat, TextureDimension
-- Add enum support by updating build.rs match statement
-
-## Hot Reload
-
-- **Main scripts:** Cleanup (despawn entities, remove resources) → re-execute with fresh state
-- **Modules:** Cache invalidation cascades to dependents → auto-reload dependent scripts
-
-## Best Practices
-
-- Custom Lua components for game state
-- Use change detection: `world:query({...}, {"ChangedComponent"})`
-- Helper modules for reusable logic
-- Avoid circular module dependencies
-
-## Troubleshooting
-
-**Common Issues:**
-- Component not found → Check `#[reflect(Component)]` in Rust
-- Asset not loading → Verify path relative to `assets/`
-- Query returns nothing → Verify components exist
-- Module not found → Path relative to `assets/scripts/`, include extension
-- Enum/newtype not working → Enable debug logging
-
-**Debug Logging:**
 ```powershell
 $env:RUST_LOG="bevy_lua_ecs=debug"; cargo run --example name
 ```
 
-**Log Markers:**
-- `[ENUM_NEWTYPE]` - Variant/newtype detection
-- `[NEWTYPE_WRAP_REFLECT]` - Newtype construction
-- `[ENUM_SET]` - Enum application via from_reflect
-- `[HANDLE_CREATE]` - Typed handle creation
-
-**Successful RTT logs:**
-```
-[ENUM_NEWTYPE] Result: variant_is_newtype=true
-[NEWTYPE_WRAP_REFLECT] ✓ Auto-discovered newtype wrapper
-[ENUM_SET] Created concrete enum via from_reflect
-```
+**Log prefixes:**
+- `[ENUM_NEWTYPE]` - variant detection
+- `[MESSAGE_WRITE]` - message dispatch
+- `[SEND_EVENT]` - event dispatch
+- `[READ_EVENTS]` - event reading
+- `[LUA_OBSERVER]` - observer callbacks

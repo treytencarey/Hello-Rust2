@@ -7,6 +7,10 @@ use bevy_rapier3d::prelude::*;
 use bevy_lua_ecs::*;
 use std::fs;
 
+// Include auto-generated bindings
+#[path = "../src/auto_resource_bindings.rs"]
+mod auto_resource_bindings;
+
 
 fn main() {
     App::new()
@@ -18,7 +22,7 @@ fn main() {
         .add_plugins(DefaultPlugins)
         .add_plugins(RapierPhysicsPlugin::<NoUserData>::default())
         .add_plugins(RapierDebugRenderPlugin::default())
-        .add_plugins(LuaSpawnPlugin)
+        .add_plugins(crate::auto_resource_bindings::LuaBindingsPlugin)
         // Register Collider component for Lua (doesn't implement Reflect)
         .insert_resource(bevy_lua_ecs::serde_components![
             Collider,

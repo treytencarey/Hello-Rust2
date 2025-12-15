@@ -6,9 +6,14 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use syn::{File, Item, ItemImpl, ImplItem, Visibility, FnArg, ReturnType};
 use quote::quote;
+use serde::{Serialize, Deserialize};
 
 fn main() {
+    // Only rerun if these files change (not on every compile)
     println!("cargo:rerun-if-changed=build.rs");
+    println!("cargo:rerun-if-changed=Cargo.toml");
+    println!("cargo:rerun-if-changed=../Hello/Cargo.toml");
+    println!("cargo:rerun-if-changed=../Hello/Cargo.lock");
     
     let pkg_name = env::var("CARGO_PKG_NAME").unwrap_or_default();
     println!("cargo:warning=Build script: PKG={}", pkg_name);
@@ -230,6 +235,10 @@ fn generate_bindings_for_manifest(manifest_path: &Path) {
         })
         .collect();
     
+    // Auto-discover SystemParam types and methods (with caching)
+    // Uses JSON cache file in OUT_DIR, invalidated when Cargo.lock changes
+    let (discovered_systemparams, discovered_systemparam_methods) = get_discovered_systemparams_and_methods();
+    
     // Parse bitflags from metadata [package.metadata.lua_bitflags]
     let metadata_bitflags = get_bitflags_from_metadata(&manifest);
     
@@ -256,7 +265,9 @@ fn generate_bindings_for_manifest(manifest_path: &Path) {
         discovered_assets,
         discovered_constructors,
         all_bitflags, 
-        newtypes, 
+        newtypes,
+        discovered_systemparams,
+        discovered_systemparam_methods,
         &parent_src_dir
     );
     
@@ -525,6 +536,192 @@ struct DiscoveredHandleNewtype {
     inner_asset_name: String,
     /// Full inner asset path if determinable (e.g., "bevy_image::image::Image")
     inner_asset_path: Option<String>,
+}
+
+/// Discovered SystemParam type (uses #[derive(SystemParam)])
+#[derive(Debug, Clone, Serialize, Deserialize)]
+struct DiscoveredSystemParam {
+    /// Full type path (e.g., "bevy_picking::mesh_picking::ray_cast::MeshRayCast")
+    full_path: String,
+    /// Just the type name (e.g., "MeshRayCast")
+    type_name: String,
+    /// Crate name (e.g., "bevy_picking")
+    crate_name: String,
+}
+
+/// A method parameter with name and type for SystemParam methods
+#[derive(Debug, Clone, Serialize, Deserialize)]
+struct SystemParamMethodParam {
+    /// Parameter name (e.g., "ray")
+    name: String,
+    /// Parameter type as string (e.g., "Ray3d", "&MeshRayCastSettings")
+    type_str: String,
+    /// Whether this is a reference type
+    is_reference: bool,
+    /// Whether this type likely implements Reflect (based on common patterns)
+    is_reflectable: bool,
+}
+
+/// Discovered method on a SystemParam type
+#[derive(Debug, Clone, Serialize, Deserialize)]
+struct DiscoveredSystemParamMethod {
+    /// SystemParam type name (e.g., "MeshRayCast")
+    param_type: String,
+    /// Method name (e.g., "cast_ray")
+    method_name: String,
+    /// Parameters (excluding &self/&mut self)
+    params: Vec<SystemParamMethodParam>,
+    /// Return type as string
+    return_type: String,
+    /// Whether return type is an iterator (needs .collect())
+    returns_iterator: bool,
+}
+
+/// Cache for discovered SystemParam types and methods
+/// Stored as JSON in target directory to speed up subsequent builds
+#[derive(Debug, Serialize, Deserialize)]
+struct SystemParamCache {
+    /// Hash of Cargo.lock to detect dependency changes
+    cargo_lock_hash: String,
+    /// Discovered SystemParam types
+    systemparams: Vec<DiscoveredSystemParam>,
+    /// Discovered methods on those types
+    methods: Vec<DiscoveredSystemParamMethod>,
+}
+
+/// Get cache file path in the target directory
+fn get_systemparam_cache_path() -> Option<PathBuf> {
+    let out_dir = env::var("OUT_DIR").ok()?;
+    Some(PathBuf::from(out_dir).join("systemparam_cache.json"))
+}
+
+/// Compute a simple hash of Cargo.lock for cache invalidation
+fn compute_cargo_lock_hash() -> String {
+    // Try multiple locations for Cargo.lock
+    let manifest_dir = env::var("CARGO_MANIFEST_DIR").unwrap_or_default();
+    let paths_to_try = [
+        PathBuf::from(&manifest_dir).join("../Hello/Cargo.lock"),
+        PathBuf::from(&manifest_dir).join("Cargo.lock"),
+        PathBuf::from(&manifest_dir).parent().map(|p| p.join("Cargo.lock")).unwrap_or_default(),
+    ];
+    
+    for path in &paths_to_try {
+        if let Ok(content) = fs::read_to_string(path) {
+            // Simple hash: use length and first/last bytes
+            let len = content.len();
+            let first = content.bytes().next().unwrap_or(0) as u64;
+            let last = content.bytes().last().unwrap_or(0) as u64;
+            return format!("{}-{}-{}", len, first, last);
+        }
+    }
+    
+    // No Cargo.lock found, use timestamp to invalidate frequently
+    format!("no-lock-{}", std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_secs())
+        .unwrap_or(0))
+}
+
+/// Try to load SystemParam cache from disk
+fn load_systemparam_cache() -> Option<SystemParamCache> {
+    let cache_path = get_systemparam_cache_path()?;
+    let content = fs::read_to_string(&cache_path).ok()?;
+    let cache: SystemParamCache = serde_json::from_str(&content).ok()?;
+    
+    // Check if cache is still valid (Cargo.lock hasn't changed)
+    let current_hash = compute_cargo_lock_hash();
+    if cache.cargo_lock_hash == current_hash {
+        println!("cargo:warning=[CACHE] Loaded {} SystemParams and {} methods from cache", 
+            cache.systemparams.len(), cache.methods.len());
+        Some(cache)
+    } else {
+        println!("cargo:warning=[CACHE] Cache invalidated (Cargo.lock changed)");
+        None
+    }
+}
+
+/// Save SystemParam cache to disk
+fn save_systemparam_cache(systemparams: &[DiscoveredSystemParam], methods: &[DiscoveredSystemParamMethod]) {
+    let Some(cache_path) = get_systemparam_cache_path() else { return };
+    
+    let cache = SystemParamCache {
+        cargo_lock_hash: compute_cargo_lock_hash(),
+        systemparams: systemparams.to_vec(),
+        methods: methods.to_vec(),
+    };
+    
+    if let Ok(json) = serde_json::to_string_pretty(&cache) {
+        if fs::write(&cache_path, json).is_ok() {
+            println!("cargo:warning=[CACHE] Saved {} SystemParams and {} methods to cache",
+                systemparams.len(), methods.len());
+        }
+    }
+}
+
+/// Get discovered SystemParams and methods (from cache or by discovery)
+fn get_discovered_systemparams_and_methods() -> (Vec<DiscoveredSystemParam>, Vec<DiscoveredSystemParamMethod>) {
+    // Try cache first
+    if let Some(cache) = load_systemparam_cache() {
+        return (cache.systemparams, cache.methods);
+    }
+    
+    // Cache miss - run discovery
+    println!("cargo:warning=[CACHE] Cache miss - running SystemParam discovery...");
+    let systemparams = discover_systemparam_types();
+    let methods = discover_systemparam_methods(&systemparams);
+    
+    // Save to cache for next time
+    save_systemparam_cache(&systemparams, &methods);
+    
+    (systemparams, methods)
+}
+
+/// Resolve a short type name to its full Bevy path
+/// For compile-time code generation, we need fully qualified paths
+fn resolve_short_type_to_full_path(short_name: &str) -> Option<String> {
+    // Map of short names to full Bevy paths
+    // These are the most common types found in SystemParam method signatures
+    let mappings: &[(&str, &str)] = &[
+        // Math types
+        ("Ray3d", "bevy::math::Ray3d"),
+        ("Dir3", "bevy::math::Dir3"),
+        ("Dir3A", "bevy::math::Dir3A"),
+        ("Vec2", "bevy::math::Vec2"),
+        ("Vec3", "bevy::math::Vec3"),
+        ("Vec3A", "bevy::math::Vec3A"),
+        ("Vec4", "bevy::math::Vec4"),
+        ("Quat", "bevy::math::Quat"),
+        ("Mat4", "bevy::math::Mat4"),
+        
+        // Picking types
+        ("MeshRayCastSettings", "bevy::picking::mesh_picking::ray_cast::MeshRayCastSettings"),
+        ("RayCastSettings", "bevy::picking::mesh_picking::ray_cast::RayCastSettings"),
+        
+        // ECS types
+        ("Entity", "bevy::ecs::entity::Entity"),
+        
+        // Common types - these are primitives and don't need full paths
+        // Just return them as-is if they parse ok
+    ];
+    
+    for (short, full) in mappings {
+        if short_name == *short {
+            return Some(full.to_string());
+        }
+    }
+    
+    // If it already contains ::, assume it's a full path
+    if short_name.contains("::") {
+        return Some(short_name.to_string());
+    }
+    
+    // Primitive types don't need resolution
+    if is_primitive_type(short_name) {
+        return Some(short_name.to_string());
+    }
+    
+    // Unknown type - can't resolve
+    None
 }
 
 /// Auto-discover entity wrapper components from bevy crates and workspace members
@@ -1369,7 +1566,658 @@ fn parse_method_params(sig: &syn::Signature) -> Vec<ConstructorParam> {
     params
 }
 
-/// Specification for a newtype wrapper around Handle<T>
+// =============================================================================
+// SYSTEMPARAM AUTO-DISCOVERY
+// Scan bevy crates for #[derive(SystemParam)] types and their methods
+// =============================================================================
+
+/// Auto-discover SystemParam types from bevy crates
+/// Pattern: #[derive(SystemParam)] pub struct TypeName
+fn discover_systemparam_types() -> Vec<DiscoveredSystemParam> {
+    let mut params = Vec::new();
+    
+    println!("cargo:warning=[SYSTEMPARAM_DISCOVERY] Starting SystemParam type discovery...");
+    
+    // Get cargo home
+    let cargo_home = env::var("CARGO_HOME")
+        .or_else(|_| env::var("HOME").map(|h| format!("{}/.cargo", h)))
+        .or_else(|_| env::var("USERPROFILE").map(|h| format!("{}/.cargo", h)))
+        .unwrap_or_default();
+    
+    if cargo_home.is_empty() {
+        println!("cargo:warning=  ⚠ Cannot find CARGO_HOME for SystemParam discovery");
+        return params;
+    }
+    
+    let registry_src = PathBuf::from(&cargo_home).join("registry").join("src");
+    
+    if !registry_src.exists() {
+        println!("cargo:warning=  ⚠ Registry source not found for SystemParam discovery");
+        return params;
+    }
+    
+    // Read ALL bevy_* dependencies from Cargo.lock
+    let dependencies = get_bevy_dependencies_from_lock();
+    println!("cargo:warning=[SYSTEMPARAM_DISCOVERY] Scanning {} bevy_* dependencies", dependencies.len());
+    
+    // Scan bevy_* crates for SystemParam types
+    for index_entry in fs::read_dir(&registry_src).into_iter().flatten().flatten() {
+        let index_dir = index_entry.path();
+        if !index_dir.is_dir() { continue; }
+        
+        for crate_entry in fs::read_dir(&index_dir).into_iter().flatten().flatten() {
+            let crate_dir = crate_entry.path();
+            let dir_name = crate_dir.file_name()
+                .and_then(|n| n.to_str())
+                .unwrap_or("");
+            
+            // Extract base crate name (e.g., "bevy_picking" from "bevy_picking-0.17.2")
+            let base_crate = dir_name.split('-').next().unwrap_or(dir_name);
+            
+            // Only scan crates that are in our dependencies
+            if !dependencies.contains(&base_crate.to_string()) { continue; }
+            
+            let src_dir = crate_dir.join("src");
+            if src_dir.exists() {
+                scan_directory_for_systemparams(&src_dir, base_crate, &mut params);
+            }
+        }
+    }
+    
+    // Deduplicate by type_name
+    let mut seen = std::collections::HashSet::new();
+    params.retain(|p| seen.insert(p.type_name.clone()));
+    
+    println!("cargo:warning=  ✓ Auto-discovered {} SystemParam types", params.len());
+    for param in &params {
+        println!("cargo:warning=    - {} (from {})", param.type_name, param.crate_name);
+    }
+    
+    params
+}
+
+/// Scan a directory recursively for SystemParam types
+fn scan_directory_for_systemparams(dir: &Path, crate_name: &str, results: &mut Vec<DiscoveredSystemParam>) {
+    for entry in fs::read_dir(dir).into_iter().flatten().flatten() {
+        let path = entry.path();
+        
+        if path.is_dir() {
+            scan_directory_for_systemparams(&path, crate_name, results);
+        } else if path.extension().map_or(false, |ext| ext == "rs") {
+            if let Ok(source) = fs::read_to_string(&path) {
+                parse_systemparams_from_source(&source, crate_name, &path, results);
+            }
+        }
+    }
+}
+
+/// Parse a source file for #[derive(SystemParam)] patterns
+fn parse_systemparams_from_source(source: &str, crate_name: &str, file_path: &Path, results: &mut Vec<DiscoveredSystemParam>) {
+    let Ok(file) = syn::parse_file(source) else { return; };
+    
+    for item in file.items {
+        if let syn::Item::Struct(item_struct) = item {
+            // Must be public
+            if !matches!(item_struct.vis, syn::Visibility::Public(_)) {
+                continue;
+            }
+            
+            // Check for #[derive(SystemParam)]
+            let has_systemparam = item_struct.attrs.iter().any(|attr| {
+                if attr.path().is_ident("derive") {
+                    if let Ok(meta) = attr.parse_args::<proc_macro2::TokenStream>() {
+                        return meta.to_string().contains("SystemParam");
+                    }
+                }
+                false
+            });
+            
+            if !has_systemparam {
+                continue;
+            }
+            
+            let type_name = item_struct.ident.to_string();
+            
+            // Build full path
+            let module_path = build_module_path_from_file(file_path, crate_name);
+            let full_path = if module_path.is_empty() {
+                format!("{}::{}", crate_name, type_name)
+            } else {
+                format!("{}::{}::{}", crate_name, module_path, type_name)
+            };
+            
+            // Normalize to bevy:: path
+            let Some(full_path) = normalize_bevy_path(&full_path) else {
+                continue;
+            };
+            
+            results.push(DiscoveredSystemParam {
+                full_path,
+                type_name,
+                crate_name: crate_name.to_string(),
+            });
+        }
+    }
+}
+
+/// Discover methods on SystemParam types
+/// Scans for `impl TypeName` blocks with public methods that take &self or &mut self
+fn discover_systemparam_methods(param_types: &[DiscoveredSystemParam]) -> Vec<DiscoveredSystemParamMethod> {
+    let mut methods = Vec::new();
+    
+    println!("cargo:warning=[SYSTEMPARAM_DISCOVERY] Scanning for SystemParam methods...");
+    
+    // Get cargo home
+    let cargo_home = env::var("CARGO_HOME")
+        .or_else(|_| env::var("HOME").map(|h| format!("{}/.cargo", h)))
+        .or_else(|_| env::var("USERPROFILE").map(|h| format!("{}/.cargo", h)))
+        .unwrap_or_default();
+    
+    if cargo_home.is_empty() {
+        return methods;
+    }
+    
+    let registry_src = PathBuf::from(&cargo_home).join("registry").join("src");
+    if !registry_src.exists() {
+        return methods;
+    }
+    
+    let dependencies = get_bevy_dependencies_from_lock();
+    
+    // Scan for methods
+    for index_entry in fs::read_dir(&registry_src).into_iter().flatten().flatten() {
+        let index_dir = index_entry.path();
+        if !index_dir.is_dir() { continue; }
+        
+        for crate_entry in fs::read_dir(&index_dir).into_iter().flatten().flatten() {
+            let crate_dir = crate_entry.path();
+            let dir_name = crate_dir.file_name()
+                .and_then(|n| n.to_str())
+                .unwrap_or("");
+            
+            let base_crate = dir_name.split('-').next().unwrap_or(dir_name);
+            if !dependencies.contains(&base_crate.to_string()) { continue; }
+            
+            let src_dir = crate_dir.join("src");
+            if src_dir.exists() {
+                scan_directory_for_systemparam_methods(&src_dir, param_types, &mut methods);
+            }
+        }
+    }
+    
+    println!("cargo:warning=  ✓ Discovered {} SystemParam methods", methods.len());
+    for method in &methods {
+        let params_str: Vec<String> = method.params.iter()
+            .map(|p| format!("{}: {}", p.name, p.type_str))
+            .collect();
+        println!("cargo:warning=    - {}::{}({})", method.param_type, method.method_name, params_str.join(", "));
+    }
+    
+    methods
+}
+
+/// Scan directory for SystemParam method implementations
+fn scan_directory_for_systemparam_methods(
+    dir: &Path,
+    param_types: &[DiscoveredSystemParam],
+    results: &mut Vec<DiscoveredSystemParamMethod>,
+) {
+    for entry in fs::read_dir(dir).into_iter().flatten().flatten() {
+        let path = entry.path();
+        
+        if path.is_dir() {
+            scan_directory_for_systemparam_methods(&path, param_types, results);
+        } else if path.extension().map_or(false, |ext| ext == "rs") {
+            if let Ok(source) = fs::read_to_string(&path) {
+                parse_systemparam_methods_from_source(&source, param_types, results);
+            }
+        }
+    }
+}
+
+/// Parse source for impl blocks of SystemParam types
+fn parse_systemparam_methods_from_source(
+    source: &str,
+    param_types: &[DiscoveredSystemParam],
+    results: &mut Vec<DiscoveredSystemParamMethod>,
+) {
+    let Ok(file) = syn::parse_file(source) else { return; };
+    
+    for item in file.items {
+        if let syn::Item::Impl(item_impl) = item {
+            // Only inherent impls (not trait impls)
+            if item_impl.trait_.is_some() { continue; }
+            
+            // Get type name being implemented
+            let type_name = match &*item_impl.self_ty {
+                syn::Type::Path(type_path) => {
+                    type_path.path.segments.last()
+                        .map(|s| s.ident.to_string())
+                        .unwrap_or_default()
+                }
+                _ => continue,
+            };
+            
+            // Check if this is a SystemParam type we discovered
+            if !param_types.iter().any(|p| p.type_name == type_name) {
+                continue;
+            }
+            
+            // Find public methods that take &self or &mut self
+            for impl_item in &item_impl.items {
+                if let syn::ImplItem::Fn(method) = impl_item {
+                    // Must be public
+                    if !matches!(method.vis, syn::Visibility::Public(_)) { continue; }
+                    
+                    // Must have &self or &mut self receiver
+                    let has_self = method.sig.inputs.iter().any(|arg| {
+                        matches!(arg, syn::FnArg::Receiver(_))
+                    });
+                    if !has_self { continue; }
+                    
+                    let method_name = method.sig.ident.to_string();
+                    
+                    // Parse parameters
+                    let params = parse_systemparam_method_params(&method.sig);
+                    
+                    // Get return type
+                    let (return_type, returns_iterator) = parse_return_type(&method.sig.output);
+                    
+                    results.push(DiscoveredSystemParamMethod {
+                        param_type: type_name.clone(),
+                        method_name,
+                        params,
+                        return_type,
+                        returns_iterator,
+                    });
+                }
+            }
+        }
+    }
+}
+
+/// Parse method parameters for SystemParam methods
+fn parse_systemparam_method_params(sig: &syn::Signature) -> Vec<SystemParamMethodParam> {
+    let mut params = Vec::new();
+    
+    for arg in &sig.inputs {
+        match arg {
+            syn::FnArg::Receiver(_) => continue, // Skip &self
+            syn::FnArg::Typed(pat_type) => {
+                let name = match &*pat_type.pat {
+                    syn::Pat::Ident(ident) => ident.ident.to_string(),
+                    _ => continue,
+                };
+                
+                let ty = &pat_type.ty;
+                let type_str = quote::quote!(#ty).to_string()
+                    .replace(" ", "");
+                
+                // Check if it's a reference
+                let is_reference = type_str.starts_with("&");
+                
+                // Check if this type implements Reflect (discovered from source)
+                let is_reflectable = is_type_reflectable(&type_str);
+                
+                params.push(SystemParamMethodParam {
+                    name,
+                    type_str: type_str.replace("&", "").replace("mut", "").trim().to_string(),
+                    is_reference,
+                    is_reflectable,
+                });
+            }
+        }
+    }
+    
+    params
+}
+
+/// Cached set of types that implement Reflect (discovered by scanning sources)
+/// This is populated by discover_reflect_types() and used by is_type_reflectable()
+static REFLECT_TYPES: std::sync::OnceLock<std::collections::HashSet<String>> = std::sync::OnceLock::new();
+
+/// Cached set of types that implement Debug (discovered by scanning sources)
+/// This is populated by discover_debug_types() and used by is_type_debuggable()
+static DEBUG_TYPES: std::sync::OnceLock<std::collections::HashSet<String>> = std::sync::OnceLock::new();
+
+/// Check if a type implements Debug by looking it up in the discovered set
+fn is_type_debuggable(type_str: &str) -> bool {
+    let clean = type_str
+        .replace("&", "")
+        .replace("mut", "")
+        .replace("'_", "")
+        .replace("'static", "")
+        .trim()
+        .to_string();
+    
+    // Slice types like [(Entity,RayMeshHit)] - assume debuggable if they parse
+    // (Entity and most Bevy types implement Debug)
+    if clean.starts_with('[') && clean.ends_with(']') {
+        return true;
+    }
+    
+    // Tuple types like (Entity, RayMeshHit) - assume debuggable
+    if clean.starts_with('(') && clean.ends_with(')') {
+        return true;
+    }
+    
+    // Primitive types always implement Debug
+    let type_name_base = clean.split("::").last().unwrap_or(&clean);
+    if is_primitive_type(type_name_base) {
+        return true;
+    }
+    
+    // Common std types implement Debug
+    let always_debug = ["Vec", "Option", "Result", "String", "Box", "Arc", "Rc", 
+                        "Entity", "RayMeshHit", "Camera", "UiCameraConfig"];
+    for t in always_debug {
+        if type_name_base.starts_with(t) {
+            return true;
+        }
+    }
+    
+    // Check the discovered Debug types
+    let debug_types = DEBUG_TYPES.get_or_init(|| {
+        discover_debug_types()
+    });
+    
+    // Extract just the type name (handle generics)
+    let type_name = clean.split('<').next().unwrap_or(&clean);
+    let type_name = type_name.split("::").last().unwrap_or(type_name);
+    
+    debug_types.contains(type_name)
+}
+
+/// Discover all types that implement Debug by scanning bevy crates
+/// Similar to discover_reflect_types but for Debug
+fn discover_debug_types() -> std::collections::HashSet<String> {
+    let mut debug_types = std::collections::HashSet::new();
+    
+    // Get cargo home
+    let cargo_home = env::var("CARGO_HOME")
+        .or_else(|_| env::var("HOME").map(|h| format!("{}/.cargo", h)))
+        .or_else(|_| env::var("USERPROFILE").map(|h| format!("{}/.cargo", h)))
+        .unwrap_or_default();
+    
+    if cargo_home.is_empty() {
+        return debug_types;
+    }
+    
+    let registry_src = PathBuf::from(&cargo_home).join("registry").join("src");
+    
+    if !registry_src.exists() {
+        return debug_types;
+    }
+    
+    let dependencies = get_bevy_dependencies_from_lock();
+    
+    // Scan bevy crates for Debug implementations
+    for index_entry in fs::read_dir(&registry_src).into_iter().flatten().flatten() {
+        let index_dir = index_entry.path();
+        if !index_dir.is_dir() { continue; }
+        
+        for crate_entry in fs::read_dir(&index_dir).into_iter().flatten().flatten() {
+            let crate_dir = crate_entry.path();
+            let dir_name = crate_dir.file_name()
+                .and_then(|n| n.to_str())
+                .unwrap_or("");
+            
+            let base_crate = dir_name.split('-').next().unwrap_or(dir_name);
+            if !dependencies.contains(&base_crate.to_string()) { continue; }
+            
+            let src_dir = crate_dir.join("src");
+            if src_dir.exists() {
+                scan_directory_for_debug_types(&src_dir, &mut debug_types);
+            }
+        }
+    }
+    
+    println!("cargo:warning=  ✓ Discovered {} Debug types", debug_types.len());
+    
+    debug_types
+}
+
+/// Scan directory for types with #[derive(Debug)]
+fn scan_directory_for_debug_types(dir: &Path, results: &mut std::collections::HashSet<String>) {
+    for entry in fs::read_dir(dir).into_iter().flatten().flatten() {
+        let path = entry.path();
+        
+        if path.is_dir() {
+            scan_directory_for_debug_types(&path, results);
+        } else if path.extension().map_or(false, |ext| ext == "rs") {
+            if let Ok(source) = fs::read_to_string(&path) {
+                parse_debug_types_from_source(&source, results);
+            }
+        }
+    }
+}
+
+/// Parse source file for #[derive(Debug)] and impl Debug patterns
+fn parse_debug_types_from_source(source: &str, results: &mut std::collections::HashSet<String>) {
+    let Ok(file) = syn::parse_file(source) else { return; };
+    
+    for item in file.items {
+        match item {
+            syn::Item::Struct(item_struct) => {
+                let has_debug = item_struct.attrs.iter().any(|attr| {
+                    if attr.path().is_ident("derive") {
+                        if let Ok(meta) = attr.parse_args::<proc_macro2::TokenStream>() {
+                            return meta.to_string().contains("Debug");
+                        }
+                    }
+                    false
+                });
+                
+                if has_debug {
+                    results.insert(item_struct.ident.to_string());
+                }
+            }
+            syn::Item::Enum(item_enum) => {
+                let has_debug = item_enum.attrs.iter().any(|attr| {
+                    if attr.path().is_ident("derive") {
+                        if let Ok(meta) = attr.parse_args::<proc_macro2::TokenStream>() {
+                            return meta.to_string().contains("Debug");
+                        }
+                    }
+                    false
+                });
+                
+                if has_debug {
+                    results.insert(item_enum.ident.to_string());
+                }
+            }
+            syn::Item::Impl(item_impl) => {
+                // Check for impl Debug for Type
+                if let Some((_, trait_path, _)) = &item_impl.trait_ {
+                    let trait_name = trait_path.segments.last()
+                        .map(|s| s.ident.to_string())
+                        .unwrap_or_default();
+                    
+                    if trait_name == "Debug" {
+                        if let syn::Type::Path(type_path) = &*item_impl.self_ty {
+                            if let Some(seg) = type_path.path.segments.last() {
+                                results.insert(seg.ident.to_string());
+                            }
+                        }
+                    }
+                }
+            }
+            _ => {}
+        }
+    }
+}
+
+/// Check if a type implements Reflect by looking it up in the discovered set
+fn is_type_reflectable(type_str: &str) -> bool {
+    let clean = type_str
+        .replace("&", "")
+        .replace("mut", "")
+        .replace("'_", "")
+        .replace("'static", "")
+        .trim()
+        .to_string();
+    
+    // Types containing closures or complex generics are never reflectable
+    if clean.contains("Fn(") || clean.contains("dyn ") || clean.contains("impl ") {
+        return false;
+    }
+    
+    // Primitive types are always reflectable
+    let type_name_base = clean.split("::").last().unwrap_or(&clean);
+    if is_primitive_type(type_name_base) {
+        return true;
+    }
+    
+    // Check the discovered Reflect types
+    let reflect_types = REFLECT_TYPES.get_or_init(|| {
+        discover_reflect_types()
+    });
+    
+    // Extract just the type name (handle generics like Vec<T> -> Vec)
+    let type_name = clean.split('<').next().unwrap_or(&clean);
+    let type_name = type_name.split("::").last().unwrap_or(type_name);
+    
+    reflect_types.contains(type_name)
+}
+
+/// Discover all types that implement Reflect by scanning bevy crates
+/// Pattern: #[derive(Reflect)] or impl Reflect for Type
+fn discover_reflect_types() -> std::collections::HashSet<String> {
+    let mut reflect_types = std::collections::HashSet::new();
+    
+    println!("cargo:warning=[REFLECT_DISCOVERY] Scanning for Reflect types...");
+    
+    // Get cargo home
+    let cargo_home = env::var("CARGO_HOME")
+        .or_else(|_| env::var("HOME").map(|h| format!("{}/.cargo", h)))
+        .or_else(|_| env::var("USERPROFILE").map(|h| format!("{}/.cargo", h)))
+        .unwrap_or_default();
+    
+    if cargo_home.is_empty() {
+        println!("cargo:warning=  ⚠ Cannot find CARGO_HOME for Reflect discovery");
+        return reflect_types;
+    }
+    
+    let registry_src = PathBuf::from(&cargo_home).join("registry").join("src");
+    
+    if !registry_src.exists() {
+        return reflect_types;
+    }
+    
+    let dependencies = get_bevy_dependencies_from_lock();
+    
+    // Scan bevy crates for Reflect implementations
+    for index_entry in fs::read_dir(&registry_src).into_iter().flatten().flatten() {
+        let index_dir = index_entry.path();
+        if !index_dir.is_dir() { continue; }
+        
+        for crate_entry in fs::read_dir(&index_dir).into_iter().flatten().flatten() {
+            let crate_dir = crate_entry.path();
+            let dir_name = crate_dir.file_name()
+                .and_then(|n| n.to_str())
+                .unwrap_or("");
+            
+            let base_crate = dir_name.split('-').next().unwrap_or(dir_name);
+            if !dependencies.contains(&base_crate.to_string()) { continue; }
+            
+            let src_dir = crate_dir.join("src");
+            if src_dir.exists() {
+                scan_directory_for_reflect_types(&src_dir, &mut reflect_types);
+            }
+        }
+    }
+    
+    println!("cargo:warning=  ✓ Discovered {} Reflect types", reflect_types.len());
+    
+    reflect_types
+}
+
+/// Scan directory for types with #[derive(Reflect)]
+fn scan_directory_for_reflect_types(dir: &Path, results: &mut std::collections::HashSet<String>) {
+    for entry in fs::read_dir(dir).into_iter().flatten().flatten() {
+        let path = entry.path();
+        
+        if path.is_dir() {
+            scan_directory_for_reflect_types(&path, results);
+        } else if path.extension().map_or(false, |ext| ext == "rs") {
+            if let Ok(source) = fs::read_to_string(&path) {
+                parse_reflect_types_from_source(&source, results);
+            }
+        }
+    }
+}
+
+/// Parse source file for #[derive(Reflect)] and impl Reflect patterns
+fn parse_reflect_types_from_source(source: &str, results: &mut std::collections::HashSet<String>) {
+    let Ok(file) = syn::parse_file(source) else { return; };
+    
+    for item in file.items {
+        match item {
+            syn::Item::Struct(item_struct) => {
+                // Check for #[derive(Reflect)]
+                let has_reflect = item_struct.attrs.iter().any(|attr| {
+                    if attr.path().is_ident("derive") {
+                        if let Ok(meta) = attr.parse_args::<proc_macro2::TokenStream>() {
+                            return meta.to_string().contains("Reflect");
+                        }
+                    }
+                    false
+                });
+                
+                if has_reflect {
+                    results.insert(item_struct.ident.to_string());
+                }
+            }
+            syn::Item::Enum(item_enum) => {
+                let has_reflect = item_enum.attrs.iter().any(|attr| {
+                    if attr.path().is_ident("derive") {
+                        if let Ok(meta) = attr.parse_args::<proc_macro2::TokenStream>() {
+                            return meta.to_string().contains("Reflect");
+                        }
+                    }
+                    false
+                });
+                
+                if has_reflect {
+                    results.insert(item_enum.ident.to_string());
+                }
+            }
+            syn::Item::Impl(item_impl) => {
+                // Check for impl Reflect for Type
+                if let Some((_, trait_path, _)) = &item_impl.trait_ {
+                    let trait_name = trait_path.segments.last()
+                        .map(|s| s.ident.to_string())
+                        .unwrap_or_default();
+                    
+                    if trait_name == "Reflect" || trait_name == "PartialReflect" {
+                        if let syn::Type::Path(type_path) = &*item_impl.self_ty {
+                            if let Some(seg) = type_path.path.segments.last() {
+                                results.insert(seg.ident.to_string());
+                            }
+                        }
+                    }
+                }
+            }
+            _ => {}
+        }
+    }
+}
+
+/// Parse return type from method signature
+fn parse_return_type(output: &syn::ReturnType) -> (String, bool) {
+    match output {
+        syn::ReturnType::Default => ("()".to_string(), false),
+        syn::ReturnType::Type(_, ty) => {
+            let type_str = quote::quote!(#ty).to_string().replace(" ", "");
+            let returns_iterator = type_str.contains("impl Iterator") || 
+                                   type_str.contains("impl IntoIterator") ||
+                                   type_str.contains("Iter<");
+            (type_str, returns_iterator)
+        }
+    }
+}
+
+
 /// Used for auto-registering handle creators and newtype wrappers
 #[derive(Debug, Clone)]
 struct NewtypeSpec {
@@ -1417,6 +2265,251 @@ struct ObservableEventSpec {
     event_type: String,
     /// Whether this event has position data
     has_position: bool,
+}
+
+/// Specification for a Bevy Event type (for Lua read_events)
+#[derive(Debug, Clone)]
+struct BevyEventSpec {
+    /// Short type name (e.g., "CursorMoved", "MouseButtonInput")
+    type_name: String,
+    /// Full type path (e.g., "bevy_window::event::CursorMoved")
+    full_path: String,
+    /// Crate name (e.g., "bevy_window")
+    crate_name: String,
+}
+
+/// Specification for a Bevy Message type (for Lua write_message via MessageWriter)
+/// Messages differ from Events in that they use MessageWriter<T> instead of EventWriter<T>
+#[derive(Debug, Clone)]
+struct BevyMessageSpec {
+    /// Short type name (e.g., "PointerInput")
+    type_name: String,
+    /// Full type path (e.g., "bevy_picking::pointer::PointerInput")
+    full_path: String,
+    /// Bevy re-export path (e.g., "bevy::picking::pointer::PointerInput")
+    bevy_path: String,
+    /// Crate name (e.g., "bevy_picking")
+    crate_name: String,
+}
+
+/// Discover message types by scanning bevy_picking crate
+/// Message types are those that use MessageWriter<T> for dispatch (e.g., PointerInput)
+fn discover_bevy_messages() -> Vec<BevyMessageSpec> {
+    let mut messages = Vec::new();
+    
+    // Find cargo home
+    let cargo_home = env::var("CARGO_HOME")
+        .or_else(|_| env::var("HOME").map(|h| format!("{}/.cargo", h)))
+        .or_else(|_| env::var("USERPROFILE").map(|h| format!("{}/.cargo", h)))
+        .unwrap_or_else(|_| String::new());
+    
+    if cargo_home.is_empty() {
+        println!("cargo:warning=  ⚠ Cannot find CARGO_HOME for message discovery");
+        return messages;
+    }
+    
+    let registry_src = PathBuf::from(&cargo_home).join("registry").join("src");
+    
+    if !registry_src.exists() {
+        println!("cargo:warning=  ⚠ Registry source not found for message discovery");
+        return messages;
+    }
+    
+    // Message types to discover and their locations
+    // These types use MessageWriter<T> instead of EventWriter<T>
+    let message_types = [
+        ("bevy_picking", "pointer.rs", "PointerInput"),
+    ];
+    
+    'type_loop: for (crate_prefix, file_name, type_name) in &message_types {
+        // Check if we already found this type
+        if messages.iter().any(|m| m.type_name == *type_name) {
+            continue;
+        }
+        
+        // Iterate through registry index directories
+        for index_entry in fs::read_dir(&registry_src).into_iter().flatten().flatten() {
+            let index_dir = index_entry.path();
+            if !index_dir.is_dir() { continue; }
+            
+            // Look for crate directories (e.g., bevy_picking-0.3.0)
+            for crate_entry in fs::read_dir(&index_dir).into_iter().flatten().flatten() {
+                let crate_dir = crate_entry.path();
+                if !crate_dir.is_dir() { continue; }
+                
+                let crate_name = crate_dir.file_name()
+                    .and_then(|n| n.to_str())
+                    .unwrap_or("");
+                
+                // Check if this is the target crate
+                if !crate_name.starts_with(crate_prefix) {
+                    continue;
+                }
+                
+                // Found the crate - look for the type
+                let source_file = crate_dir.join("src").join(file_name);
+                if source_file.exists() {
+                    if let Ok(source) = fs::read_to_string(&source_file) {
+                        // Verify the type exists in the file with Event derive
+                        if source.contains(&format!("pub struct {}", type_name)) 
+                            && source.contains("#[derive(") 
+                            && source.contains("Event") 
+                        {
+                            let module_name = file_name.trim_end_matches(".rs");
+                            let full_path = format!("{}::{}::{}", crate_prefix, module_name, type_name);
+                            let bevy_path = full_path.replace("bevy_picking::", "bevy::picking::");
+                            
+                            messages.push(BevyMessageSpec {
+                                type_name: type_name.to_string(),
+                                full_path,
+                                bevy_path,
+                                crate_name: crate_prefix.to_string(),
+                            });
+                            
+                            println!("cargo:warning=    - Message: {} ({})", type_name, crate_prefix);
+                            continue 'type_loop; // Found it, move to next type
+                        }
+                    }
+                }
+            }
+        }
+    }
+    
+    // Deduplicate by type_name (in case of multiple crate versions)
+    messages.sort_by(|a, b| a.type_name.cmp(&b.type_name));
+    messages.dedup_by(|a, b| a.type_name == b.type_name);
+    
+    println!("cargo:warning=  ✓ Discovered {} Message types for Lua write_message()", messages.len());
+    
+    messages
+}
+
+
+/// Discover Bevy Event types by scanning bevy_window and bevy_input crates
+fn discover_bevy_events() -> Vec<BevyEventSpec> {
+    let mut events = Vec::new();
+    
+    // Find cargo home
+    let cargo_home = env::var("CARGO_HOME")
+        .or_else(|_| env::var("HOME").map(|h| format!("{}/.cargo", h)))
+        .or_else(|_| env::var("USERPROFILE").map(|h| format!("{}/.cargo", h)))
+        .unwrap_or_else(|_| String::new());
+    
+    if cargo_home.is_empty() {
+        println!("cargo:warning=  ⚠ Cannot find CARGO_HOME for event discovery");
+        return events;
+    }
+    
+    let registry_src = PathBuf::from(&cargo_home).join("registry").join("src");
+    
+    if !registry_src.exists() {
+        println!("cargo:warning=  ⚠ Registry source not found for event discovery");
+        return events;
+    }
+    
+    // Crates to scan for Event derives
+    let crates_to_scan = [
+        ("bevy_window", vec!["event.rs", "cursor.rs"]),
+        ("bevy_input", vec!["keyboard.rs", "mouse.rs"]),
+        ("bevy_picking", vec!["pointer.rs"]),  // For PointerInput
+    ];
+    
+    for (crate_prefix, files) in &crates_to_scan {
+        events.extend(scan_crate_for_events(&registry_src, crate_prefix, files));
+    }
+    
+    println!("cargo:warning=  ✓ Discovered {} Bevy Event types for Lua read_events()", events.len());
+    for event in &events {
+        println!("cargo:warning=    - {} ({})", event.type_name, event.full_path);
+    }
+    
+    events
+}
+
+/// Scan a specific crate for Event types (types with #[derive(Event)])
+fn scan_crate_for_events(registry_src: &Path, crate_prefix: &str, files: &[&str]) -> Vec<BevyEventSpec> {
+    let mut events = Vec::new();
+    
+    // Iterate through registry index directories
+    'outer: for index_entry in fs::read_dir(registry_src).into_iter().flatten().flatten() {
+        let index_dir = index_entry.path();
+        if !index_dir.is_dir() { continue; }
+        
+        for crate_entry in fs::read_dir(&index_dir).into_iter().flatten().flatten() {
+            let crate_dir = crate_entry.path();
+            let dir_name = crate_dir.file_name()
+                .and_then(|n| n.to_str())
+                .unwrap_or("");
+            
+            // Match crate name with version suffix (e.g., "bevy_window-0.15.0")
+            if !dir_name.starts_with(&format!("{}-", crate_prefix)) {
+                continue;
+            }
+            
+            // Found the crate, scan specified files
+            let src_dir = crate_dir.join("src");
+            for file_name in files {
+                let file_path = src_dir.join(file_name);
+                if file_path.exists() {
+                    if let Ok(source) = fs::read_to_string(&file_path) {
+                        let file_events = parse_events_from_source(&source, crate_prefix, file_name);
+                        events.extend(file_events);
+                    }
+                }
+            }
+            
+            // Found the crate, stop searching (avoid duplicates from multiple versions)
+            if !events.is_empty() {
+                break 'outer;
+            }
+        }
+    }
+    
+    events
+}
+
+/// Parse a source file for structs with #[derive(Event)]
+fn parse_events_from_source(source: &str, crate_name: &str, file_name: &str) -> Vec<BevyEventSpec> {
+    let mut events = Vec::new();
+    
+    let Ok(file) = syn::parse_file(source) else {
+        return events;
+    };
+    
+    // Derive the module path from file name (e.g., "event.rs" -> "event", "cursor.rs" -> "cursor")
+    let module_name = file_name.trim_end_matches(".rs");
+    
+    for item in file.items {
+        if let syn::Item::Struct(item_struct) = item {
+            // Check if public
+            if !matches!(item_struct.vis, syn::Visibility::Public(_)) {
+                continue;
+            }
+            
+            let struct_name = item_struct.ident.to_string();
+            
+            // Check if it has #[derive(...Event...)]
+            let has_event_derive = item_struct.attrs.iter().any(|attr| {
+                if attr.path().is_ident("derive") {
+                    if let Ok(meta) = attr.parse_args::<proc_macro2::TokenStream>() {
+                        // Check for Event in derives (handles Event, bevy_ecs::event::Event, etc.)
+                        return meta.to_string().contains("Event");
+                    }
+                }
+                false
+            });
+            
+            if has_event_derive {
+                events.push(BevyEventSpec {
+                    type_name: struct_name.clone(),
+                    full_path: format!("{}::{}::{}", crate_name, module_name, struct_name),
+                    crate_name: crate_name.to_string(),
+                });
+            }
+        }
+    }
+    
+    events
 }
 
 /// Discover all observable events by scanning crate sources
@@ -2039,8 +3132,11 @@ fn write_bindings_to_parent_crate(
     discovered_constructors: Vec<DiscoveredAssetConstructor>,  // Auto-discovered constructors for opaque types
     discovered_bitflags: Vec<DiscoveredBitflags>,
     newtypes: Vec<NewtypeSpec>,
+    discovered_systemparams: Vec<DiscoveredSystemParam>,  // Auto-discovered SystemParam types
+    discovered_systemparam_methods: Vec<DiscoveredSystemParamMethod>,  // Methods on SystemParam types
     parent_src_dir: &Path
 ) {
+
     let generated_file = parent_src_dir.join("auto_resource_bindings.rs");
     
     // Generate bitflags registration code from discovered bitflags
@@ -2250,12 +3346,487 @@ fn write_bindings_to_parent_crate(
     let observer_handlers = generate_observer_handlers(&observable_events);
     let observer_match_arms = generate_observer_match_arms(&observable_events);
     
+    // Discover Bevy Event types for Lua read_events()
+    let bevy_events = discover_bevy_events();
+    
+    // Discover Bevy Message types for Lua write_message() (uses MessageWriter<T>)
+    let bevy_messages = discover_bevy_messages();
+    
+    // Deprecated/removed types to skip
+    let deprecated_types = ["ReceivedCharacter", "Ime"];
+    
+    // Generate event registration code AND event dispatch match arms (for both read AND write)
+    // We use bevy:: re-export paths because internal crates (bevy_window) aren't accessible
+    // Instead of reflection, we generate dispatch_read_events and dispatch_write_events functions with match arms
+    let mut event_match_arms = Vec::new();      // For reading events
+    let mut event_write_match_arms = Vec::new(); // For writing events
+    
+    // Generate message write match arms from discovered message types
+    let message_write_match_arms: Vec<_> = bevy_messages.iter().filter_map(|msg| {
+        let short_name = &msg.type_name;
+        let bevy_path_str = &msg.bevy_path;
+        let full_path_str = &msg.full_path; // Original crate path (e.g., bevy_picking::pointer::PointerInput)
+        let type_path: syn::Path = syn::parse_str(bevy_path_str).ok()?;
+        
+        Some(quote::quote! {
+            #short_name | #bevy_path_str | #full_path_str => {
+                // Get TypeRegistry for reflection
+                let type_registry = world.resource::<bevy::ecs::reflect::AppTypeRegistry>().clone();
+                let registry = type_registry.read();
+                
+                // Find the type registration for this message
+                // Try both the original crate path and the bevy re-export path
+                let type_registration = registry.get_with_type_path(#full_path_str)
+                    .or_else(|| registry.get_with_type_path(#bevy_path_str));
+                
+                if let Some(type_registration) = type_registration {
+                    let type_info = type_registration.type_info();
+                    
+                    // Get AssetRegistry for handle ID lookup during reflection
+                    let asset_registry = world.get_resource::<bevy_lua_ecs::AssetRegistry>().cloned();
+                    let dynamic = bevy_lua_ecs::lua_table_to_dynamic_with_assets(
+                        lua, data, type_info, &type_registry, asset_registry.as_ref()
+                    ).map_err(|e| format!("Failed to build message '{}': {}", #bevy_path_str, e))?;
+                    
+                    // Debug: Log fields in the DynamicStruct before conversion
+                    use bevy::reflect::Struct;
+                    for i in 0..dynamic.field_len() {
+                        let field_name = dynamic.name_at(i).unwrap_or("unknown");
+                        let field_value = dynamic.field_at(i).map(|f| {
+                            format!("{} (kind: {:?})", f.reflect_type_path(), f.reflect_kind())
+                        }).unwrap_or("None".to_string());
+                        bevy::log::debug!("[MESSAGE_CONSTRUCT] Field '{}': {}", field_name, field_value);
+                    }
+                    
+                    // Strategy 1: Create default instance and apply entire dynamic struct
+                    if let Some(reflect_default) = type_registration.data::<bevy::prelude::ReflectDefault>() {
+                        let mut concrete_instance = reflect_default.default();
+                        
+                        // Try to apply the entire dynamic struct to the default instance
+                        match concrete_instance.try_apply(&dynamic) {
+                            Ok(()) => {
+                                // Downcast and send
+                                if let Ok(concrete_message) = concrete_instance.take::<#type_path>() {
+                                    drop(registry); // Release read lock before getting mutable access
+                                    let mut system_state = bevy::ecs::system::SystemState::<bevy::prelude::MessageWriter<#type_path>>::new(world);
+                                    let mut message_writer = system_state.get_mut(world);
+                                    message_writer.write(concrete_message);
+                                    bevy::log::debug!("[MESSAGE_WRITE] Sent message via try_apply: {}", #bevy_path_str);
+                                    return Ok(());
+                                } else {
+                                    bevy::log::warn!("[MESSAGE_WRITE] try_apply succeeded but downcast failed for '{}'", #bevy_path_str);
+                                }
+                            }
+                            Err(e) => {
+                                bevy::log::debug!("[MESSAGE_WRITE] try_apply failed for '{}': {:?}", #bevy_path_str, e);
+                            }
+                        }
+                    }
+                    
+                    // Strategy 2: Try ReflectFromReflect (handles most cases but may fail with complex nested types)
+                    if let Some(reflect_from_reflect) = type_registration.data::<bevy::reflect::ReflectFromReflect>() {
+                        if let Some(concrete_value) = reflect_from_reflect.from_reflect(&dynamic) {
+                            // Downcast the reflected value to the concrete message type using take
+                            if let Ok(concrete_message) = concrete_value.take::<#type_path>() {
+                                // Use SystemState to get MessageWriter
+                                drop(registry); // Release read lock before getting mutable access
+                                let mut system_state = bevy::ecs::system::SystemState::<bevy::prelude::MessageWriter<#type_path>>::new(world);
+                                let mut message_writer = system_state.get_mut(world);
+                                message_writer.write(concrete_message);
+                                bevy::log::debug!("[MESSAGE_WRITE] Sent message via ReflectFromReflect: {}", #bevy_path_str);
+                                return Ok(());
+                            } else {
+                                bevy::log::warn!("[MESSAGE_WRITE] ReflectFromReflect succeeded but downcast failed for '{}'", #bevy_path_str);
+                            }
+                        } else {
+                            bevy::log::debug!("[MESSAGE_WRITE] ReflectFromReflect::from_reflect returned None for '{}'", #bevy_path_str);
+                        }
+                    }
+                    
+                    // Strategy 3: Try FromReflect trait directly
+                    if let Some(concrete_value) = <#type_path as bevy::reflect::FromReflect>::from_reflect(&dynamic) {
+                        drop(registry); // Release read lock before getting mutable access
+                        let mut system_state = bevy::ecs::system::SystemState::<bevy::prelude::MessageWriter<#type_path>>::new(world);
+                        let mut message_writer = system_state.get_mut(world);
+                        message_writer.write(concrete_value);
+                        bevy::log::debug!("[MESSAGE_WRITE] Sent message via FromReflect trait: {}", #bevy_path_str);
+                        return Ok(());
+                    }
+                    
+                    return Err(format!("Failed to construct message '{}' - all conversion strategies failed. This usually means a nested type doesn't implement FromReflect properly or a newtype wrapper is causing issues.", #bevy_path_str));
+                } else {
+                    return Err(format!("Message type '{}' not found in TypeRegistry", #bevy_path_str));
+                }
+            }
+        })
+    }).collect();
+    
+    println!("cargo:warning=  ✓ Generated {} message dispatch match arms", message_write_match_arms.len());
+    
+    // Generate message type registrations (for TypeRegistry)
+    let message_registrations: Vec<_> = bevy_messages.iter().filter_map(|msg| {
+        let bevy_path_str = &msg.bevy_path;
+        let type_path: syn::Path = syn::parse_str(bevy_path_str).ok()?;
+        
+        Some(quote::quote! {
+            app.register_type::<#type_path>();
+            bevy::log::debug!("[REGISTER_MESSAGES] Adding message type: {}", #bevy_path_str);
+        })
+    }).collect();
+    
+    println!("cargo:warning=  ✓ Generated {} message type registrations", message_registrations.len());
+    
+    let event_registrations: Vec<_> = bevy_events.iter().filter_map(|event| {
+        // Skip deprecated types
+        if deprecated_types.contains(&event.type_name.as_str()) {
+            println!("cargo:warning=    ⚠ Skipping deprecated event: {}", event.type_name);
+            return None;
+        }
+        
+        // Convert to bevy:: re-export paths
+        let bevy_path = if event.crate_name == "bevy_window" {
+            // Window events are re-exported directly to bevy::window
+            format!("bevy::window::{}", event.type_name)
+        } else if event.crate_name == "bevy_input" {
+            // Input events keep their submodule
+            event.full_path.replace("bevy_input::", "bevy::input::")
+        } else if event.crate_name == "bevy_picking" {
+            // Picking events are re-exported to bevy::picking
+            event.full_path.replace("bevy_picking::", "bevy::picking::")
+        } else {
+            event.full_path.clone()
+        };
+        
+        let type_path: syn::Path = match syn::parse_str(&bevy_path) {
+            Ok(p) => p,
+            Err(_) => {
+                println!("cargo:warning=  ⚠ Could not parse event path: {}", bevy_path);
+                return None;
+            }
+        };
+        
+        // Generate match arm for event dispatch - use both short name and full internal path
+        let short_name = &event.type_name;
+        let full_internal_path = &event.full_path;
+        
+        event_match_arms.push(quote::quote! {
+            #short_name | #full_internal_path | #bevy_path => {
+                // Read events using EventReader
+                let mut system_state = bevy::ecs::system::SystemState::<bevy::prelude::EventReader<#type_path>>::new(world);
+                let mut event_reader = system_state.get_mut(world);
+                
+                let results = lua.create_table()?;
+                let mut index = 1;
+                
+                for event in event_reader.read() {
+                    // Convert event to Lua via reflection
+                    // reflection_to_lua returns Result<LuaValue, LuaError>
+                    if let Ok(event_value) = bevy_lua_ecs::reflection_to_lua(lua, event as &dyn bevy::reflect::PartialReflect, &type_registry) {
+                        results.set(index, event_value)?;
+                        index += 1;
+                    }
+                }
+                
+                Ok(mlua::Value::Table(results))
+            }
+        });
+        
+        // Generate match arm for EVENT WRITING - use EventWriter<T> and lua_table_to_dynamic
+        event_write_match_arms.push(quote::quote! {
+            #short_name | #full_internal_path | #bevy_path => {
+                // Get TypeRegistry for reflection
+                let type_registry = world.resource::<bevy::ecs::reflect::AppTypeRegistry>().clone();
+                let registry = type_registry.read();
+                
+                // Find the type registration for this event
+                if let Some(type_registration) = registry.get_with_type_path(#bevy_path) {
+                    let type_info = type_registration.type_info();
+                    
+                    // Build DynamicStruct from the Lua table using type info
+                    let dynamic = bevy_lua_ecs::lua_table_to_dynamic(lua, data, type_info, &type_registry)
+                        .map_err(|e| format!("Failed to build event '{}': {}", #bevy_path, e))?;
+                    
+                    // Convert via FromReflect - T::from_reflect returns Option<T> directly
+                    if let Some(concrete_event) = <#type_path as bevy::reflect::FromReflect>::from_reflect(&dynamic) {
+                        // Use SystemState to get EventWriter
+                        drop(registry); // Release read lock before getting mutable access
+                        let mut system_state = bevy::ecs::system::SystemState::<bevy::prelude::EventWriter<#type_path>>::new(world);
+                        let mut event_writer = system_state.get_mut(world);
+                        event_writer.write(concrete_event);
+                        bevy::log::debug!("[EVENT_WRITE] Sent event: {}", #bevy_path);
+                        return Ok(());
+                    }
+                    return Err(format!("Failed to construct event '{}' via FromReflect", #bevy_path));
+                } else {
+                    return Err(format!("Event type '{}' not found in TypeRegistry", #bevy_path));
+                }
+            }
+        });
+        
+        // Generate a string literal for debug logging
+        let bevy_path_str = bevy_path.clone();
+        
+        Some(quote::quote! {
+            bevy::log::debug!("[REGISTER_EVENTS] Adding event type: {}", #bevy_path_str);
+            // Use add_event instead of register_type - this properly creates the Events<T> resource
+            // and registers it in the app. register_type alone doesn't work for Events.
+            app.add_event::<#type_path>();
+            
+            // Also register the type for reflection
+            app.register_type::<#type_path>();
+        })
+    }).collect();
+    println!("cargo:warning=  ✓ Generated {} event dispatch match arms", event_match_arms.len());
+    
     // Convert entity wrapper names to quote literals for const array
     let entity_wrapper_name_literals: Vec<_> = entity_wrapper_names.iter()
         .map(|name| quote::quote! { #name })
         .collect();
     
+    // Generate SystemParam type name literals for const array
+    let systemparam_type_name_literals: Vec<_> = discovered_systemparams.iter()
+        .map(|p| {
+            let name = &p.type_name;
+            let full_path = &p.full_path;
+            quote::quote! { (#name, #full_path) }
+        })
+        .collect();
+    
+    println!("cargo:warning=  ✓ Generated {} SystemParam type names for runtime lookup", systemparam_type_name_literals.len());
+    
+    // Generate SystemParam method tuples: (param_type, method_name, return_type, is_iterator)
+    let systemparam_method_literals: Vec<_> = discovered_systemparam_methods.iter()
+        .filter(|m| {
+            // Only include methods where all params are likely reflectable
+            m.params.iter().all(|p| p.is_reflectable)
+        })
+        .map(|m| {
+            let param_type = &m.param_type;
+            let method_name = &m.method_name;
+            let return_type = &m.return_type;
+            let returns_iterator = m.returns_iterator;
+            quote::quote! { (#param_type, #method_name, #return_type, #returns_iterator) }
+        })
+        .collect();
+    
+    println!("cargo:warning=  ✓ Generated {} SystemParam method entries for runtime lookup", systemparam_method_literals.len());
+    
+    // Generate dispatch match arms for SystemParam methods
+    // Note: We no longer filter on is_reflectable since we use runtime TypeRegistry
+    // Methods with non-registered params will fail at runtime with a clear error
+    let systemparam_dispatch_arms: Vec<_> = discovered_systemparam_methods.iter()
+        .filter_map(|m| {
+            // Find the full path for this SystemParam type
+            let param_info = discovered_systemparams.iter()
+                .find(|p| p.type_name == m.param_type)?;
+            
+            // Normalize discovered path to actual bevy re-export path
+            // Some discovered paths are simplified and need correction
+            let path = match param_info.full_path.as_str() {
+                // MeshRayCast is in a nested module
+                p if p.contains("MeshRayCast") => 
+                    "bevy::picking::mesh_picking::ray_cast::MeshRayCast".to_string(),
+                // DefaultUiCamera also needs full path if used
+                p if p.contains("DefaultUiCamera") =>
+                    "bevy::ui::ui_node::DefaultUiCamera".to_string(),
+                // Otherwise use as-is
+                other => other.to_string(),
+            };
+            let path = &path;
+            
+            // Skip types with generic parameters (they require type arguments)
+            if path.contains('<') || path.contains('>') {
+                return None;
+            }
+            
+            // Skip methods whose return type doesn't implement Debug (required for format!("{:?}") in dispatch)
+            if !is_type_debuggable(&m.return_type) {
+                if m.param_type == "MeshRayCast" {
+                    println!("cargo:warning=  [FILTER] {}::{} filtered: return type '{}' not debuggable", 
+                        m.param_type, m.method_name, m.return_type);
+                }
+                return None;
+            }
+            
+            // TEMPORARY: Focused allowlist for fast builds - only include most useful SystemParam types
+            // TODO: Make this more generic once build caching is implemented
+            let allowed_prefixes = [
+                "bevy::picking::",  // MeshRayCast
+            ];
+            if !allowed_prefixes.iter().any(|prefix| path.starts_with(prefix)) {
+                return None;
+            }
+            
+            let param_name = &m.param_type;
+            let method_name = &m.method_name;
+            
+            // Debug: Log which methods pass the allowlist
+            println!("cargo:warning=  [DISPATCH] Processing {}::{} (path: {}, {} params)", 
+                param_name, method_name, path, m.params.len());
+            
+            // Try to parse the type path
+            let type_path: syn::Path = syn::parse_str(path).ok()?;
+            let method_ident = syn::Ident::new(method_name, proc_macro2::Span::call_site());
+            
+            // Build parameter handling code
+            let mut param_extractions = Vec::new();
+            let mut param_names = Vec::new();
+            
+            for (idx, p) in m.params.iter().enumerate() {
+                // Skip reference params with lifetimes (like &MeshRayCastSettings)
+                if p.is_reference && p.type_str.contains("Settings") {
+                    // Use default for settings types
+                    param_names.push(quote::quote! { &Default::default() });
+                    continue;
+                }
+                
+                // Clean up the parameter type string
+                let param_type_str = p.type_str.replace("'_", "'static").replace("& ", "").replace("&", "");
+                let type_name_cleaned = param_type_str.trim();
+                
+                // Resolve short type names to full paths using our mapping
+                let Some(full_type_path) = resolve_short_type_to_full_path(type_name_cleaned) else {
+                    println!("cargo:warning=      ⚠ Skipping {}::{}: can't resolve param type '{}'", 
+                        param_name, method_name, type_name_cleaned);
+                    return None;
+                };
+                
+                // Try to parse the resolved full path as syn::Path
+                let Ok(param_type_path) = syn::parse_str::<syn::Path>(&full_type_path) else {
+                    println!("cargo:warning=      ⚠ Skipping {}::{}: can't parse resolved type '{}'", 
+                        param_name, method_name, full_type_path);
+                    return None;
+                };
+                
+                let typed_param_ident = syn::Ident::new(&format!("typed_arg{}", idx), proc_macro2::Span::call_site());
+                // Use short name for TypeRegistry lookup (it uses short_type_path)
+                let type_name_lit = type_name_cleaned.to_string();
+                
+                // Generate extraction code using runtime reflection (TypeRegistry + ReflectDefault/FromReflect)
+                // Then downcast to the concrete type for the method call
+                param_extractions.push(quote::quote! {
+                    let #typed_param_ident: #param_type_path = {
+                        // Try to construct parameter via reflection
+                        // First try ReflectDefault, then try constructing from Lua table directly via FromReflect
+                        let type_reg = type_registry.get_with_short_type_path(#type_name_lit)
+                            .or_else(|| type_registry.get_with_type_path(#type_name_lit));
+                        
+                        let param_result: Option<Box<dyn bevy::reflect::Reflect>> = type_reg
+                            .and_then(|reg| reg.data::<bevy::prelude::ReflectDefault>())
+                            .map(|rd| rd.default());
+                        
+                        let used_default = param_result.is_some();
+                        
+                        // If Default wasn't available, try to construct via FromReflect from Lua data
+                        let mut param_instance = if let Some(inst) = param_result {
+                            inst
+                        } else {
+                            // Try FromReflect - construct a DynamicStruct from Lua and convert
+                            if let Some(arg_val) = args.front() {
+                                if let mlua::Value::Table(t) = arg_val {
+                                    // Get the type info and FromReflect trait data
+                                    if let Some(type_registration) = type_reg {
+                                        if let Some(from_reflect_data) = type_registration.data::<bevy::reflect::ReflectFromReflect>() {
+                                            // Build DynamicStruct from Lua table using type info
+                                            let type_info = type_registration.type_info();
+                                            let dynamic = bevy_lua_ecs::lua_table_to_dynamic(lua, t, type_info, &app_type_registry)
+                                                .map_err(|e| mlua::Error::RuntimeError(format!(
+                                                    "Failed to build DynamicStruct for '{}': {}", #type_name_lit, e
+                                                )))?;
+                                            
+                                            // Convert via FromReflect
+                                            if let Some(reflected) = from_reflect_data.from_reflect(&dynamic) {
+                                                // Remove the arg since we consumed it
+                                                args.pop_front();
+                                                reflected
+                                            } else {
+                                                return Err(mlua::Error::RuntimeError(format!(
+                                                    "Cannot construct parameter type '{}' - FromReflect conversion failed. Check that all fields are provided.",
+                                                    #type_name_lit
+                                                )));
+                                            }
+                                        } else {
+                                            return Err(mlua::Error::RuntimeError(format!(
+                                                "Cannot construct parameter type '{}' - doesn't implement FromReflect",
+                                                #type_name_lit
+                                            )));
+                                        }
+                                    } else {
+                                        return Err(mlua::Error::RuntimeError(format!(
+                                            "Cannot construct parameter type '{}' - not found in TypeRegistry",
+                                            #type_name_lit
+                                        )));
+                                    }
+                                } else {
+                                    return Err(mlua::Error::RuntimeError(format!(
+                                        "Cannot construct parameter type '{}' - expected table argument",
+                                        #type_name_lit
+                                    )));
+                                }
+                            } else {
+                                return Err(mlua::Error::RuntimeError(format!(
+                                    "Cannot construct parameter type '{}' - no argument provided and no Default",
+                                    #type_name_lit
+                                )));
+                            }
+                        };
+                        
+                        // If we used Default, populate from Lua arg if available
+                        if used_default {
+                            if let Some(arg_val) = args.pop_front() {
+                                if let mlua::Value::Table(t) = arg_val {
+                                    let _ = bevy_lua_ecs::lua_to_reflection(lua, &mlua::Value::Table(t), param_instance.as_partial_reflect_mut(), &app_type_registry);
+                                }
+                            }
+                        }
+                        
+                        // Downcast to concrete type
+                        param_instance.downcast_ref::<#param_type_path>()
+                            .cloned()
+                            .ok_or_else(|| mlua::Error::RuntimeError(format!(
+                                "Failed to downcast parameter to '{}'", #type_name_lit
+                            )))?
+                    };
+                });
+                
+                // If this is a reference parameter, pass a reference
+                if p.is_reference {
+                    param_names.push(quote::quote! { &#typed_param_ident });
+                } else {
+                    param_names.push(quote::quote! { #typed_param_ident });
+                }
+            }
+            
+            println!("cargo:warning=    + Generating dispatch for {}::{} ({} params)", param_name, method_name, m.params.len());
+            
+            // Generate method call with proper param passing
+            let method_call = if param_names.is_empty() {
+                quote::quote! { param.#method_ident() }
+            } else {
+                quote::quote! { param.#method_ident(#(#param_names),*) }
+            };
+            
+            Some(quote::quote! {
+                (#param_name, #method_name) => {
+                    let app_type_registry = world.resource::<bevy::ecs::reflect::AppTypeRegistry>().clone();
+                    let type_registry = app_type_registry.read();
+                    let mut args: std::collections::VecDeque<mlua::Value> = args.into_iter().collect();
+                    
+                    #(#param_extractions)*
+                    
+                    let mut state = bevy::ecs::system::SystemState::<#type_path>::new(world);
+                    let mut param = state.get_mut(world);
+                    let result = #method_call;
+                    Ok(mlua::Value::String(lua.create_string(&format!("{:?}", result))?))
+                }
+            })
+        })
+        .collect();
+    
+    println!("cargo:warning=  ✓ Generated {} SystemParam dispatch arms", systemparam_dispatch_arms.len());
+    
     let full_code = quote! {
+
         // Auto-generated Lua resource and component method bindings
         // Generated by bevy-lua-ecs build script
         
@@ -2333,6 +3904,86 @@ fn write_bindings_to_parent_crate(
         
         
         // ========================================
+        // Auto-discovered SystemParam Types
+        // ========================================
+        
+        /// Auto-discovered SystemParam type names and their full paths
+        /// Format: (type_name, full_path) - for runtime lookup
+        /// Examples: ("MeshRayCast", "bevy::picking::mesh_picking::ray_cast::MeshRayCast")
+        pub const DISCOVERED_SYSTEMPARAMS: &[(&str, &str)] = &[#(#systemparam_type_name_literals),*];
+        
+        /// Auto-discovered SystemParam methods that use Reflect-compatible parameters
+        /// Format: (param_type, method_name, return_type, returns_iterator)
+        pub const DISCOVERED_SYSTEMPARAM_METHODS: &[(&str, &str, &str, bool)] = &[#(#systemparam_method_literals),*];
+        
+        /// Dispatch a SystemParam method call from Lua
+        /// This uses SystemState to access SystemParams from World
+        /// Currently supports no-arg methods; parameterized methods need reflection-based arg parsing
+        pub fn dispatch_systemparam_method(
+            lua: &mlua::Lua,
+            world: &mut bevy::prelude::World,
+            param_name: &str,
+            method_name: &str,
+            args: mlua::MultiValue,
+        ) -> mlua::Result<mlua::Value> {
+            match (param_name, method_name) {
+                #(#systemparam_dispatch_arms),*
+                _ => Err(mlua::Error::RuntimeError(format!(
+                    "Unknown or unsupported SystemParam method: {}::{}", param_name, method_name
+                )))
+            }
+        }
+        
+        /// Dispatch read_events call for a specific event type
+        /// Returns a Lua table of events converted via reflection
+        pub fn dispatch_read_events(
+            lua: &mlua::Lua,
+            world: &mut bevy::prelude::World,
+            event_type: &str,
+        ) -> mlua::Result<mlua::Value> {
+            let type_registry = world.resource::<bevy::ecs::reflect::AppTypeRegistry>().clone();
+            
+            match event_type {
+                #(#event_match_arms),*
+                _ => Err(mlua::Error::RuntimeError(format!(
+                    "Unknown event type: '{}'. Available events are discovered from bevy_window and bevy_input.", event_type
+                )))
+            }
+        }
+        
+        /// Dispatch write_events call for a specific event type
+        /// Constructs the event from a Lua table using reflection and sends via EventWriter
+        pub fn dispatch_write_events(
+            lua: &mlua::Lua,
+            world: &mut bevy::prelude::World,
+            event_type: &str,
+            data: &mlua::Table,
+        ) -> Result<(), String> {
+            match event_type {
+                #(#event_write_match_arms),*
+                _ => Err(format!(
+                    "Unknown event type: '{}'. Available events are discovered from bevy_window and bevy_input.", event_type
+                ))
+            }
+        }
+        
+        /// Dispatch write_message call for a specific message type
+        /// Uses MessageWriter<T> and lua_table_to_dynamic for reflection-based construction
+        pub fn dispatch_write_message(
+            lua: &mlua::Lua,
+            world: &mut bevy::prelude::World,
+            message_type: &str,
+            data: &mlua::Table,
+        ) -> Result<(), String> {
+            match message_type {
+                #(#message_write_match_arms),*
+                _ => Err(format!(
+                    "Unknown message type: '{}'. Discovered message types are auto-generated.", message_type
+                ))
+            }
+        }
+
+        // ========================================
         // Auto-generated Lua Observer Handlers
         // ========================================
         
@@ -2407,13 +4058,64 @@ fn write_bindings_to_parent_crate(
                 // attach_observer_by_name function to the library's observer system
                 bevy_lua_ecs::set_observer_attacher(attach_observer_by_name);
                 
+                // Register the SystemParam method dispatcher - this connects the generated
+                // dispatch_systemparam_method function to the library's call_systemparam_method
+                bevy_lua_ecs::set_systemparam_dispatcher(dispatch_systemparam_method);
+                
+                // Register the event reader dispatcher - this connects the generated
+                // dispatch_read_events function to the library's read_events
+                bevy_lua_ecs::set_event_dispatcher(dispatch_read_events);
+                
+                // Register the event writer dispatcher - this connects the generated
+                // dispatch_write_events function to the library's send_event
+                bevy_lua_ecs::set_event_write_dispatcher(dispatch_write_events);
+                
+                // Register the message writer dispatcher - this connects the generated
+                // dispatch_write_message function to the library's write_message
+                bevy_lua_ecs::set_message_write_dispatcher(dispatch_write_message);
+                
+                // Register Bevy Event types for Lua read_events()
+                // This registers Events<T> for auto-discovered event types
+                register_bevy_events(app);
+                
                 // Initialize BitflagsRegistry
                 app.init_resource::<bevy_lua_ecs::BitflagsRegistry>();
                 
                 // Add registration systems
                 app.add_systems(bevy::prelude::Startup, setup_bitflags);
+                app.add_systems(bevy::prelude::Startup, log_registered_events);
                 app.add_systems(bevy::prelude::PostStartup, register_asset_constructors);
+                
+                // Add Lua message dispatch system (handles world:write_message in Lua scripts)
+                app.add_systems(bevy::prelude::Update, bevy_lua_ecs::dispatch_lua_messages);
             }
+        }
+        
+        /// Debug system to log all registered Events<T> types in the TypeRegistry
+        fn log_registered_events(type_registry: bevy::prelude::Res<bevy::ecs::reflect::AppTypeRegistry>) {
+            let registry = type_registry.read();
+            bevy::log::info!("[DEBUG_EVENTS] === Scanning TypeRegistry for Events<*> types ===");
+            
+            let mut found_count = 0;
+            for registration in registry.iter() {
+                let type_path = registration.type_info().type_path();
+                if type_path.contains("Events<") {
+                    bevy::log::info!("[DEBUG_EVENTS] Found: '{}'", type_path);
+                    found_count += 1;
+                }
+            }
+            
+            bevy::log::info!("[DEBUG_EVENTS] Total Events<*> types found: {}", found_count);
+        }
+        
+        /// Register auto-discovered Bevy Event and Message types for Lua events/messages
+        fn register_bevy_events(app: &mut bevy::prelude::App) {
+            #(#event_registrations)*
+            
+            // Register message types (e.g., PointerInput for MessageWriter)
+            #(#message_registrations)*
+            
+            bevy::log::debug!("Auto-discovered Bevy Events and Messages registered for Lua");
         }
         
         /// System to register auto-generated bitflags types
@@ -2532,15 +4234,62 @@ fn write_empty_bindings_with_events(event_types: Vec<String>) {
         }
     }).collect();
     
+    // Discover message types and generate match arms for MessageWriter<T> dispatch
+    let bevy_messages = discover_bevy_messages();
+    let message_write_match_arms: Vec<_> = bevy_messages.iter().filter_map(|msg| {
+        let short_name = &msg.type_name;
+        let bevy_path_str = &msg.bevy_path;
+        let type_path: syn::Path = syn::parse_str(bevy_path_str).ok()?;
+        
+        Some(quote::quote! {
+            #short_name | #bevy_path_str => {
+                let type_registry = world.resource::<bevy::ecs::reflect::AppTypeRegistry>().clone();
+                let registry = type_registry.read();
+                
+                if let Some(type_registration) = registry.get_with_type_path(#bevy_path_str) {
+                    let type_info = type_registration.type_info();
+                    let dynamic = crate::lua_table_to_dynamic(lua, data, type_info, &type_registry)
+                        .map_err(|e| format!("Failed to build message '{}': {}", #bevy_path_str, e))?;
+                    
+                    if let Some(concrete_message) = <#type_path as bevy::reflect::FromReflect>::from_reflect(&dynamic) {
+                        drop(registry);
+                        let mut system_state = bevy::ecs::system::SystemState::<bevy::prelude::MessageWriter<#type_path>>::new(world);
+                        let mut message_writer = system_state.get_mut(world);
+                        message_writer.write(concrete_message);
+                        bevy::log::debug!("[MESSAGE_WRITE] Sent message: {}", #bevy_path_str);
+                        return Ok(());
+                    }
+                    return Err(format!("Failed to construct message '{}' via FromReflect", #bevy_path_str));
+                } else {
+                    return Err(format!("Message type '{}' not found in TypeRegistry", #bevy_path_str));
+                }
+            }
+        })
+    }).collect();
+    
+    // Generate message type registrations (for TypeRegistry)
+    let message_registrations: Vec<_> = bevy_messages.iter().filter_map(|msg| {
+        let bevy_path_str = &msg.bevy_path;
+        let type_path: syn::Path = syn::parse_str(bevy_path_str).ok()?;
+        
+        Some(quote::quote! {
+            app.register_type::<#type_path>();
+            bevy::log::debug!("[REGISTER_MESSAGES] Adding message type: {}", #bevy_path_str);
+        })
+    }).collect();
+    
     let full_code = quote! {
         /// Auto-generated Lua resource bindings
         pub fn register_auto_bindings(_registry: &crate::resource_lua_trait::LuaResourceRegistry) {
             // No resource bindings generated
         }
         
-        /// Auto-generated event registrations
+        /// Auto-generated event and message type registrations
         pub fn register_auto_events(app: &mut bevy::prelude::App) {
             #(#event_registrations)*
+            
+            // Register message types for reflection (e.g., PointerInput)
+            #(#message_registrations)*
         }
         
         /// Auto-generated event dispatch system
@@ -2553,6 +4302,113 @@ fn write_empty_bindings_with_events(event_types: Vec<String>) {
             for (type_name, data) in events {
                 bevy::log::debug!("[LUA_EVENT] Received event '{}': {:?}", type_name, data);
             }
+        }
+        
+        /// Auto-generated message dispatch system
+        /// This system drains PendingLuaMessages and dispatches them via MessageWriter.
+        /// Uses the same reflection pattern as event dispatch.
+        pub fn dispatch_lua_messages(
+            world: &mut bevy::prelude::World,
+        ) {
+            // Get pending messages
+            let pending = world.resource::<crate::event_sender::PendingLuaMessages>().clone();
+            let messages = pending.drain_messages();
+            
+            if messages.is_empty() {
+                return;
+            }
+            
+            // Get Lua context for reflection
+            let lua_ctx = world.resource::<crate::LuaScriptContext>().clone();
+            
+            for (type_name, data) in messages {
+                bevy::log::debug!("[LUA_MESSAGE] Processing message '{}': {:?}", type_name, data);
+                
+                // Convert JSON to Lua table for reflection
+                match json_to_lua_table(&lua_ctx.lua, &data) {
+                    Ok(lua_table) => {
+                        // Use the global message dispatch function (set by parent crate's generated code)
+                        if let Err(e) = crate::call_write_messages_global(&lua_ctx.lua, world, &type_name, &lua_table) {
+                            bevy::log::warn!("[LUA_MESSAGE] Failed to dispatch '{}': {}", type_name, e);
+                        }
+                    }
+                    Err(e) => {
+                        bevy::log::warn!("[LUA_MESSAGE] Failed to convert JSON to Lua table: {}", e);
+                    }
+                }
+            }
+        }
+        
+        /// Convert serde_json::Value to mlua::Table
+        fn json_to_lua_table(lua: &mlua::Lua, value: &serde_json::Value) -> mlua::Result<mlua::Table> {
+            fn json_to_lua_value(lua: &mlua::Lua, value: &serde_json::Value) -> mlua::Result<mlua::Value> {
+                match value {
+                    serde_json::Value::Null => Ok(mlua::Value::Nil),
+                    serde_json::Value::Bool(b) => Ok(mlua::Value::Boolean(*b)),
+                    serde_json::Value::Number(n) => {
+                        if let Some(i) = n.as_i64() {
+                            Ok(mlua::Value::Integer(i))
+                        } else if let Some(f) = n.as_f64() {
+                            Ok(mlua::Value::Number(f))
+                        } else {
+                            Ok(mlua::Value::Nil)
+                        }
+                    }
+                    serde_json::Value::String(s) => Ok(mlua::Value::String(lua.create_string(s)?)),
+                    serde_json::Value::Array(arr) => {
+                        let table = lua.create_table()?;
+                        for (i, v) in arr.iter().enumerate() {
+                            table.set(i + 1, json_to_lua_value(lua, v)?)?;
+                        }
+                        Ok(mlua::Value::Table(table))
+                    }
+                    serde_json::Value::Object(obj) => {
+                        let table = lua.create_table()?;
+                        for (k, v) in obj {
+                            table.set(k.as_str(), json_to_lua_value(lua, v)?)?;
+                        }
+                        Ok(mlua::Value::Table(table))
+                    }
+                }
+            }
+            
+            if let serde_json::Value::Object(_) = value {
+                if let mlua::Value::Table(t) = json_to_lua_value(lua, value)? {
+                    return Ok(t);
+                }
+            }
+            Err(mlua::Error::RuntimeError("Expected JSON object".into()))
+        }
+        
+        /// Dispatch write_message call for a specific message type
+        /// Uses MessageWriter<T> and lua_table_to_dynamic for reflection-based construction
+        pub fn dispatch_write_message(
+            lua: &mlua::Lua,
+            world: &mut bevy::prelude::World,
+            message_type: &str,
+            data: &mlua::Table,
+        ) -> Result<(), String> {
+            match message_type {
+                #(#message_write_match_arms),*
+                _ => Err(format!(
+                    "Unknown message type: '{}'. Discovered message types are auto-generated.", message_type
+                ))
+            }
+        }
+        
+        /// Dispatch a SystemParam method call from Lua (stub when no parent manifest)
+        /// The full implementation is generated when building from a parent crate with lua_resources
+        pub fn dispatch_systemparam_method(
+            _lua: &mlua::Lua,
+            _world: &mut bevy::prelude::World,
+            param_name: &str,
+            method_name: &str,
+            _args: mlua::MultiValue,
+        ) -> mlua::Result<mlua::Value> {
+            Err(mlua::Error::RuntimeError(format!(
+                "SystemParam method dispatch not available: {}::{}. Build from parent crate to enable.",
+                param_name, method_name
+            )))
         }
     };
     
