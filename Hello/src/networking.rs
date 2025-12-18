@@ -131,6 +131,14 @@ pub fn register_networking_constructors(registry: &bevy_lua_ecs::ResourceBuilder
                         resend_time: Duration::from_millis(200),
                     },
                 },
+                // Channel 5: For on-demand asset delivery (scripts, images, etc.)
+                ChannelConfig {
+                    channel_id: 5,
+                    max_memory_usage_bytes: 50 * 1024 * 1024,  // 50MB for large assets
+                    send_type: SendType::ReliableOrdered {
+                        resend_time: Duration::from_millis(200),
+                    },
+                },
             ],
             server_channels_config: vec![
                 // Channel 0: For replication updates
@@ -169,6 +177,14 @@ pub fn register_networking_constructors(registry: &bevy_lua_ecs::ResourceBuilder
                 ChannelConfig {
                     channel_id: 4,
                     max_memory_usage_bytes: 1 * 1024 * 1024,  // 1MB
+                    send_type: SendType::ReliableOrdered {
+                        resend_time: Duration::from_millis(200),
+                    },
+                },
+                // Channel 5: For on-demand asset delivery (scripts, images, etc.)
+                ChannelConfig {
+                    channel_id: 5,
+                    max_memory_usage_bytes: 50 * 1024 * 1024,  // 50MB for large assets
                     send_type: SendType::ReliableOrdered {
                         resend_time: Duration::from_millis(200),
                     },

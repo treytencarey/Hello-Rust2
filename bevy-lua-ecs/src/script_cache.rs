@@ -3,7 +3,13 @@ use std::collections::{HashMap, HashSet};
 use std::sync::{Arc, Mutex};
 use std::path::PathBuf;
 use bevy::prelude::Resource;
-use bevy::log::debug;
+use bevy::log::{debug, info};
+
+/// Normalize a path by converting backslashes to forward slashes
+/// This ensures consistent path handling across Windows/Unix and at all code touchpoints
+fn normalize_path(path: &str) -> String {
+    path.replace("\\", "/")
+}
 
 /// Resource that caches loaded Lua modules and tracks dependencies
 #[derive(Clone, Resource)]
@@ -27,6 +33,12 @@ pub struct ScriptCache {
     module_instances: Arc<Mutex<HashMap<(String, u64), u64>>>,
     /// Track which parent instance loaded each module instance: module_instance_id -> parent_instance_id
     module_parents: Arc<Mutex<HashMap<u64, u64>>>,
+    /// Pending coroutines waiting for network downloads: path -> list of (coroutine_key, instance_id) tuples
+    pending_download_coroutines: Arc<Mutex<HashMap<String, Vec<(Arc<LuaRegistryKey>, u64)>>>>,
+    /// Paths that are binary downloads (assets) vs text (scripts)
+    binary_download_paths: Arc<Mutex<HashSet<String>>>,
+    /// Context paths for downloads: requested_path -> context_script_path (for server-side relative path resolution)
+    download_context_paths: Arc<Mutex<HashMap<String, String>>>,
 }
 
 impl Default for ScriptCache {
@@ -46,6 +58,9 @@ impl ScriptCache {
             hot_reload_callbacks: Arc::new(Mutex::new(HashMap::new())),
             module_instances: Arc::new(Mutex::new(HashMap::new())),
             module_parents: Arc::new(Mutex::new(HashMap::new())),
+            pending_download_coroutines: Arc::new(Mutex::new(HashMap::new())),
+            binary_download_paths: Arc::new(Mutex::new(HashSet::new())),
+            download_context_paths: Arc::new(Mutex::new(HashMap::new())),
         }
     }
     
@@ -75,6 +90,20 @@ impl ScriptCache {
             .entry(imported_path)
             .or_insert_with(HashSet::new)
             .insert(importer_path);
+    }
+    
+    /// Get all scripts that import a given module path
+    /// Returns a list of (importer_path, should_reload) tuples
+    pub fn get_importers(&self, module_path: &str) -> Vec<(String, bool)> {
+        let path = normalize_path(module_path);
+        let deps = self.dependencies.lock().unwrap();
+        if let Some(importers) = deps.get(&path) {
+            importers.iter()
+                .map(|(importer, should_reload)| (importer.clone(), *should_reload))
+                .collect()
+        } else {
+            Vec::new()
+        }
     }
     
     /// Clear module cache for all dependencies of a given module path (recursively)
@@ -176,23 +205,38 @@ impl ScriptCache {
     
     /// Register a callback to be re-triggered on hot reload with parent context
     pub fn register_hot_reload_callback(&self, path: String, callback: Arc<LuaRegistryKey>, parent_instance_id: u64) {
+        let normalized_path = normalize_path(&path);
         self.hot_reload_callbacks.lock().unwrap()
-            .entry(path)
+            .entry(normalized_path)
             .or_insert_with(Vec::new)
             .push((callback, parent_instance_id));
     }
     
     /// Get hot reload callbacks for a path with their parent instance IDs
     pub fn get_hot_reload_callbacks(&self, path: &str) -> Vec<(Arc<LuaRegistryKey>, u64)> {
-        self.hot_reload_callbacks.lock().unwrap()
-            .get(path)
-            .cloned()
-            .unwrap_or_default()
+        let normalized_path = normalize_path(path);
+        let callbacks_map = self.hot_reload_callbacks.lock().unwrap();
+        let result = callbacks_map.get(&normalized_path).cloned().unwrap_or_default();
+        
+        // Debug: show what we're looking for and what we have
+        if !callbacks_map.is_empty() {
+            let registered_paths: Vec<_> = callbacks_map.keys().collect();
+            debug!("🔍 [HOT_RELOAD] Looking for callbacks for '{}', registered paths: {:?}", path, registered_paths);
+        }
+        
+        if result.is_empty() {
+            debug!("🔍 [HOT_RELOAD] No callbacks found for '{}'", path);
+        } else {
+            debug!("🔍 [HOT_RELOAD] Found {} callbacks for '{}'", result.len(), path);
+        }
+        
+        result
     }
     
     /// Clear all hot reload callbacks for a path
     pub fn clear_hot_reload_callbacks(&self, path: &str) {
-        self.hot_reload_callbacks.lock().unwrap().remove(path);
+        let normalized_path = normalize_path(path);
+        self.hot_reload_callbacks.lock().unwrap().remove(&normalized_path);
     }
     
     /// Remove hot reload callbacks that were registered by a specific parent instance
@@ -322,19 +366,20 @@ impl ScriptCache {
     
     /// Load module source from cache or filesystem
     /// Checks source cache first to avoid unnecessary disk I/O for unchanged files
+    /// Path should be relative to assets/ (e.g., "scripts/example.lua")
     pub fn load_module_source(&self, relative_path: &str) -> Result<(String, PathBuf), String> {
         // Check source cache first
         {
             let cache = self.source_cache.lock().unwrap();
             if let Some(cached_source) = cache.get(relative_path) {
-                let base_path = PathBuf::from("assets/scripts");
+                let base_path = PathBuf::from("assets");
                 let full_path = base_path.join(relative_path);
                 return Ok((cached_source.clone(), full_path));
             }
         }
         
         // Not in cache, load from disk
-        let base_path = PathBuf::from("assets/scripts");
+        let base_path = PathBuf::from("assets");
         let full_path = base_path.join(relative_path);
         
         let content = std::fs::read_to_string(&full_path)
@@ -348,15 +393,89 @@ impl ScriptCache {
     
     /// Update source cache for a specific module (called when file changes)
     pub fn update_source(&self, relative_path: &str, source: String) {
-        self.source_cache.lock().unwrap().insert(relative_path.to_string(), source);
+        let normalized_path = normalize_path(relative_path);
+        self.source_cache.lock().unwrap().insert(normalized_path, source);
+    }
+    
+    /// Register a coroutine waiting for a download
+    /// Called when require() or load_asset() encounters a missing local file and needs to download
+    /// is_binary: true for binary assets (images, etc), false for text (scripts)
+    /// context_path: the script making the request (for server-side relative path resolution)
+    pub fn register_pending_download_coroutine(&self, path: String, coroutine_key: Arc<LuaRegistryKey>, instance_id: u64, is_binary: bool, context_path: Option<String>) {
+        let normalized_path = normalize_path(&path);
+        debug!("📥 Registering pending download for '{}' (instance {}, binary: {}, context: {:?})", normalized_path, instance_id, is_binary, context_path);
+        self.pending_download_coroutines.lock().unwrap()
+            .entry(normalized_path.clone())
+            .or_insert_with(Vec::new)
+            .push((coroutine_key, instance_id));
+        
+        // Track if this is a binary download
+        if is_binary {
+            self.binary_download_paths.lock().unwrap().insert(normalized_path.clone());
+        }
+        
+        // Track the context path for this download
+        if let Some(ctx) = context_path {
+            self.download_context_paths.lock().unwrap().insert(normalized_path, ctx);
+        }
+    }
+    
+    /// Get the context path for a pending download
+    pub fn get_download_context(&self, path: &str) -> Option<String> {
+        let normalized_path = normalize_path(path);
+        self.download_context_paths.lock().unwrap().get(&normalized_path).cloned()
+    }
+    
+    /// Clear context tracking for a path (after download completes)
+    pub fn clear_download_context(&self, path: &str) {
+        let normalized_path = normalize_path(path);
+        self.download_context_paths.lock().unwrap().remove(&normalized_path);
+    }
+    
+    /// Check if a pending download is for a binary asset
+    pub fn is_binary_download(&self, path: &str) -> bool {
+        let normalized_path = normalize_path(path);
+        self.binary_download_paths.lock().unwrap().contains(&normalized_path)
+    }
+    
+    /// Clear binary download tracking for a path (after download completes)
+    pub fn clear_binary_download(&self, path: &str) {
+        let normalized_path = normalize_path(path);
+        self.binary_download_paths.lock().unwrap().remove(&normalized_path);
+    }
+    
+    /// Take all coroutines waiting for a specific path
+    /// Called when download completes and we need to resume coroutines
+    pub fn take_pending_download_coroutines(&self, path: &str) -> Vec<(Arc<LuaRegistryKey>, u64)> {
+        let normalized_path = normalize_path(path);
+        self.pending_download_coroutines.lock().unwrap()
+            .remove(&normalized_path)
+            .unwrap_or_default()
+    }
+    
+    /// Check if any coroutines are waiting for a path
+    pub fn has_pending_download_coroutines(&self, path: &str) -> bool {
+        let normalized_path = normalize_path(path);
+        self.pending_download_coroutines.lock().unwrap()
+            .get(&normalized_path)
+            .map(|v| !v.is_empty())
+            .unwrap_or(false)
+    }
+    
+    /// Get all paths with pending download coroutines
+    pub fn get_all_pending_download_paths(&self) -> Vec<String> {
+        self.pending_download_coroutines.lock().unwrap()
+            .keys()
+            .cloned()
+            .collect()
     }
 }
 
 /// Load a Lua module from the filesystem (standalone function for backwards compat)
-/// Resolves paths relative to assets/scripts/
+/// Path should be relative to assets/ (e.g., "scripts/example.lua")
 pub fn load_module_source(relative_path: &str) -> Result<(String, PathBuf), String> {
-    // Resolve path relative to assets/scripts/
-    let base_path = PathBuf::from("assets/scripts");
+    // Resolve path relative to assets/
+    let base_path = PathBuf::from("assets");
     let full_path = base_path.join(relative_path);
     
     // Read the file

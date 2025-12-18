@@ -29,6 +29,7 @@ pub mod event_sender;
 pub mod lua_spawn_builder;
 pub mod lua_observers;
 pub mod bitflags_registry;
+pub mod network_asset_trait;
 
 
 // Re-export commonly used types
@@ -60,6 +61,7 @@ pub use script_cache::ScriptCache;
 pub use lua_file_watcher::{LuaFileWatcherPlugin, LuaFileChangeEvent};
 pub use event_sender::{PendingLuaEvents, PendingLuaMessages, LuaEventSenderPlugin};
 pub use bitflags_registry::BitflagsRegistry;
+pub use network_asset_trait::{NetworkAssetLoader, NetworkAssetRequestor, AssetDownloadStatus};
 
 
 /// Register common Bevy event types for Lua access via world:read_events()

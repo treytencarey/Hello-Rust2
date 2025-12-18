@@ -80,6 +80,7 @@ lightyear_examples_common = { workspace = true, optional = true }
 serde = { workspace = true, optional = true }
 serde_json = { workspace = true }  # Required for replicon_lua
 bincode = "1.3"  # Required for renet_lua message serialization
+bytes = "1"  # Required for Renet message types
 mlua = { workspace = true, optional = true }
 bevy_mod_xr = { workspace = true, optional = true }
 rand = "0.8"
@@ -123,4 +124,14 @@ required-features = ["bevy_mod_xr"]
 [[example]]
 name = "replicon_renet_button"
 path = "examples/replicon_renet_button.rs"
+required-features = ["networking"]
+
+[[example]]
+name = "asset_server"
+path = "examples/asset_server.rs"
+required-features = ["networking"]
+
+[[example]]
+name = "asset_client"
+path = "examples/asset_client.rs"
 required-features = ["networking"]

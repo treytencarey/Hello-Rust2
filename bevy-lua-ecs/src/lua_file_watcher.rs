@@ -46,13 +46,14 @@ fn poll_file_changes(
     mut state: ResMut<FileWatcherState>,
     mut events: MessageWriter<LuaFileChangeEvent>,
 ) {
-    let script_dir = Path::new("assets/scripts");
+    // Watch assets/ directory (not just scripts/) to support scripts in any location
+    let script_dir = Path::new("assets");
     
     if !script_dir.exists() {
         return;
     }
     
-    // Recursively walk the scripts directory
+    // Recursively walk the assets directory for .lua files
     visit_lua_files(script_dir, &mut state, &mut events);
 }
 

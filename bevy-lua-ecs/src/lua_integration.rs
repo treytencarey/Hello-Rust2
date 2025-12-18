@@ -5,6 +5,23 @@ use crate::lua_systems::LuaSystemRegistry;
 use std::sync::Arc;
 use std::collections::HashSet;
 
+/// Normalize a path by resolving .. and . components and converting to forward slashes
+fn normalize_path(path: &str) -> String {
+    let path = path.replace("\\", "/");
+    let mut parts: Vec<&str> = Vec::new();
+    
+    for part in path.split('/') {
+        match part {
+            "" | "." => {} // Skip empty and current directory
+            ".." => {
+                parts.pop(); // Go up one directory
+            }
+            _ => parts.push(part),
+        }
+    }
+    
+    parts.join("/")
+}
 /// Resource that holds the Lua context
 #[derive(Resource, Clone)]
 pub struct LuaScriptContext {
@@ -205,22 +222,42 @@ impl LuaScriptContext {
         // Synchronous require() function
         let lua_for_require = lua_clone.clone();
         let require = lua_clone.create_function(move |lua_ctx, (path, options): (String, Option<LuaTable>)| {
-            let should_reload = options
-                .as_ref()
-                .and_then(|t| t.get("reload").ok())
-                .unwrap_or(true); // Default true for sync require
+            // Get reload option - must check for Nil explicitly because Lua nil converts to false
+            let should_reload = if let Some(ref opts) = options {
+                match opts.get::<LuaValue>("reload") {
+                    Ok(LuaValue::Boolean(b)) => b,
+                    Ok(LuaValue::Nil) => true, // Key doesn't exist, use default
+                    _ => true, // Any error or other type, use default
+                }
+            } else {
+                true // No options table, use default
+            };
 
-            // Resolve path relative to current script if possible
+            // Resolve path: try relative to current script first, then use as canonical
+            // Paths are relative to assets/ (e.g., "scripts/example.lua" or "../modules/mod.lua")
+            // IMPORTANT: Always use the resolved path for downloads, even if file doesn't exist locally
             let resolved_path = if let Ok(current_script) = lua_ctx.globals().get::<String>("__SCRIPT_NAME__") {
                 let current_path = std::path::Path::new(&current_script);
                 if let Some(parent) = current_path.parent() {
+                    // Try relative to current script's directory
                     let relative = parent.join(&path);
-                    // Check if this file exists relative to assets/scripts/
-                    let full_check_path = std::path::Path::new("assets/scripts").join(&relative);
+                    // Normalize the path (resolve .. and .)
+                    let normalized = normalize_path(&relative.to_string_lossy());
+                    
+                    // Check if relative path exists locally
+                    let full_check_path = std::path::Path::new("assets").join(&normalized);
                     if full_check_path.exists() {
-                        relative.to_string_lossy().to_string().replace("\\", "/")
+                        normalized
                     } else {
-                        path.clone()
+                        // Check if input path (canonical) exists
+                        let canonical_check = std::path::Path::new("assets").join(&path);
+                        if canonical_check.exists() {
+                            path.clone()
+                        } else {
+                            // Neither exists - prefer relative path for network download
+                            // This way require("foo.lua") from scripts/examples/ will download scripts/examples/foo.lua
+                            normalized
+                        }
                     }
                 } else {
                     path.clone()
@@ -234,6 +271,7 @@ impl LuaScriptContext {
 
             // Check if module is already cached
             if let Some(cached_key) = cache_for_require.get_module(&resolved_path) {
+                debug!("📦 [REQUIRE] '{}': returning cached module (Rust cache hit)", resolved_path);
                 // Update dependency tracking even if cached
                 if let Ok(current_script) = lua_ctx.globals().get::<String>("__SCRIPT_NAME__") {
                     let current_script = current_script.replace("\\", "/");
@@ -244,41 +282,118 @@ impl LuaScriptContext {
                 return Ok(cached_value);
             }
             
-            // Load module source
-            let (source, _full_path) = crate::script_cache::load_module_source(&resolved_path)
-                .map_err(|e| LuaError::RuntimeError(e))?;
+            // Check network option early - we may need to check server even if file exists
+            let network_enabled = options
+                .as_ref()
+                .and_then(|t| t.get::<bool>("network").ok())
+                .unwrap_or(false);
             
-            // Execute module
-            let module_name = format!("@{}", resolved_path);
-            let result = crate::script_cache::execute_module(&lua_for_require, &source, &module_name)?;
+            debug!("📋 [REQUIRE] '{}': network_enabled={}, should_reload={}", resolved_path, network_enabled, should_reload);
             
-            // Cache the result
-            let registry_key = lua_for_require.create_registry_value(result.clone())?;
-            cache_for_require.cache_module(resolved_path.clone(), Arc::new(registry_key));
+            // Load module source - first try local filesystem
+            let load_result = crate::script_cache::load_module_source(&resolved_path);
             
-            // Track dependency (if we're currently executing a script)
+            let (source, _full_path) = match load_result {
+                Ok(result) => {
+                    // File exists locally
+                    debug!("📋 [REQUIRE] '{}': file exists locally", resolved_path);
+                    
+                    // If network=true AND reload=true, queue a background server check for updates
+                    // Note: We use local file immediately (no blocking) because nested requires
+                    // can't yield (C-call boundary). Server check happens in background.
+                    // If update is found, hot reload will apply it later.
+                    if network_enabled && should_reload {
+                        let has_loader: bool = lua_ctx.globals()
+                            .get::<LuaValue>("__NETWORK_DOWNLOAD_ENABLED__")
+                            .map(|v| v != LuaNil)
+                            .unwrap_or(false);
+                        
+                        debug!("📋 [REQUIRE] '{}': has_loader={}", resolved_path, has_loader);
+                        
+                        if has_loader {
+                            debug!("📥 [REQUIRE] Queuing background server check for: {}", resolved_path);
+                            
+                            // Queue download request - server will compare hashes
+                            // This is a non-blocking check - we use local file immediately
+                            // and any update will be applied via hot reload
+                            cache_for_require.register_pending_download_coroutine(
+                                resolved_path.clone(),
+                                std::sync::Arc::new(lua_ctx.create_registry_value(LuaNil)?),
+                                0,
+                                false, // is_binary=false for scripts
+                                lua_ctx.globals().get::<String>("__SCRIPT_NAME__").ok(), // context for server
+                            );
+                            
+                            // Don't yield - use local file immediately
+                            // Background check will trigger hot reload if update is found
+                        } else {
+                            debug!("📋 [REQUIRE] '{}': skipping network check - no loader", resolved_path);
+                        }
+                    } else {
+                        debug!("📋 [REQUIRE] '{}': skipping network check - network_enabled={} should_reload={}", 
+                               resolved_path, network_enabled, should_reload);
+                    }
+                    
+                    // Use local file
+                    result
+                },
+                Err(e) => {
+                    // Local file not found - check if network download is enabled
+                    if network_enabled {
+                        // Check if we have a network asset loader available (via global)
+                        let has_loader: bool = lua_ctx.globals()
+                            .get::<LuaValue>("__NETWORK_DOWNLOAD_ENABLED__")
+                            .map(|v| v != LuaNil)
+                            .unwrap_or(false);
+                        
+                        if has_loader {
+                            // Queue the download path for the script cache to track
+                            // We can't yield from a Rust function due to C-call boundary,
+                            // so we return a special pending table that the Lua wrapper
+                            // (registered in execute_script_wrapper) will detect and yield
+                            debug!("📥 [REQUIRE] File not found locally, requesting download: {}", resolved_path);
+                            
+                            // Store the download path for execute_script_tracked to detect
+                            cache_for_require.register_pending_download_coroutine(
+                                resolved_path.clone(),
+                                std::sync::Arc::new(lua_ctx.create_registry_value(LuaNil)?), // Placeholder - will be replaced
+                                0, // Placeholder instance ID - will be set by execute_script_tracked
+                                false, // is_binary=false for scripts
+                                lua_ctx.globals().get::<String>("__SCRIPT_NAME__").ok(), // context for server
+                            );
+                            
+                            // Return a special pending table that the Lua wrapper will detect
+                            let pending_table = lua_ctx.create_table()?;
+                            pending_table.set("__PENDING_DOWNLOAD__", true)?;
+                            pending_table.set("path", resolved_path.clone())?;
+                            return Ok(LuaValue::Table(pending_table));
+                        } else {
+                            // No network loader, just return the original error
+                            return Err(LuaError::RuntimeError(e));
+                        }
+                    } else {
+                        // Network not enabled, return original error
+                        return Err(LuaError::RuntimeError(e));
+                    }
+                }
+            };
+            
+            // Instead of executing the module here (inside Rust), return the source
+            // to the Lua wrapper which will execute it in Lua-land (where yields work)
+            
+            // Track dependency for hot reload: current script depends on resolved_path
             if let Ok(current_script) = lua_ctx.globals().get::<String>("__SCRIPT_NAME__") {
                 let current_script = current_script.replace("\\", "/");
                 cache_for_require.add_dependency(resolved_path.clone(), current_script, should_reload);
             }
             
-            // Track parent-child relationship for entity cleanup
-            // For synchronous require, we track the parent relationship but don't create
-            // a separate instance ID unless the module spawns entities (which is rare for sync require)
-            let parent_instance_id: u64 = lua_ctx.globals().get("__INSTANCE_ID__").unwrap_or(0);
-            if parent_instance_id != 0 {
-                // Check if this module already has an instance for this parent
-                if let Some(module_instance_id) = cache_for_require.get_module_instance(&resolved_path, parent_instance_id) {
-                    // Module has instance, ensure parent relationship is set
-                    if module_instance_id != parent_instance_id {
-                        cache_for_require.set_module_parent(module_instance_id, parent_instance_id);
-                    }
-                }
-                // Note: We don't create instance IDs here because sync modules typically don't spawn entities
-                // If they do spawn entities via nested require_async, those will create their own instances
-            }
+            let source_table = lua_ctx.create_table()?;
+            source_table.set("__SOURCE__", true)?;
+            source_table.set("source", source)?;
+            source_table.set("path", resolved_path.clone())?;
+            source_table.set("should_reload", should_reload)?;
             
-            Ok(result)
+            Ok(LuaValue::Table(source_table))
         })?;
         
         // Asynchronous require_async() function
@@ -286,22 +401,40 @@ impl LuaScriptContext {
         let cache_for_async = script_cache.clone();
         let script_instance_for_async = script_instance.clone();
         let require_async = lua_clone.create_function(move |lua_ctx, (path, callback, options): (String, LuaFunction, Option<LuaTable>)| {
-            let should_reload = options
-                .as_ref()
-                .and_then(|t| t.get("reload").ok())
-                .unwrap_or(false); // Default false for async require
+            // Get reload option - must check for Nil explicitly because Lua nil converts to false
+            let should_reload = if let Some(ref opts) = options {
+                match opts.get::<LuaValue>("reload") {
+                    Ok(LuaValue::Boolean(b)) => b,
+                    Ok(LuaValue::Nil) => false, // Key doesn't exist, use default (false for async)
+                    _ => false, // Any error or other type, use default
+                }
+            } else {
+                false // No options table, use default
+            };
 
-            // Resolve path relative to current script if possible
+            // Resolve path: try relative to current script first, then use as canonical
+            // Paths are relative to assets/ (e.g., "scripts/example.lua" or "../modules/mod.lua")
             let resolved_path = if let Ok(current_script) = lua_ctx.globals().get::<String>("__SCRIPT_NAME__") {
                 let current_path = std::path::Path::new(&current_script);
                 if let Some(parent) = current_path.parent() {
+                    // Try relative to current script's directory
                     let relative = parent.join(&path);
-                    // Check if this file exists relative to assets/scripts/
-                    let full_check_path = std::path::Path::new("assets/scripts").join(&relative);
+                    // Normalize the path (resolve .. and .)
+                    let normalized = normalize_path(&relative.to_string_lossy());
+                    
+                    // Check if relative path exists locally
+                    let full_check_path = std::path::Path::new("assets").join(&normalized);
                     if full_check_path.exists() {
-                        relative.to_string_lossy().to_string().replace("\\", "/")
+                        normalized
                     } else {
-                        path.clone()
+                        // Check if input path (canonical) exists
+                        let canonical_check = std::path::Path::new("assets").join(&path);
+                        if canonical_check.exists() {
+                            path.clone()
+                        } else {
+                            // Neither exists - prefer relative path for network download
+                            normalized
+                        }
                     }
                 } else {
                     path.clone()
@@ -341,10 +474,84 @@ impl LuaScriptContext {
                 cache_for_async.register_hot_reload_callback(resolved_path.clone(), Arc::new(callback_key), current_parent_id);
             }
 
+            // Check for network option - must check for Nil explicitly
+            let network_enabled = if let Some(ref opts) = options {
+                match opts.get::<LuaValue>("network") {
+                    Ok(LuaValue::Boolean(b)) => b,
+                    Ok(LuaValue::Nil) => false, // Key doesn't exist, use default
+                    _ => false, // Any error or other type, use default
+                }
+            } else {
+                false
+            };
+
             // Always execute module to run side effects, even if cached
             // This ensures top-level require_async calls in modules always execute
-            let (source, _full_path) = crate::script_cache::load_module_source(&resolved_path)
-                .map_err(|e| LuaError::RuntimeError(e))?;
+            let load_result = crate::script_cache::load_module_source(&resolved_path);
+            
+            let (source, _full_path) = match load_result {
+                Ok(result) => {
+                    // File exists locally
+                    // If network=true AND reload=true, queue a background server check for updates
+                    // This is the same behavior as sync require()
+                    if network_enabled && should_reload {
+                        let has_loader: bool = lua_ctx.globals()
+                            .get::<LuaValue>("__NETWORK_DOWNLOAD_ENABLED__")
+                            .map(|v| v != LuaNil)
+                            .unwrap_or(false);
+                        
+                        if has_loader {
+                            debug!("📥 [REQUIRE_ASYNC] Queuing background server check for: {}", resolved_path);
+                            
+                            // Queue download request - server will compare hashes
+                            // This is a non-blocking check - we use local file immediately
+                            // and any update will be applied via hot reload callback
+                            cache_for_async.register_pending_download_coroutine(
+                                resolved_path.clone(),
+                                std::sync::Arc::new(lua_ctx.create_registry_value(LuaNil)?),
+                                module_instance_id,
+                                false, // is_binary=false for scripts
+                                lua_ctx.globals().get::<String>("__SCRIPT_NAME__").ok(), // context for server
+                            );
+                        }
+                    }
+                    
+                    result
+                },
+                Err(e) => {
+                    // File not found - check if network download is enabled
+                    if network_enabled {
+                        // Check if we have a network asset loader available (via global)
+                        let has_loader: bool = lua_ctx.globals()
+                            .get::<LuaValue>("__NETWORK_DOWNLOAD_ENABLED__")
+                            .map(|v| v != LuaNil)
+                            .unwrap_or(false);
+                        
+                        if has_loader {
+                            debug!("📥 [REQUIRE_ASYNC] File not found locally, queuing download: {}", resolved_path);
+                            
+                            // Store the callback to be invoked when download completes
+                            // We use the hot_reload_callback mechanism which will re-execute the module
+                            // and invoke all registered callbacks
+                            let callback_key = lua_for_async.create_registry_value(callback.clone())?;
+                            cache_for_async.register_hot_reload_callback(resolved_path.clone(), Arc::new(callback_key), current_parent_id);
+                            
+                            // Queue the download
+                            cache_for_async.register_pending_download_coroutine(
+                                resolved_path.clone(),
+                                std::sync::Arc::new(lua_ctx.create_registry_value(LuaNil)?),
+                                module_instance_id,
+                                false, // is_binary=false for scripts
+                                lua_ctx.globals().get::<String>("__SCRIPT_NAME__").ok(), // context for server
+                            );
+                            
+                            // Return without error - download is queued, callback will fire later
+                            return Ok(());
+                        }
+                    }
+                    return Err(LuaError::RuntimeError(e));
+                }
+            };
             
             // Save current __INSTANCE_ID__ to restore later
             let previous_instance_id: Option<u64> = lua_ctx.globals().get("__INSTANCE_ID__").ok();
@@ -437,6 +644,9 @@ impl LuaScriptContext {
     /// Execute a script with automatic script ownership tracking
     /// Entities spawned during execution will be tagged with a unique instance ID
     /// Returns the instance ID for this execution
+    /// 
+    /// Scripts are run inside a Lua coroutine so they can yield when waiting
+    /// for network downloads (via require with {network=true}).
     pub fn execute_script_tracked(&self, script_content: &str, script_name: &str, script_instance: &crate::script_entities::ScriptInstance) -> Result<u64, LuaError> {
         let instance_id = script_instance.start(script_name.to_string());
         
@@ -444,7 +654,176 @@ impl LuaScriptContext {
         self.lua.globals().set("__INSTANCE_ID__", instance_id)?;
         self.lua.globals().set("__SCRIPT_NAME__", script_name)?;
         
-        self.lua.load(script_content).set_name(script_name).exec()?;
+        // Register a wrapped require that checks for __PENDING_DOWNLOAD__ and yields
+        // This wrapper is called by scripts, it calls the real _require_internal, checks result
+        self.lua.load(r#"
+            -- Store originals in special globals the FIRST time only
+            -- This prevents re-capturing the wrapper on hot reload
+            if not __RUST_REQUIRE__ then
+                __RUST_REQUIRE__ = require
+                __RUST_REQUIRE_ASYNC__ = require_async
+                __RUST_LOAD_ASSET__ = load_asset
+            end
+            local _orig_require = __RUST_REQUIRE__
+            local _orig_require_async = __RUST_REQUIRE_ASYNC__
+            local _orig_load_asset = __RUST_LOAD_ASSET__
+            
+            -- Fresh module cache for this execution (NOT persisted across reloads)
+            local _module_cache = {}
+            
+            -- Override require function to handle pending downloads AND source execution
+            require = function(path, opts)
+                -- print("[LUA REQUIRE] Called for: " .. tostring(path))
+                
+                -- Check module cache first
+                local cache_key = path
+                if _module_cache[cache_key] ~= nil then
+                    -- print("[LUA REQUIRE] Returning from Lua cache: " .. tostring(path))
+                    return _module_cache[cache_key]
+                end
+                
+                -- print("[LUA REQUIRE] No Lua cache, calling Rust require...")
+                local result = _orig_require(path, opts)
+                -- print("[LUA REQUIRE] Rust returned type: " .. type(result))
+                
+                -- Check if the result is a pending download marker
+                if type(result) == "table" and result.__PENDING_DOWNLOAD__ then
+                    -- print("[LUA REQUIRE] Got __PENDING_DOWNLOAD__, yielding for: " .. tostring(result.path))
+                    -- Yield the coroutine with the path - Bevy will resume after download
+                    local download_path = result.path
+                    coroutine.yield(download_path)
+                    
+                    -- When resumed, try require again (file should now be available)
+                    result = _orig_require(path, opts)
+                    
+                    -- If still pending, something is wrong
+                    if type(result) == "table" and result.__PENDING_DOWNLOAD__ then
+                        error("Download failed or file still not available: " .. tostring(download_path))
+                    end
+                end
+                
+                -- Check if the result is source code to execute
+                if type(result) == "table" and result.__SOURCE__ then
+                    -- print("[LUA REQUIRE] Got __SOURCE__ for: " .. tostring(result.path) .. ", executing...")
+                    local source_code = result.source
+                    local module_path = result.path
+                    
+                    -- Execute the source code in Lua-land (where yields work!)
+                    local chunk, err = load(source_code, "@" .. module_path)
+                    if not chunk then
+                        error("Failed to load module '" .. module_path .. "': " .. tostring(err))
+                    end
+                    
+                    -- Execute the chunk and get the result
+                    local ok, module_result = pcall(chunk)
+                    if not ok then
+                        error("Failed to execute module '" .. module_path .. "': " .. tostring(module_result))
+                    end
+                    
+                    -- print("[LUA REQUIRE] Successfully executed: " .. tostring(module_path))
+                    -- Cache the result
+                    _module_cache[cache_key] = module_result
+                    return module_result
+                end
+                
+                -- print("[LUA REQUIRE] Got cached value from Rust for: " .. tostring(path))
+                -- Already a cached value or other result
+                _module_cache[cache_key] = result
+                return result
+            end
+            
+            -- Override require_async function to handle pending downloads
+            -- NOTE: require_async uses callbacks, so we don't yield - we just let
+            -- the callback execute after the download completes. The coroutine
+            -- mechanism is only for synchronous require().
+            require_async = function(path, callback, opts)
+                -- Just call the original - it handles downloads internally via callback
+                return _orig_require_async(path, callback, opts)
+            end
+            
+            -- Override load_asset function to handle pending downloads
+            -- Works exactly like require() - yields if download needed
+            load_asset = function(path, opts)
+                local result = _orig_load_asset(path, opts)
+                
+                -- Check if the result is a pending download marker
+                if type(result) == "table" and result.__PENDING_DOWNLOAD__ then
+                    -- Yield the coroutine with the path - Bevy will resume after download
+                    local download_path = result.path
+                    coroutine.yield(download_path)
+                    
+                    -- When resumed, try load_asset again (file should now be downloaded)
+                    result = _orig_load_asset(path, opts)
+                    
+                    -- If still pending, something is wrong
+                    if type(result) == "table" and result.__PENDING_DOWNLOAD__ then
+                        error("Asset download failed or file still not available: " .. tostring(download_path))
+                    end
+                end
+                
+                -- Extract asset_id from result table if present
+                if type(result) == "table" and result.asset_id then
+                    return result.asset_id
+                end
+                
+                return result
+            end
+        "#).exec()?;
+        
+        // Load script as a function
+        let script_fn = self.lua.load(script_content).set_name(script_name).into_function()?;
+        
+        // Create a coroutine to run the script
+        let coroutine = self.lua.create_thread(script_fn)?;
+        
+        // Resume the coroutine (execute until completion or yield)
+        match coroutine.resume::<mlua::Value>(()) {
+            Ok(yield_value) => {
+                // Check if coroutine completed or yielded
+                match coroutine.status() {
+                    mlua::ThreadStatus::Finished => {
+                        // Script completed normally
+                        debug!("Script '{}' completed with instance ID: {}", script_name, instance_id);
+                    }
+                    mlua::ThreadStatus::Resumable => {
+                        // Script yielded - it needs a download
+                        // The yield value should be the download path
+                        if let mlua::Value::String(path_str) = yield_value {
+                            let path = path_str.to_str()?.to_string();
+                            
+                            debug!("📥 Script '{}' needs download: {}", script_name, path);
+                            
+                            // Store the coroutine for later resumption when download completes
+                            let coroutine_key = std::sync::Arc::new(self.lua.create_registry_value(coroutine)?);
+                            
+                            // Register for resumption after this path is downloaded
+                            self.script_cache.register_pending_download_coroutine(
+                                path.clone(),
+                                coroutine_key,
+                                instance_id,
+                                false, // is_binary=false for scripts
+                                self.lua.globals().get::<String>("__SCRIPT_NAME__").ok(), // context for server
+                            );
+                            
+                            debug!("📋 Registered script '{}' for resumption after download of '{}'", script_name, path);
+                        } else {
+                            warn!("⚠️ Script '{}' yielded with unexpected value: {:?}", script_name, yield_value);
+                        }
+                    }
+                    mlua::ThreadStatus::Error => {
+                        warn!("⚠️ Script '{}' coroutine is in error state", script_name);
+                    }
+                    mlua::ThreadStatus::Running => {
+                        warn!("⚠️ Script '{}' coroutine unexpectedly still running", script_name);
+                    }
+                }
+            }
+            Err(e) => {
+                // Script execution failed - propagate error
+                return Err(e);
+            }
+        }
+        
         // Note: We DON'T clear script_instance here so entities spawned via queues get tagged
         
         Ok(instance_id)
@@ -460,7 +839,14 @@ impl LuaScriptContext {
         script_instance: &crate::script_entities::ScriptInstance,
         script_registry: &crate::script_registry::ScriptRegistry,
     ) -> Result<u64, LuaError> {
-        let instance_id = self.execute_script_tracked(script_content, script_name, script_instance)?;
+        // Derive the proper module path from script_path by stripping "assets/" prefix
+        // This ensures __SCRIPT_NAME__ has the correct path for relative require() resolution
+        // e.g., "assets/scripts/examples/foo.lua" -> "scripts/examples/foo.lua"
+        let module_path = script_path.to_string_lossy().replace("\\", "/");
+        let module_name = module_path.strip_prefix("assets/")
+            .unwrap_or(&module_path);
+        
+        let instance_id = self.execute_script_tracked(script_content, module_name, script_instance)?;
         
         // Register in script registry for auto-reload
         script_registry.register_script(script_path, instance_id, script_content.to_string());
@@ -660,19 +1046,27 @@ fn auto_reload_changed_scripts(
     world: &World,
 ) {
     for event in events.read() {
-        debug!("File change detected: {:?}", event.path);
+        // Normalize path to forward slashes for consistent comparison
+        let event_path_str = event.path.to_string_lossy().replace("\\", "/");
+        debug!("🔄 [HOT_RELOAD] File change event received: {} (normalized: {})", event.path.display(), event_path_str);
         
         let mut reloaded_paths = std::collections::HashSet::new();
         
-        // Check if this is a module file (in assets/scripts/ but not a main script)
+        // Check if this is a module file (.lua file in assets/)
         // Invalidate module cache if it's a module
-        if event.path.starts_with("assets/scripts/") {
-            // Get relative path from assets/scripts/
-            if let Ok(relative_path) = event.path.strip_prefix("assets/scripts/") {
-                let module_path = relative_path.to_string_lossy().to_string().replace("\\", "/");
+        // Support scripts in any location under assets/, not just assets/scripts/
+        debug!("🔍 [HOT_RELOAD] Checking path: starts_with('assets/')={}, ends_with('.lua')={}", 
+            event_path_str.starts_with("assets/"), event_path_str.ends_with(".lua"));
+        if event_path_str.starts_with("assets/") && event_path_str.ends_with(".lua") {
+            // Get relative path from assets/ (keeps full subpath like "scripts/examples/foo.lua")
+            if let Some(module_path_str) = event_path_str.strip_prefix("assets/") {
+                // Convert to owned String for use in cache operations
+                let module_path = module_path_str.to_string();
                 
                 // Invalidate the module cache and get all dependent scripts
+                debug!("🔄 [HOT_RELOAD] Module path: '{}', invalidating cache...", module_path);
                 let invalidated = lua_ctx.script_cache.invalidate_module(&module_path);
+                debug!("🔄 [HOT_RELOAD] Invalidated modules: {:?}", invalidated);
                 
                 if !invalidated.is_empty() {
                     debug!("Invalidated module cache for: {:?}", invalidated);
@@ -688,7 +1082,8 @@ fn auto_reload_changed_scripts(
                     for invalidated_path in &invalidated {
                         // Find and reload any main scripts that imported this module
                         // We need to construct the full path for the script registry lookup
-                        let full_path = std::path::Path::new("assets/scripts").join(invalidated_path);
+                        // invalidated_path includes the scripts/ prefix (e.g., "scripts/examples/foo.lua")
+                        let full_path = std::path::Path::new("assets").join(invalidated_path);
                         
                         // Get active instances for this dependent script
                         let instances = script_registry.get_active_instances(&full_path);
@@ -856,10 +1251,9 @@ fn auto_reload_changed_scripts(
             cleanup_script_instance(instance_id, world, true); // Recursive: main script reload
             
             // Clear the module cache for all dependencies of this script
-            // This ensures nested require() calls see fresh versions
-            if let Ok(relative_path) = event.path.strip_prefix("assets/scripts/") {
-                let module_path = relative_path.to_string_lossy().to_string().replace("\\", "/");
-                lua_ctx.script_cache.clear_dependency_caches(&module_path);
+            // Use normalized path for module cache operations
+            if let Some(module_path) = event_path_str.strip_prefix("assets/") {
+                lua_ctx.script_cache.clear_dependency_caches(module_path);
             }
             
             // Re-execute the script with the same instance tracking

@@ -1915,13 +1915,213 @@ pub fn add_asset_loading_to_lua(
     asset_registry: AssetRegistry,
 ) -> Result<(), LuaError> {
     let lua = &lua_ctx.lua;
+    let script_cache = lua_ctx.script_cache.clone();
     
-    // load_asset - for loading image files
+    // load_asset(path, options) - sync loading with blocking network download
+    // Works exactly like require() - yields coroutine if file needs to be downloaded
+    // Options: { network = true/false (default TRUE), reload = true/false (default true) }
+    let asset_server_clone = asset_server.clone();
     let asset_registry_clone = asset_registry.clone();
-    let load_asset = lua.create_function(move |_lua_ctx, path: String| {
-        let handle: Handle<Image> = asset_server.load(&path);
-        let id = asset_registry_clone.register_image(handle);
-        Ok(id)
+    let script_cache_clone = script_cache.clone();
+    let load_asset = lua.create_function(move |lua_ctx, (path, options): (String, Option<LuaTable>)| {
+        use mlua::Value as LuaValue;
+        
+        // Get reload option (default true for sync)
+        let should_reload = if let Some(ref opts) = options {
+            match opts.get::<LuaValue>("reload") {
+                Ok(LuaValue::Boolean(b)) => b,
+                Ok(LuaValue::Nil) => true, // Key doesn't exist, use default
+                _ => true,
+            }
+        } else {
+            true
+        };
+        
+        // Get network option (default TRUE for load_asset, like require)
+        let network_enabled = if let Some(ref opts) = options {
+            match opts.get::<LuaValue>("network") {
+                Ok(LuaValue::Boolean(b)) => b,
+                Ok(LuaValue::Nil) => true, // Key doesn't exist, use default TRUE
+                _ => true,
+            }
+        } else {
+            true // Default TRUE - network enabled by default
+        };
+        
+        // Check if file exists locally
+        let local_path = std::path::Path::new("assets").join(&path);
+        let file_exists = local_path.exists();
+        
+        if file_exists {
+            // File exists locally - load it
+            let handle: Handle<Image> = asset_server_clone.load(&path);
+            let id = asset_registry_clone.register_image(handle);
+            
+            // If network=true AND reload=true, queue background server check
+            if network_enabled && should_reload {
+                let has_loader: bool = lua_ctx.globals()
+                    .get::<LuaValue>("__NETWORK_DOWNLOAD_ENABLED__")
+                    .map(|v| v != LuaValue::Nil)
+                    .unwrap_or(false);
+                
+                if has_loader {
+                    debug!("📥 [LOAD_ASSET] Queuing background server check for: {}", path);
+                    script_cache_clone.register_pending_download_coroutine(
+                        path.clone(),
+                        std::sync::Arc::new(lua_ctx.create_registry_value(LuaValue::Nil)?),
+                        0,
+                        true, // is_binary=true for assets
+                        lua_ctx.globals().get::<String>("__SCRIPT_NAME__").ok(), // context for server
+                    );
+                }
+            }
+            
+            // Return the asset ID wrapped in a table (for consistency with pending case)
+            let result_table = lua_ctx.create_table()?;
+            result_table.set("asset_id", id)?;
+            Ok(LuaValue::Table(result_table))
+        } else if network_enabled {
+            // File not found locally, need to download
+            let has_loader: bool = lua_ctx.globals()
+                .get::<LuaValue>("__NETWORK_DOWNLOAD_ENABLED__")
+                .map(|v| v != LuaValue::Nil)
+                .unwrap_or(false);
+            
+            if has_loader {
+                debug!("📥 [LOAD_ASSET] File not found locally, requesting download: {}", path);
+                script_cache_clone.register_pending_download_coroutine(
+                    path.clone(),
+                    std::sync::Arc::new(lua_ctx.create_registry_value(LuaValue::Nil)?),
+                    0,
+                    true, // is_binary=true for assets
+                    lua_ctx.globals().get::<String>("__SCRIPT_NAME__").ok(), // context for server
+                );
+                
+                // Return a special pending table that the Lua wrapper will detect and yield
+                // Same pattern as require()
+                let pending_table = lua_ctx.create_table()?;
+                pending_table.set("__PENDING_DOWNLOAD__", true)?;
+                pending_table.set("path", path.clone())?;
+                pending_table.set("is_asset", true)?; // Flag to indicate this is an asset, not a script
+                Ok(LuaValue::Table(pending_table))
+            } else {
+                Err(LuaError::RuntimeError(format!("Asset not found: {} (network downloads not enabled)", path)))
+            }
+        } else {
+            Err(LuaError::RuntimeError(format!("Asset not found: {}", path)))
+        }
+    })?;
+    
+    // load_asset_async(path, callback, options) - async loading with callback
+    // Options: { network = true/false, reload = true/false (default false) }
+    let asset_server_clone2 = asset_server.clone();
+    let asset_registry_clone2 = asset_registry.clone();
+    let script_cache_clone2 = script_cache.clone();
+    let load_asset_async = lua.create_function(move |lua_ctx, (path, callback, options): (String, LuaFunction, Option<LuaTable>)| {
+        use mlua::Value as LuaValue;
+        
+        // Get reload option (default false for async)
+        let should_reload = if let Some(ref opts) = options {
+            match opts.get::<LuaValue>("reload") {
+                Ok(LuaValue::Boolean(b)) => b,
+                Ok(LuaValue::Nil) => false, // Key doesn't exist, use default
+                _ => false,
+            }
+        } else {
+            false
+        };
+        
+        // Get network option
+        let network_enabled = if let Some(ref opts) = options {
+            match opts.get::<LuaValue>("network") {
+                Ok(LuaValue::Boolean(b)) => b,
+                Ok(LuaValue::Nil) => false, // Key doesn't exist, use default
+                _ => false,
+            }
+        } else {
+            false
+        };
+        
+        // Get current parent instance for entity cleanup on hot reload
+        let current_parent_id: u64 = lua_ctx.globals()
+            .get::<u64>("__INSTANCE_ID__")
+            .unwrap_or(0);
+        
+        // Check if file exists locally  
+        let local_path = std::path::Path::new("assets").join(&path);
+        let file_exists = local_path.exists();
+        
+        if file_exists {
+            // File exists locally - load and call callback immediately
+            let handle: Handle<Image> = asset_server_clone2.load(&path);
+            let id = asset_registry_clone2.register_image(handle);
+            
+            // Register callback for hot reload if reload=true
+            if should_reload {
+                let callback_key = lua_ctx.create_registry_value(callback.clone())?;
+                script_cache_clone2.register_hot_reload_callback(
+                    path.clone(), 
+                    std::sync::Arc::new(callback_key), 
+                    current_parent_id
+                );
+            }
+            
+            // If network=true AND reload=true, queue background server check
+            if network_enabled && should_reload {
+                let has_loader: bool = lua_ctx.globals()
+                    .get::<LuaValue>("__NETWORK_DOWNLOAD_ENABLED__")
+                    .map(|v| v != LuaValue::Nil)
+                    .unwrap_or(false);
+                
+                if has_loader {
+                    debug!("📥 [load_asset_async] Queuing background server check for: {}", path);
+                    script_cache_clone2.register_pending_download_coroutine(
+                        path.clone(),
+                        std::sync::Arc::new(lua_ctx.create_registry_value(LuaValue::Nil)?),
+                        0,
+                        true, // is_binary=true for assets
+                        lua_ctx.globals().get::<String>("__SCRIPT_NAME__").ok(), // context for server
+                    );
+                }
+            }
+            
+            // Call callback with asset ID
+            callback.call::<()>(id)?;
+            Ok(())
+        } else if network_enabled {
+            // File not found locally, queue download
+            let has_loader: bool = lua_ctx.globals()
+                .get::<LuaValue>("__NETWORK_DOWNLOAD_ENABLED__")
+                .map(|v| v != LuaValue::Nil)
+                .unwrap_or(false);
+            
+            if has_loader {
+                debug!("📥 [load_asset_async] File not found locally, queuing download: {}", path);
+                
+                // Store callback for when download completes
+                let callback_key = lua_ctx.create_registry_value(callback.clone())?;
+                script_cache_clone2.register_hot_reload_callback(
+                    path.clone(), 
+                    std::sync::Arc::new(callback_key), 
+                    current_parent_id
+                );
+                
+                // Queue the download
+                script_cache_clone2.register_pending_download_coroutine(
+                    path.clone(),
+                    std::sync::Arc::new(lua_ctx.create_registry_value(LuaValue::Nil)?),
+                    0,
+                    true, // is_binary=true for assets
+                    lua_ctx.globals().get::<String>("__SCRIPT_NAME__").ok(), // context for server
+                );
+                
+                Ok(())
+            } else {
+                Err(LuaError::RuntimeError(format!("Asset not found: {}", path)))
+            }
+        } else {
+            Err(LuaError::RuntimeError(format!("Asset not found: {}", path)))
+        }
     })?;
     
     // create_asset - generic asset creation via reflection
@@ -1941,6 +2141,7 @@ pub fn add_asset_loading_to_lua(
     
     // Inject into globals
     lua.globals().set("load_asset", load_asset)?;
+    lua.globals().set("load_asset_async", load_asset_async)?;
     lua.globals().set("create_asset", create_asset)?;
     
     Ok(())

@@ -1,279 +1,143 @@
----
-trigger: always_on
----
+# Bevy-Lua-ECS Quick Reference
 
-# Bevy-Lua-ECS Implementation Guide
+**Core Philosophy: "Zero Rust"** - All game logic in Lua. Rust provides generic ECS infrastructure.
 
-**Core Philosophy: "Zero Rust"** - All game logic in Lua. Rust provides only generic ECS infrastructure.
+## API Reference
 
-## Lua API Reference
-
-### 1. Spawning Entities
-
+### Spawning Entities
 ```lua
--- Basic entity with Bevy components
 spawn({
     Sprite = { color = {r = 1.0, g = 0.0, b = 0.0, a = 1.0} },
-    Transform = { 
-        translation = {x = 0, y = 0, z = 0},
-        rotation = {x = 0.0, y = 0.0, z = 0.0, w = 1.0},
-        scale = {x = 1.0, y = 1.0, z = 1.0}
-    }
-})
-
--- Custom Lua components (any Lua value)
-spawn({
-    Transform = { translation = {x = 100, y = 50, z = 0} },
-    Timer = { duration = 3.0, elapsed = 0.0 },
-    OnClick = function() print("Clicked!") end
-})
-
--- UI text
-spawn({
-    Text = { text = "Hello!" },
-    TextFont = { font_size = 64 },
-    TextColor = { color = {r = 1.0, g = 1.0, b = 1.0, a = 1.0} },
-    Transform = { translation = {x = 0, y = 100, z = 0} }
+    Transform = { translation = {x = 0, y = 0, z = 0} },
+    CustomData = { value = 42 },  -- Custom Lua components
+    OnClick = function() end      -- Functions as components
 })
 ```
 
-### 2. Assets
-
+### Module System
 ```lua
--- Load image
-local texture_id = load_asset("path/to/image.png")
-
--- Create asset via reflection
-local atlas_id = create_asset("bevy_sprite::texture_atlas::TextureAtlasLayout", {
-    tile_size = {x = 16, y = 16},
-    columns = 8,
-    rows = 8
-})
-
--- Sprite with texture slicing (pure Lua)
-spawn({
-    Sprite = {
-        image = texture_id,
-        rect = { min = {x = 0, y = 0}, max = {x = 16, y = 16} }
-    },
-    Transform = { translation = {x = 0, y = 0, z = 0} }
-})
+-- Sync: local module = require("path.lua")
+-- Async: require_async("path.lua", callback)
+-- Async with hot reload: require_async("path.lua", callback, { reload = true })
+-- Paths relative to assets/scripts/
+-- Hot reload: Module changes auto-reload dependents
 ```
 
-### 3. Systems
-
+### Assets
 ```lua
-function my_system(world)
+local texture_id = load_asset("image.png")
+local atlas = create_asset("bevy_sprite::texture_atlas::TextureAtlasLayout", {...})
+-- Auto-discovered constructors (build.rs scans for new_*/from_* methods):
+local rtt = create_asset("bevy_image::image::Image", {width=512, height=512, format="Bgra8UnormSrgb"})
+```
+
+### Systems & Queries
+```lua
+register_system("Update", function(world)
     local dt = world:delta_time()
-    local entities = world:query({"Transform", "Sprite"}, nil)
-    
+    local entities = world:query({"Transform", "Sprite"}, nil)  -- (with, changed)
     for i, entity in ipairs(entities) do
-        -- Process entities
-    end
-end
-
-register_system("Update", my_system)
-```
-
-### 4. Querying
-
-```lua
--- Basic query
-local entities = world:query({"Transform", "Sprite"}, nil)
-
--- With change detection
-local changed = world:query({"Transform"}, {"Transform"})
-
--- Multiple components
-local buttons = world:query({"Button", "Interaction", "OnClick"}, nil)
-```
-
-### 5. Entity Operations
-
-```lua
--- Get component
-local transform = entity:get("Transform")
-local sprite = entity:get("Sprite")
-
--- Check component
-if entity:has("Timer") then
-    local timer = entity:get("Timer")
-end
-
--- Update component (queued)
-entity:set("Sprite", { color = {r = 1.0, g = 0.5, b = 0.0, a = 1.0} })
-entity:set("Transform", { translation = {x = 100, y = 50, z = 0} })
-
--- Get entity ID
-local id = entity:id()
-```
-
-### 6. Resources
-
-```lua
--- Insert resource (must be registered in Rust)
-insert_resource("MyGameConfig", { difficulty = "hard", volume = 0.8 })
-
--- Networking (with networking feature)
-insert_resource("RenetServer", {})
-insert_resource("NetcodeServerTransport", { port = 5000, max_clients = 10 })
-
--- Query resource
-if world:query_resource("RenetServer") then
-    print("Server running!")
-end
-```
-
-## Common Patterns
-
-### Animation
-```lua
-local elapsed = 0
-function animation_system(world)
-    elapsed = elapsed + world:delta_time()
-    local entities = world:query({"Sprite"}, nil)
-    
-    for i, entity in ipairs(entities) do
-        local pulse = (math.sin(elapsed * 2.0) + 1.0) / 2.0
-        entity:set("Sprite", { color = {r = pulse, g = 0.5, b = 1.0, a = 1.0} })
-    end
-end
-register_system("Update", animation_system)
-```
-
-### Button Handling
-```lua
-spawn({
-    Button = {},
-    BackgroundColor = { color = {r = 0.2, g = 0.6, b = 0.8, a = 1.0} },
-    Text = { text = "Click Me!" },
-    OnClick = function() print("Clicked!") end
-})
-
-function button_system(world)
-    local buttons = world:query({"Button", "Interaction", "OnClick"}, {"Interaction"})
-    for i, entity in ipairs(buttons) do
-        if entity:get("Interaction") == "Pressed" then
-            entity:get("OnClick")()
-        end
-    end
-end
-register_system("Update", button_system)
-```
-
-### Tilemap
-```lua
-local tileset = load_asset("tileset.png")
-local tile_w, tile_h, columns = 16, 16, 48
-
-for y = 0, height - 1 do
-    for x = 0, width - 1 do
-        local tile_id = get_tile(x, y)
-        local tile_x = (tile_id % columns) * tile_w
-        local tile_y = math.floor(tile_id / columns) * tile_h
-        
-        spawn({
-            Sprite = {
-                image = tileset,
-                rect = { min = {x = tile_x, y = tile_y}, max = {x = tile_x + tile_w, y = tile_y + tile_h} }
-            },
-            Transform = { translation = {x = x * tile_w, y = y * tile_h, z = 0} }
-        })
-    end
-end
-```
-
-### Physics (Rapier)
-```lua
-function ColliderCuboid(hx, hy)
-    return {
-        raw = { Cuboid = { half_extents = {hx, hy} } },
-        unscaled = { Cuboid = { half_extents = {hx, hy} } },
-        scale = {1.0, 1.0}
-    }
-end
-
-spawn({
-    Sprite = { color = {r = 0.3, g = 0.7, b = 0.3, a = 1.0}, custom_size = {x = 600, y = 20} },
-    Transform = { translation = {x = 0, y = -200, z = 0} },
-    RigidBody = "Fixed",
-    Collider = ColliderCuboid(300.0, 10.0)
-})
-
-spawn({
-    Sprite = { color = {r = 1.0, g = 0.3, b = 0.3, a = 1.0}, custom_size = {x = 40, y = 40} },
-    Transform = { translation = {x = 0, y = 200, z = 0} },
-    RigidBody = "Dynamic",
-    Collider = ColliderCuboid(20.0, 20.0),
-    Restitution = { coefficient = 0.7 },
-    GravityScale = 1.0
-})
-```
-
-### Networking
-```lua
--- Server
-insert_resource("RenetServer", {})
-insert_resource("NetcodeServerTransport", { port = 5000, max_clients = 10 })
-
-register_system("server_init", function(world)
-    if world:query_resource("RenetServer") then
-        spawn({
-            Transform = { translation = {x = 0, y = 0, z = 0} },
-            Sprite = { color = {r = 0.2, g = 0.8, b = 0.3, a = 1.0} },
-            Replicated = {}  -- Marker for replication
-        })
+        entity:set("Transform", {...})  -- Queued update
     end
 end)
-
--- Client
-insert_resource("RenetClient", {})
-insert_resource("NetcodeClientTransport", { server_addr = "127.0.0.1", port = 5000 })
 ```
 
-## Component Structures
-
+### Entity Operations
 ```lua
-Transform = {
-    translation = {x = 0, y = 0, z = 0},
-    rotation = {x = 0, y = 0, z = 0, w = 1},  -- Quaternion
-    scale = {x = 1, y = 1, z = 1}
-}
-
-Sprite = {
-    color = {r = 1.0, g = 1.0, b = 1.0, a = 1.0},
-    custom_size = {x = 50, y = 50},
-    image = asset_id,
-    rect = { min = {x = 0, y = 0}, max = {x = 16, y = 16} },
-    texture_atlas = atlas_id,
-    index = 0
-}
-
-Text = { text = "Hello!" }
-TextFont = { font_size = 32 }
-TextColor = { color = {r = 1.0, g = 1.0, b = 1.0, a = 1.0} }
-
-Button = {}
-BackgroundColor = { color = {r = 0.5, g = 0.5, b = 0.5, a = 1.0} }
-Interaction = "None" | "Hovered" | "Pressed"  -- Read-only
-
-RigidBody = "Fixed" | "Dynamic" | "Kinematic"
-Restitution = { coefficient = 0.7 }
-GravityScale = 1.0
+entity:get("Component")  -- Read
+entity:has("Component")  -- Check
+entity:set("Component", data)  -- Write (queued)
+entity:id()  -- Get ID
 ```
+
+### Resources
+```lua
+insert_resource("TypeName", {...})  -- Must be registered in Rust
+world:query_resource("TypeName")    -- Check existence
+```
+
+## Component Reference
+
+| Component | Structure |
+|-----------|----------|
+| Transform | `{translation={x,y,z}, rotation={x,y,z,w}, scale={x,y,z}}` |
+| Sprite | `{color={r,g,b,a}, custom_size={x,y}, image=id, rect={min,max}, texture_atlas=id, index=n}` |
+| Text | `{text="..."}` + `TextFont={font_size=32}` + `TextColor={color=...}` |
+| Button | `{}` + `BackgroundColor={color=...}` + `Interaction` (readonly: "None"/"Hovered"/"Pressed") |
+| Physics | `RigidBody="Fixed"/"Dynamic"`, `Collider=...`, `Restitution={coefficient=0.7}`, `GravityScale=1.0` |
+| Camera | `{target={Image=asset_id}}` (RenderTarget enum, auto-wraps in ImageRenderTarget newtype) |
+
+## Newtype Wrappers (Complex Enums)
+
+**Problem:** Enum variants like `RenderTarget::Image(ImageRenderTarget)` where `ImageRenderTarget` wraps `Handle<Image>` + other fields.
+
+**Solution:** Automatic reflection-based construction (no manual registration).
+
+**Process:**
+1. Lua passes `{Image = asset_id}` for enum field
+2. System detects variant contains newtype wrapper (not raw Handle<T>)
+3. Converts asset_id → UntypedHandle → Handle<Image>
+4. Uses TypeRegistry to construct newtype:
+   - TupleStruct: `DynamicTupleStruct` with handle at index 0
+   - Struct: `DynamicStruct` inserting handle + defaults for other fields
+5. Uses `from_reflect()` to create concrete enum
+
+**Default strategies for non-handle fields:**
+- ReflectDefault trait
+- ReflectFromReflect with empty DynamicTupleStruct
+- Fallback primitives: 1.0f32, 0.0f32, 1i32, 0i32
+
+**Example:**
+```lua
+local rtt = create_asset("bevy_image::image::Image", {width=512, height=512, format="Bgra8UnormSrgb"})
+spawn({Camera = {target = {Image = rtt}}, Camera2d = {}})  -- Auto-wraps ImageRenderTarget
+```
+
+**Files:** `asset_loading.rs` (try_wrap_in_newtype_with_reflection), `components.rs` (variant detection), `build.rs` (handle creators)
+
+## Auto-Discovered Constructors
+
+**For opaque types** (e.g., Image) that can't use reflection:
+- `build.rs` scans impl blocks for `new_*`, `from_*`, `default` methods
+- Generates bindings extracting Lua params and calling constructor
+- Supported params: u32, i32, f32, f64, bool, String, TextureFormat, TextureDimension
+- Add enum support by updating build.rs match statement
+
+## Hot Reload
+
+- **Main scripts:** Cleanup (despawn entities, remove resources) → re-execute with fresh state
+- **Modules:** Cache invalidation cascades to dependents → auto-reload dependent scripts
 
 ## Best Practices
 
-1. **Custom Lua components for game state**: `Health = { current = 100, max = 100 }`
-2. **Organize systems by responsibility**: Separate movement, animation, collision, UI systems
-3. **Use change detection**: `world:query({"Button"}, {"Interaction"})` for performance
-4. **Helper functions**: Create reusable spawn functions
-5. **Debug with print**: Log entity counts and component values
+- Custom Lua components for game state
+- Use change detection: `world:query({...}, {"ChangedComponent"})`
+- Helper modules for reusable logic
+- Avoid circular module dependencies
 
 ## Troubleshooting
 
-- **Component not found**: Check spelling, ensure `#[reflect(Component)]` in Rust
-- **Asset not loading**: Verify path relative to assets folder
-- **System not running**: Check `register_system()` call and Lua errors
-- **Updates not applying**: Updates are queued, applied next frame
-- **Query returns nothing**: Verify all required components exist on entities
+**Common Issues:**
+- Component not found → Check `#[reflect(Component)]` in Rust
+- Asset not loading → Verify path relative to `assets/`
+- Query returns nothing → Verify components exist
+- Module not found → Path relative to `assets/scripts/`, include extension
+- Enum/newtype not working → Enable debug logging
+
+**Debug Logging:**
+```powershell
+$env:RUST_LOG="bevy_lua_ecs=debug"; cargo run --example name
+```
+
+**Log Markers:**
+- `[ENUM_NEWTYPE]` - Variant/newtype detection
+- `[NEWTYPE_WRAP_REFLECT]` - Newtype construction
+- `[ENUM_SET]` - Enum application via from_reflect
+- `[HANDLE_CREATE]` - Typed handle creation
+
+**Successful RTT logs:**
+```
+[ENUM_NEWTYPE] Result: variant_is_newtype=true
+[NEWTYPE_WRAP_REFLECT] ✓ Auto-discovered newtype wrapper
+[ENUM_SET] Created concrete enum via from_reflect
+```
