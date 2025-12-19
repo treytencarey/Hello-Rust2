@@ -589,7 +589,7 @@ impl ScriptCache {
     /// Called when require() with reload=true completes successfully
     pub fn subscribe(&self, path: String, instance_id: u64) {
         let normalized_path = normalize_path(&path);
-        info!(
+        debug!(
             "📝 [SUBSCRIPTION] Instance {} subscribed to '{}'",
             instance_id, normalized_path
         );
@@ -611,13 +611,13 @@ impl ScriptCache {
             instances.remove(&instance_id);
             if instances.is_empty() {
                 subs.remove(&normalized_path);
-                info!(
+                debug!(
                     "📝 [SUBSCRIPTION] Instance {} unsubscribed from '{}' (last subscriber)",
                     instance_id, normalized_path
                 );
                 return true;
             }
-            info!(
+            debug!(
                 "📝 [SUBSCRIPTION] Instance {} unsubscribed from '{}' ({} remaining)",
                 instance_id,
                 normalized_path,
@@ -651,7 +651,7 @@ impl ScriptCache {
         }
 
         if !empty_paths.is_empty() {
-            info!(
+            debug!(
                 "📝 [SUBSCRIPTION] Instance {} unsubscribed from {} paths (now empty): {:?}",
                 instance_id,
                 empty_paths.len(),

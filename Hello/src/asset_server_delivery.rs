@@ -30,7 +30,7 @@ fn resolve_asset_path(requested_path: &str, context_path: Option<&str>) -> std::
             let normalized = normalize_path(&relative.to_string_lossy());
             let full_path = assets_base.join(&normalized);
             
-            info!("📂 [SERVER] Trying relative path: {:?} (from context '{}')", full_path, context);
+            debug!("📂 [SERVER] Trying relative path: {:?} (from context '{}')", full_path, context);
             
             if full_path.exists() {
                 return full_path;
@@ -40,7 +40,7 @@ fn resolve_asset_path(requested_path: &str, context_path: Option<&str>) -> std::
     
     // Fall back to canonical path (directly from assets/)
     let canonical_path = assets_base.join(requested_path);
-    info!("📂 [SERVER] Trying canonical path: {:?}", canonical_path);
+    debug!("📂 [SERVER] Trying canonical path: {:?}", canonical_path);
     canonical_path
 }
 /// System to handle incoming asset requests using global RenetServer resource
@@ -70,7 +70,7 @@ pub fn handle_asset_requests_global(
                     continue;
                 }
                 Ok(crate::network_asset_client::ClientToServerMessage::Request(request)) => {
-                    info!(
+                    debug!(
                         "📥 [SERVER] Asset request from client {}: {} (local_hash: {:?})",
                         client_id, request.path, request.local_hash
                     );
@@ -79,7 +79,7 @@ pub fn handle_asset_requests_global(
                     // If context is set, try relative to context's directory first
                     let file_path = resolve_asset_path(&request.path, request.context_path.as_deref());
                     
-                    info!("📥 [SERVER] Resolved path '{}' -> {:?}", request.path, file_path);
+                    debug!("📥 [SERVER] Resolved path '{}' -> {:?}", request.path, file_path);
                     
                     // Read file from disk
                     match std::fs::read(&file_path) {
@@ -90,7 +90,7 @@ pub fn handle_asset_requests_global(
                             // Check if client's hash matches (up-to-date check)
                             if let Some(ref client_hash) = request.local_hash {
                                 if client_hash == &server_hash {
-                                    info!(
+                                    debug!(
                                         "✓ [SERVER] Asset '{}' is up-to-date for client {} (hash: {})",
                                         request.path, client_id, server_hash
                                     );
@@ -120,7 +120,7 @@ pub fn handle_asset_requests_global(
                             let chunks = chunk_and_encrypt(&data);
                             let total_chunks = chunks.len() as u32;
                             
-                            info!(
+                            debug!(
                                 "📤 [SERVER] Sending asset '{}' to client {} ({} bytes, {} chunks, hash: {})",
                                 request.path, client_id, data.len(), total_chunks, server_hash
                             );
@@ -189,10 +189,10 @@ fn handle_subscription_message(
 ) {
     match message {
         AssetSubscriptionMessage::Subscribe { paths, instance_id } => {
-            info!("📡 [SERVER] Client {} instance {} subscribing to {} paths", 
+            debug!("📡 [SERVER] Client {} instance {} subscribing to {} paths", 
                 client_id, instance_id, paths.len());
             for path in paths {
-                info!("  - '{}'", path);
+                debug!("  - '{}'", path);
                 let is_first = registry.subscribe(client_id, path.clone(), instance_id);
                 if is_first {
                     // Start file watching for this path
@@ -203,10 +203,10 @@ fn handle_subscription_message(
             }
         }
         AssetSubscriptionMessage::Unsubscribe { paths, instance_id } => {
-            info!("📡 [SERVER] Client {} instance {} unsubscribing from {} paths", 
+            debug!("📡 [SERVER] Client {} instance {} unsubscribing from {} paths", 
                 client_id, instance_id, paths.len());
             for path in paths {
-                info!("  - '{}'", path);
+                debug!("  - '{}'", path);
                 let is_last = registry.unsubscribe(client_id, &path, instance_id);
                 if is_last {
                     // Stop file watching for this path
@@ -217,11 +217,11 @@ fn handle_subscription_message(
             }
         }
         AssetSubscriptionMessage::UnsubscribeAll { instance_id } => {
-            info!("📡 [SERVER] Client {} instance {} unsubscribing from all paths", 
+            debug!("📡 [SERVER] Client {} instance {} unsubscribing from all paths", 
                 client_id, instance_id);
             let empty_paths = registry.unsubscribe_all(client_id, instance_id);
             for path in empty_paths {
-                info!("  - '{}'", path);
+                debug!("  - '{}'", path);
                 // Stop file watching for paths with no more subscribers
                 if let Some(ref mut watcher) = file_watcher {
                     watcher.unwatch(&path);
@@ -246,7 +246,7 @@ pub fn send_asset_requests_global(
         // Wrap in ClientToServerMessage for proper type discrimination
         let wrapped = crate::network_asset_client::ClientToServerMessage::Request(request.clone());
         if let Ok(message_bytes) = bincode::serialize(&wrapped) {
-            info!(
+            debug!(
                 "📤 [CLIENT] Sending asset request: {} (id: {})",
                 request.path, request.request_id
             );
@@ -300,7 +300,7 @@ fn process_asset_response(
     
     // Check if asset is up-to-date (hash matched, no transfer needed)
     if response.is_up_to_date {
-        info!(
+        debug!(
             "✓ [CLIENT] Asset '{}' is up-to-date (no download needed)",
             response.path
         );
@@ -342,7 +342,7 @@ fn process_asset_response(
             if matches!(request.status, crate::network_asset_client::AssetRequestStatus::Complete) {
                 // Reassemble data
                 if let Some(data) = request.reassemble_data() {
-                    info!(
+                    debug!(
                         "✅ [CLIENT] Asset download complete: '{}' ({} bytes)",
                         response.path, data.len()
                     );
@@ -361,7 +361,7 @@ fn process_asset_response(
                     // Save to disk
                     match std::fs::write(&save_path, &data) {
                         Ok(_) => {
-                            info!("💾 [CLIENT] Saved asset to {:?}", save_path);
+                            debug!("💾 [CLIENT] Saved asset to {:?}", save_path);
                             // Mark as complete and store for retrieval by scripts
                             pending_requests.complete_request(&request.path, data);
                         }
@@ -413,7 +413,7 @@ pub fn broadcast_file_updates(
             continue;
         }
         
-        info!("📡 [BROADCAST] File '{}' changed, notifying {} clients", path, subscribers.len());
+        debug!("📡 [BROADCAST] File '{}' changed, notifying {} clients", path, subscribers.len());
         
         // Read the updated file
         let file_path = std::path::Path::new("assets").join(&path);
@@ -428,7 +428,7 @@ pub fn broadcast_file_updates(
                 
                 // Send to each subscriber
                 for client_id in subscribers {
-                    info!("📡 [BROADCAST] Sending update for '{}' to client {} ({} chunks)", 
+                    debug!("📡 [BROADCAST] Sending update for '{}' to client {} ({} chunks)", 
                         path, client_id, total_chunks);
                     
                     for (index, chunk) in chunks.iter().enumerate() {
@@ -484,7 +484,7 @@ pub fn cleanup_disconnected_clients(
     
     // Clean up subscriptions for disconnected clients
     for client_id in disconnected {
-        info!("🧹 [SERVER] Cleaning up subscriptions for disconnected client {}", client_id);
+        debug!("🧹 [SERVER] Cleaning up subscriptions for disconnected client {}", client_id);
         let empty_paths = registry.unsubscribe_client(client_id);
         
         // Unwatch paths that have no more subscribers

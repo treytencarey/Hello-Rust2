@@ -811,7 +811,7 @@ impl LuaScriptContext {
                 match coroutine.status() {
                     mlua::ThreadStatus::Finished => {
                         // Script completed normally
-                        info!(
+                        debug!(
                             "Script '{}' completed with instance ID: {}",
                             script_name, instance_id
                         );

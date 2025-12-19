@@ -146,7 +146,7 @@ pub fn process_pending_unsubscriptions(
     for (instance_id, empty_paths) in unsubs {
         // Queue UnsubscribeAll message for this instance
         // This tells the server this instance no longer needs updates
-        info!("📤 [UNSUBSCRIBE] Instance {} cleaned up, sending UnsubscribeAll", instance_id);
+        debug!("📤 [UNSUBSCRIBE] Instance {} cleaned up, sending UnsubscribeAll", instance_id);
         pending_requests.queue_subscription(AssetSubscriptionMessage::UnsubscribeAll {
             instance_id,
         });
@@ -380,7 +380,7 @@ fn resume_coroutines_with_source(
                             if let mlua::Value::String(path_str) = yield_value {
                                 if let Ok(new_path) = path_str.to_str() {
                                     let new_path = new_path.to_string();
-                                    info!("📥 [RESUME] Coroutine yielded again for new download: {}", new_path);
+                                    debug!("📥 [RESUME] Coroutine yielded again for new download: {}", new_path);
                                     
                                     // Re-register the coroutine for the new path
                                     let coroutine_key = match lua_ctx.lua.create_registry_value(coroutine) {
@@ -505,13 +505,13 @@ pub fn send_subscription_messages(
     for sub_msg in subscriptions {
         match &sub_msg {
             AssetSubscriptionMessage::Subscribe { paths, instance_id } => {
-                info!("📤 [CLIENT] Sending Subscribe for {} paths (instance {})", paths.len(), instance_id);
+                debug!("📤 [CLIENT] Sending Subscribe for {} paths (instance {})", paths.len(), instance_id);
             }
             AssetSubscriptionMessage::Unsubscribe { paths, instance_id } => {
-                info!("📤 [CLIENT] Sending Unsubscribe for {} paths (instance {})", paths.len(), instance_id);
+                debug!("📤 [CLIENT] Sending Unsubscribe for {} paths (instance {})", paths.len(), instance_id);
             }
             AssetSubscriptionMessage::UnsubscribeAll { instance_id } => {
-                info!("📤 [CLIENT] Sending UnsubscribeAll for instance {}", instance_id);
+                debug!("📤 [CLIENT] Sending UnsubscribeAll for instance {}", instance_id);
             }
         }
         
@@ -536,7 +536,7 @@ pub fn receive_asset_updates(
     
     // Process all queued updates
     for notification in pending_updates.take_all() {
-        info!("📥 [CLIENT] Received file update notification for '{}' ({} bytes, chunk {}/{})", 
+        debug!("📥 [CLIENT] Received file update notification for '{}' ({} bytes, chunk {}/{})", 
             notification.path, notification.total_size, 
             notification.chunk_index + 1, notification.total_chunks);
         
@@ -566,7 +566,7 @@ pub fn receive_asset_updates(
                 continue;
             }
             
-            info!("✅ [CLIENT] Updated file: '{}' ({} bytes)", notification.path, decrypted.len());
+            debug!("✅ [CLIENT] Updated file: '{}' ({} bytes)", notification.path, decrypted.len());
             
             // If it's a Lua script, update source cache and trigger hot reload
             if let Ok(source) = String::from_utf8(decrypted.clone()) {
@@ -577,7 +577,7 @@ pub fn receive_asset_updates(
                     path: std::path::PathBuf::from(&notification.path),
                 });
                 
-                info!("🔄 [CLIENT] Triggered hot reload for '{}'", notification.path);
+                debug!("🔄 [CLIENT] Triggered hot reload for '{}'", notification.path);
             }
         } else {
             // Multi-chunk file - would need assembly logic

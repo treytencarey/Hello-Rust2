@@ -36,7 +36,7 @@ impl FileWatcherResource {
         let watcher = notify::recommended_watcher(tx).ok();
         
         if watcher.is_some() {
-            info!("📁 [FILE WATCHER] Initialized successfully");
+            debug!("📁 [FILE WATCHER] Initialized successfully");
         } else {
             warn!("📁 [FILE WATCHER] Failed to initialize");
         }
@@ -67,7 +67,7 @@ impl FileWatcherResource {
             // Watch the specific file, not recursively
             match watcher.watch(&full_path, RecursiveMode::NonRecursive) {
                 Ok(()) => {
-                    info!("📁 [FILE WATCHER] Started watching: {:?}", full_path);
+                    debug!("📁 [FILE WATCHER] Started watching: {:?}", full_path);
                     self.watched_paths.insert(full_path);
                 }
                 Err(e) => {
@@ -90,7 +90,7 @@ impl FileWatcherResource {
         if let Some(ref mut watcher) = self.watcher {
             match watcher.unwatch(&full_path) {
                 Ok(()) => {
-                    info!("📁 [FILE WATCHER] Stopped watching: {:?}", full_path);
+                    debug!("📁 [FILE WATCHER] Stopped watching: {:?}", full_path);
                     self.watched_paths.remove(&full_path);
                 }
                 Err(e) => {
@@ -128,7 +128,7 @@ impl FileWatcherResource {
                                 
                                 if let Some(relative) = relative_result {
                                     let relative_str = to_forward_slash(relative);
-                                    info!("📁 [FILE WATCHER] File changed: {}", relative_str);
+                                    debug!("📁 [FILE WATCHER] File changed: {}", relative_str);
                                     changes.push(relative_str);
                                 } else {
                                     warn!("📁 [FILE WATCHER] Could not strip assets prefix from: {:?}", path);
@@ -179,7 +179,7 @@ impl AssetSubscriptionRegistry {
         
         // Return true if path was previously empty (first subscriber)
         if was_empty {
-            info!("📡 [SERVER] First subscription for '{}', should start watching", path);
+            debug!("📡 [SERVER] First subscription for '{}', should start watching", path);
         } else {
             debug!("📡 [SERVER] Subscription for '{}' (client {}, instance {})", path, client_id, instance_id);
         }
@@ -209,7 +209,7 @@ impl AssetSubscriptionRegistry {
         
         if should_remove_path {
             subs.remove(path);
-            info!("📡 [SERVER] Last subscriber left '{}', should stop watching", path);
+            debug!("📡 [SERVER] Last subscriber left '{}', should stop watching", path);
             return true;
         }
         false
@@ -248,7 +248,7 @@ impl AssetSubscriptionRegistry {
         }
         
         if !paths_to_remove.is_empty() {
-            info!("📡 [SERVER] Client {} instance {} unsubscribed, {} paths now empty", 
+            debug!("📡 [SERVER] Client {} instance {} unsubscribed, {} paths now empty", 
                 client_id, instance_id, paths_to_remove.len());
         }
         
@@ -281,7 +281,7 @@ impl AssetSubscriptionRegistry {
         }
         
         if !paths_to_remove.is_empty() {
-            info!("📡 [SERVER] Client {} disconnected, {} paths now empty", client_id, paths_to_remove.len());
+            debug!("📡 [SERVER] Client {} disconnected, {} paths now empty", client_id, paths_to_remove.len());
         }
         
         paths_to_remove
