@@ -10,7 +10,7 @@ pub fn reflection_to_lua(
     registry: &AppTypeRegistry,
 ) -> LuaResult<LuaValue> {
     use bevy::reflect::ReflectRef;
-    
+
     match value.reflect_ref() {
         ReflectRef::Struct(s) => {
             let table = lua.create_table()?;
@@ -71,7 +71,7 @@ pub fn reflection_to_lua(
             // For enums, create a table with the variant name as key
             let table = lua.create_table()?;
             let variant_name = e.variant_name();
-            
+
             match e.variant_type() {
                 bevy::reflect::VariantType::Struct => {
                     let variant_table = lua.create_table()?;
@@ -96,14 +96,14 @@ pub fn reflection_to_lua(
                     table.set(variant_name, true)?;
                 }
             }
-            
+
             Ok(LuaValue::Table(table))
         }
         ReflectRef::Opaque(v) => {
             // For opaque values, we can't easily downcast since PartialReflect doesn't have downcast_ref
             // Instead, we'll try to use the debug representation or return a simple string
             // This is a limitation of the generic event reading approach
-            
+
             // Try to get a string representation
             let debug_str = format!("{:?}", v);
             Ok(LuaValue::String(lua.create_string(&debug_str)?))
@@ -117,7 +117,7 @@ pub fn reflection_to_lua(
 
 /// Build a DynamicStruct from a Lua table using type info from the registry
 /// This properly inserts fields into the DynamicStruct for FromReflect conversion
-/// 
+///
 /// The optional `asset_registry` parameter enables handle ID lookup - when a Lua integer
 /// is provided for a field expecting a Handle<T>, the handle is looked up by ID.
 pub fn lua_table_to_dynamic(
@@ -137,10 +137,10 @@ pub fn lua_table_to_dynamic_with_assets(
     registry: &AppTypeRegistry,
     asset_registry: Option<&crate::asset_loading::AssetRegistry>,
 ) -> LuaResult<bevy::reflect::DynamicStruct> {
-    use bevy::reflect::{DynamicStruct, TypeInfo, NamedField};
-    
+    use bevy::reflect::{DynamicStruct, NamedField, TypeInfo};
+
     let mut dynamic = DynamicStruct::default();
-    
+
     if let TypeInfo::Struct(struct_info) = type_info {
         // Set represented_type so FromReflect knows the target type
         // Get from TypeRegistry for 'static lifetime
@@ -150,11 +150,11 @@ pub fn lua_table_to_dynamic_with_assets(
                 dynamic.set_represented_type(Some(registration.type_info()));
             }
         }
-        
+
         for i in 0..struct_info.field_len() {
             let field: &NamedField = struct_info.field_at(i).unwrap();
             let field_name = field.name();
-            
+
             // Try to get the value from the Lua table
             if let Ok(lua_val) = table.get::<LuaValue>(field_name) {
                 // Get type_info - fallback to TypeRegistry lookup if field doesn't have it
@@ -163,12 +163,18 @@ pub fn lua_table_to_dynamic_with_assets(
                     reg.get(field.type_id()).map(|r| r.type_info())
                 });
                 // Convert Lua value to appropriate reflected type
-                let field_value = lua_value_to_box_reflect_with_assets(lua, &lua_val, field_type_info, registry, asset_registry)?;
+                let field_value = lua_value_to_box_reflect_with_assets(
+                    lua,
+                    &lua_val,
+                    field_type_info,
+                    registry,
+                    asset_registry,
+                )?;
                 dynamic.insert_boxed(field_name, field_value);
             }
         }
     }
-    
+
     Ok(dynamic)
 }
 
@@ -191,13 +197,13 @@ fn lua_value_to_box_reflect_with_assets(
     asset_registry: Option<&crate::asset_loading::AssetRegistry>,
 ) -> LuaResult<Box<dyn bevy::reflect::PartialReflect>> {
     use bevy::reflect::{DynamicStruct, TypeInfo};
-    
+
     match lua_value {
         LuaValue::Number(n) => {
             // Check if type might expect a Handle or newtype wrapper - purely via reflection
             if let Some(type_info) = type_info {
                 let type_path = type_info.ty().path();
-                
+
                 // Only attempt handle lookup if type looks like it could be a Handle or newtype
                 // Detected via reflection: Handle types, single-field newtypes, or structs containing Handle fields
                 let might_be_handle = type_path.contains("Handle<") 
@@ -211,30 +217,44 @@ fn lua_value_to_box_reflect_with_assets(
                     || matches!(type_info,
                         bevy::reflect::TypeInfo::Struct(s) if s.iter().any(|f| f.type_path().contains("Handle<"))
                     );
-                
-                bevy::log::debug!("[HANDLE_DETECT] Type: {}, might_be_handle: {}", type_path, might_be_handle);
-                
+
+                bevy::log::debug!(
+                    "[HANDLE_DETECT] Type: {}, might_be_handle: {}",
+                    type_path,
+                    might_be_handle
+                );
+
                 if might_be_handle {
                     if let Some(asset_reg) = asset_registry {
                         let id = *n as u32;
                         if let Some(handle) = asset_reg.get_untyped_handle(id) {
-                            bevy::log::debug!("[HANDLE_LOOKUP] Resolved handle ID {} -> {:?} for type {}", id, handle, type_path);
-                            
+                            bevy::log::debug!(
+                                "[HANDLE_LOOKUP] Resolved handle ID {} -> {:?} for type {}",
+                                id,
+                                handle,
+                                type_path
+                            );
+
                             // Try to wrap in newtype using reflection
                             if let Some(wrapped) = asset_reg.try_wrap_in_newtype_with_reflection(
-                                type_path, Box::new(handle.clone()), registry
+                                type_path,
+                                Box::new(handle.clone()),
+                                registry,
                             ) {
-                                bevy::log::debug!("[HANDLE_LOOKUP] Successfully wrapped in newtype {}", type_path);
+                                bevy::log::debug!(
+                                    "[HANDLE_LOOKUP] Successfully wrapped in newtype {}",
+                                    type_path
+                                );
                                 return Ok(wrapped);
                             }
-                            
+
                             // If not a newtype, return the handle directly
                             return Ok(Box::new(handle) as Box<dyn bevy::reflect::PartialReflect>);
                         }
                     }
                 }
             }
-            
+
             // Check type info to determine if it's f32 or f64
             if let Some(TypeInfo::Opaque(info)) = type_info {
                 let type_path = info.type_path();
@@ -248,7 +268,7 @@ fn lua_value_to_box_reflect_with_assets(
             // Check if type might expect a Handle or newtype wrapper - purely via reflection
             if let Some(type_info) = type_info {
                 let type_path = type_info.ty().path();
-                
+
                 // Only attempt handle lookup if type looks like it could be a Handle or newtype
                 // Detected via reflection: Handle types, single-field newtypes, or structs containing Handle fields
                 let might_be_handle = type_path.contains("Handle<") 
@@ -262,28 +282,38 @@ fn lua_value_to_box_reflect_with_assets(
                     || matches!(type_info,
                         bevy::reflect::TypeInfo::Struct(s) if s.iter().any(|f| f.type_path().contains("Handle<"))
                     );
-                
+
                 if might_be_handle {
                     if let Some(asset_reg) = asset_registry {
                         let id = *i as u32;
                         if let Some(handle) = asset_reg.get_untyped_handle(id) {
-                            bevy::log::debug!("[HANDLE_LOOKUP] Resolved handle ID {} -> {:?} for type {}", id, handle, type_path);
-                            
+                            bevy::log::debug!(
+                                "[HANDLE_LOOKUP] Resolved handle ID {} -> {:?} for type {}",
+                                id,
+                                handle,
+                                type_path
+                            );
+
                             // Try to wrap in newtype using reflection
                             if let Some(wrapped) = asset_reg.try_wrap_in_newtype_with_reflection(
-                                type_path, Box::new(handle.clone()), registry
+                                type_path,
+                                Box::new(handle.clone()),
+                                registry,
                             ) {
-                                bevy::log::debug!("[HANDLE_LOOKUP] Successfully wrapped in newtype {}", type_path);
+                                bevy::log::debug!(
+                                    "[HANDLE_LOOKUP] Successfully wrapped in newtype {}",
+                                    type_path
+                                );
                                 return Ok(wrapped);
                             }
-                            
+
                             // If not a newtype, return the handle directly
                             return Ok(Box::new(handle) as Box<dyn bevy::reflect::PartialReflect>);
                         }
                     }
                 }
             }
-            
+
             // Default to i64, but check for other int types
             if let Some(TypeInfo::Opaque(info)) = type_info {
                 let type_path = info.type_path();
@@ -304,31 +334,42 @@ fn lua_value_to_box_reflect_with_assets(
         }
         LuaValue::Boolean(b) => Ok(Box::new(*b)),
         LuaValue::String(s) => {
-            let str_val = s.to_str().map_err(|e| LuaError::RuntimeError(format!("Invalid string: {:?}", e)))?;
-            
+            let str_val = s
+                .to_str()
+                .map_err(|e| LuaError::RuntimeError(format!("Invalid string: {:?}", e)))?;
+
             // Check if the expected type is an enum - if so, treat string as unit variant name
             if let Some(type_info) = type_info {
                 if let TypeInfo::Enum(enum_info) = type_info {
                     // Look up the variant by name using iter() - convert to owned String first
                     let str_val_owned = str_val.to_string();
-                    let variant_opt = enum_info.iter().find(|v| v.name() == str_val_owned.as_str());
+                    let variant_opt = enum_info
+                        .iter()
+                        .find(|v| v.name() == str_val_owned.as_str());
                     if let Some(variant_info) = variant_opt {
                         if matches!(variant_info, bevy::reflect::VariantInfo::Unit(_)) {
                             // Create a DynamicEnum with unit variant
-                            let mut dyn_enum = bevy::reflect::DynamicEnum::new(str_val.to_string(), bevy::reflect::DynamicVariant::Unit);
+                            let mut dyn_enum = bevy::reflect::DynamicEnum::new(
+                                str_val.to_string(),
+                                bevy::reflect::DynamicVariant::Unit,
+                            );
                             // Set represented type so FromReflect works
                             let reg = registry.read();
                             if let Some(registration) = reg.get(enum_info.ty().id()) {
                                 dyn_enum.set_represented_type(Some(registration.type_info()));
                             }
                             drop(reg);
-                            bevy::log::debug!("[UNIT_ENUM] Constructed unit enum variant '{}' for type {}", str_val, enum_info.type_path());
+                            bevy::log::debug!(
+                                "[UNIT_ENUM] Constructed unit enum variant '{}' for type {}",
+                                str_val,
+                                enum_info.type_path()
+                            );
                             return Ok(Box::new(dyn_enum) as Box<dyn bevy::reflect::PartialReflect>);
                         }
                     }
                 }
             }
-            
+
             Ok(Box::new(str_val.to_string()))
         }
         LuaValue::Table(table) => {
@@ -336,7 +377,7 @@ fn lua_value_to_box_reflect_with_assets(
             if let Some(type_info) = type_info {
                 let type_path = type_info.ty().path();
                 bevy::log::debug!("[TABLE_TYPE] Table value expected type: {}", type_path);
-                
+
                 // Handle Vec3 (short type path in Bevy 0.17)
                 if type_path == "glam::Vec3" {
                     let x: f32 = table.get("x").unwrap_or(0.0);
@@ -344,7 +385,7 @@ fn lua_value_to_box_reflect_with_assets(
                     let z: f32 = table.get("z").unwrap_or(0.0);
                     return Ok(Box::new(bevy::math::Vec3::new(x, y, z)));
                 }
-                
+
                 // Handle Vec2 (short type path in Bevy 0.17)
                 if type_path == "glam::Vec2" {
                     let x: f32 = table.get("x").unwrap_or(0.0);
@@ -352,7 +393,7 @@ fn lua_value_to_box_reflect_with_assets(
                     bevy::log::debug!("[VEC2_HANDLE] Successfully constructed Vec2({}, {})", x, y);
                     return Ok(Box::new(bevy::math::Vec2::new(x, y)));
                 }
-                
+
                 // Handle Dir3 (validated unit direction)
                 if type_path == "bevy_math::direction::Dir3" {
                     let x: f32 = table.get("x").unwrap_or(0.0);
@@ -363,41 +404,62 @@ fn lua_value_to_box_reflect_with_assets(
                     let dir = bevy::math::Dir3::new(vec).unwrap_or(bevy::math::Dir3::NEG_Z);
                     return Ok(Box::new(dir));
                 }
-                
+
                 // Handle enums - detect table like { Custom = value } as enum variant
                 if let TypeInfo::Enum(enum_info) = type_info {
-                    use bevy::reflect::{DynamicEnum, DynamicVariant, DynamicStruct, DynamicTuple};
-                    
-                    bevy::log::debug!("[ENUM_REFLECT] Detected enum type: {}", enum_info.ty().path());
-                    
+                    use bevy::reflect::{DynamicEnum, DynamicStruct, DynamicTuple, DynamicVariant};
+
+                    bevy::log::debug!(
+                        "[ENUM_REFLECT] Detected enum type: {}",
+                        enum_info.ty().path()
+                    );
+
                     // Check each key in the Lua table to find the variant name
                     for pair in table.clone().pairs::<String, LuaValue>() {
                         if let Ok((key, value)) = pair {
-                            bevy::log::debug!("[ENUM_REFLECT] Checking variant '{}' in {}", key, enum_info.ty().path());
+                            bevy::log::debug!(
+                                "[ENUM_REFLECT] Checking variant '{}' in {}",
+                                key,
+                                enum_info.ty().path()
+                            );
                             // Try to find this variant in the enum
                             if let Some(variant_info) = enum_info.variant(&key) {
                                 let variant_name = key.clone();
-                                bevy::log::debug!("[ENUM_REFLECT] Matched variant '{}' in {}", variant_name, enum_info.ty().path());
-                                
+                                bevy::log::debug!(
+                                    "[ENUM_REFLECT] Matched variant '{}' in {}",
+                                    variant_name,
+                                    enum_info.ty().path()
+                                );
+
                                 // Build the variant data based on variant type
                                 let dynamic_variant = match variant_info {
-                                    bevy::reflect::VariantInfo::Unit(_) => {
-                                        DynamicVariant::Unit
-                                    }
+                                    bevy::reflect::VariantInfo::Unit(_) => DynamicVariant::Unit,
                                     bevy::reflect::VariantInfo::Tuple(tuple_info) => {
                                         let mut dyn_tuple = DynamicTuple::default();
                                         // For single-field tuple variants, the value is the tuple field
                                         if tuple_info.field_len() == 1 {
                                             let field_info = tuple_info.field_at(0).unwrap();
-                                            
+
                                             // Get type_info - fallback to TypeRegistry lookup if field doesn't have it
-                                            let field_type_info = field_info.type_info().or_else(|| {
-                                                let reg = registry.read();
-                                                reg.get(field_info.type_id()).map(|r| r.type_info())
-                                            });
-                                            
-                                            bevy::log::debug!("[ENUM_TUPLE] Field type_path: {}, type_info: {:?}", field_info.type_path(), field_type_info.map(|t| t.ty().path()));
-                                            let field_value = lua_value_to_box_reflect_with_assets(lua, &value, field_type_info, registry, asset_registry)?;
+                                            let field_type_info =
+                                                field_info.type_info().or_else(|| {
+                                                    let reg = registry.read();
+                                                    reg.get(field_info.type_id())
+                                                        .map(|r| r.type_info())
+                                                });
+
+                                            bevy::log::debug!(
+                                                "[ENUM_TUPLE] Field type_path: {}, type_info: {:?}",
+                                                field_info.type_path(),
+                                                field_type_info.map(|t| t.ty().path())
+                                            );
+                                            let field_value = lua_value_to_box_reflect_with_assets(
+                                                lua,
+                                                &value,
+                                                field_type_info,
+                                                registry,
+                                                asset_registry,
+                                            )?;
                                             dyn_tuple.insert_boxed(field_value);
                                         }
                                         DynamicVariant::Tuple(dyn_tuple)
@@ -409,13 +471,24 @@ fn lua_value_to_box_reflect_with_assets(
                                             for i in 0..struct_info.field_len() {
                                                 let field = struct_info.field_at(i).unwrap();
                                                 let field_name = field.name();
-                                                if let Ok(field_val) = variant_table.get::<LuaValue>(field_name) {
+                                                if let Ok(field_val) =
+                                                    variant_table.get::<LuaValue>(field_name)
+                                                {
                                                     // Get type_info - fallback to TypeRegistry lookup if field doesn't have it
-                                                    let field_type_info = field.type_info().or_else(|| {
-                                                        let reg = registry.read();
-                                                        reg.get(field.type_id()).map(|r| r.type_info())
-                                                    });
-                                                    let boxed = lua_value_to_box_reflect_with_assets(lua, &field_val, field_type_info, registry, asset_registry)?;
+                                                    let field_type_info =
+                                                        field.type_info().or_else(|| {
+                                                            let reg = registry.read();
+                                                            reg.get(field.type_id())
+                                                                .map(|r| r.type_info())
+                                                        });
+                                                    let boxed =
+                                                        lua_value_to_box_reflect_with_assets(
+                                                            lua,
+                                                            &field_val,
+                                                            field_type_info,
+                                                            registry,
+                                                            asset_registry,
+                                                        )?;
                                                     dyn_struct.insert_boxed(field_name, boxed);
                                                 }
                                             }
@@ -423,7 +496,7 @@ fn lua_value_to_box_reflect_with_assets(
                                         DynamicVariant::Struct(dyn_struct)
                                     }
                                 };
-                                
+
                                 let mut dyn_enum = DynamicEnum::new(variant_name, dynamic_variant);
                                 // Set the represented type so FromReflect knows what to construct
                                 // Get from registry for 'static lifetime reference
@@ -436,19 +509,25 @@ fn lua_value_to_box_reflect_with_assets(
                             }
                         }
                     }
-                    
+
                     // If no variant found in the table, maybe it's just a string for unit variants
                     // Return a default empty enum
                     bevy::log::debug!("[ENUM_REFLECT] No matching variant found in table for enum");
                 }
-                
+
                 // Recursively build nested struct
                 if let TypeInfo::Struct(struct_info) = type_info {
-                    let nested = lua_table_to_dynamic_with_assets(lua, table, type_info, registry, asset_registry)?;
+                    let nested = lua_table_to_dynamic_with_assets(
+                        lua,
+                        table,
+                        type_info,
+                        registry,
+                        asset_registry,
+                    )?;
                     return Ok(Box::new(nested));
                 }
             }
-            
+
             // Fallback: create empty DynamicStruct
             Ok(Box::new(DynamicStruct::default()))
         }
@@ -506,7 +585,12 @@ pub fn lua_to_reflection(
                     if let Some(field_name) = struct_mut.name_at(i) {
                         if let Ok(nested_lua_val) = table.get::<LuaValue>(field_name) {
                             if let Some(nested_field) = struct_mut.field_at_mut(i) {
-                                let _ = lua_to_reflection(_lua, &nested_lua_val, nested_field, _registry);
+                                let _ = lua_to_reflection(
+                                    _lua,
+                                    &nested_lua_val,
+                                    nested_field,
+                                    _registry,
+                                );
                             }
                         }
                     }
@@ -526,6 +610,6 @@ pub fn lua_to_reflection(
         }
         _ => {}
     }
-    
+
     Ok(())
 }

@@ -15,7 +15,8 @@ use bevy_lua_ecs::LuaScriptContext;
 #[cfg(feature = "networking")]
 use crate::network_asset_client::{
     PendingAssetRequests, PendingCoroutines, PendingScriptCoroutine,
-    AssetType, ASSET_CHANNEL,
+    AssetType, AssetSubscriptionMessage, AssetUpdateNotification, ASSET_CHANNEL,
+    decrypt_data,
 };
 
 /// Plugin that adds network asset downloading capabilities
@@ -24,28 +25,44 @@ pub struct NetworkAssetPlugin;
 #[cfg(feature = "networking")]
 impl Plugin for NetworkAssetPlugin {
     fn build(&self, app: &mut App) {
-        // Initialize resources
+        // Initialize client resources
         app.init_resource::<PendingAssetRequests>();
+        app.init_resource::<crate::network_asset_client::PendingAssetUpdates>();
         app.init_resource::<PendingCoroutines>();
+        
+        // Initialize server resources (only created if running as server)
+        app.init_resource::<crate::subscription_registry::AssetSubscriptionRegistry>();
+        app.insert_resource(crate::subscription_registry::FileWatcherResource::new());
         
         // Enable network downloads in Lua context (set global flag)
         app.add_systems(PostStartup, enable_network_downloads);
         
-        // Add systems - order matters!
+        // Add systems - order matters! Split into two chains to avoid tuple size limits
         app.add_systems(Update, (
             // 1. Process download requests from yielded coroutines
             process_download_requests,
-            // 2. Send pending requests to server
+            // 2. Process pending unsubscriptions from script cleanup
+            process_pending_unsubscriptions,
+            // 3. Send pending requests to server
             crate::asset_server_delivery::send_asset_requests_global,
-            // 3. Handle incoming requests on server side
+            // 4. Send pending subscription messages to server
+            send_subscription_messages,
+            // 5. Handle incoming requests on server side
             crate::asset_server_delivery::handle_asset_requests_global,
-            // 4. Receive responses from server
-            crate::asset_server_delivery::receive_asset_responses_global,
-            // 5. Check for timeouts
-            crate::asset_server_delivery::check_request_timeouts,
-            // 6. Resume waiting coroutines when downloads complete
-            resume_pending_coroutines,
         ).chain());
+        
+        app.add_systems(Update, (
+            // 6. Broadcast file updates to subscribed clients (server-side)
+            crate::asset_server_delivery::broadcast_file_updates,
+            // 7. Receive responses from server
+            crate::asset_server_delivery::receive_asset_responses_global,
+            // 8. Receive file update notifications from server
+            receive_asset_updates,
+            // 9. Check for timeouts
+            crate::asset_server_delivery::check_request_timeouts,
+            // 10. Resume waiting coroutines when downloads complete
+            resume_pending_coroutines,
+        ).chain().after(crate::asset_server_delivery::handle_asset_requests_global));
     }
 }
 
@@ -114,6 +131,33 @@ pub fn process_download_requests(
     }
 }
 
+/// System to process pending unsubscriptions from script cleanup
+/// This picks up unsubscription events queued by cleanup_script_instance and sends them to server
+#[cfg(feature = "networking")]
+pub fn process_pending_unsubscriptions(
+    pending_requests: Res<PendingAssetRequests>,
+    lua_ctx: Option<Res<LuaScriptContext>>,
+) {
+    let Some(lua_ctx) = lua_ctx else { return };
+    
+    // Get pending unsubscription events from script cache
+    let unsubs = lua_ctx.script_cache.take_pending_unsubscriptions();
+    
+    for (instance_id, empty_paths) in unsubs {
+        // Queue UnsubscribeAll message for this instance
+        // This tells the server this instance no longer needs updates
+        info!("📤 [UNSUBSCRIBE] Instance {} cleaned up, sending UnsubscribeAll", instance_id);
+        pending_requests.queue_subscription(AssetSubscriptionMessage::UnsubscribeAll {
+            instance_id,
+        });
+        
+        // If there are paths that became empty (no more subscribers), log them
+        if !empty_paths.is_empty() {
+            debug!("📝 [UNSUBSCRIBE] Paths with no more subscribers: {:?}", empty_paths);
+        }
+    }
+}
+
 /// System that resumes coroutines when their awaited assets are downloaded
 #[cfg(feature = "networking")]
 pub fn resume_pending_coroutines(
@@ -149,6 +193,25 @@ pub fn resume_pending_coroutines(
                 
                 debug!("✅ [RESUME] Written to: {:?}", asset_path);
                 
+                // Check if any instances should subscribe to this path (reload=true)
+                let subscription_instances = lua_ctx.script_cache.take_pending_subscription_instances(&path);
+                if !subscription_instances.is_empty() {
+                    debug!("📝 [SUBSCRIPTION] {} instance(s) subscribing to '{}'", subscription_instances.len(), path);
+                    
+                    // Subscribe each instance locally
+                    for instance_id in &subscription_instances {
+                        lua_ctx.script_cache.subscribe(path.clone(), *instance_id);
+                    }
+                    
+                    // Queue a Subscribe message to the server (batch all instances for this path)
+                    // The server just needs to know which paths, not which instances (that's client-side)
+                    let first_instance = subscription_instances[0];
+                    pending_requests.queue_subscription(AssetSubscriptionMessage::Subscribe {
+                        paths: vec![path.clone()],
+                        instance_id: first_instance,
+                    });
+                }
+                
                 // For scripts (text files), also update source cache and trigger hot reload
                 // Try to parse as UTF-8 - if it works, it's a script; if not, it's binary
                 if let Ok(source) = String::from_utf8(data) {
@@ -165,6 +228,23 @@ pub fn resume_pending_coroutines(
         } else if pending_requests.is_up_to_date(&path) {
             // Asset is up-to-date, just resume coroutines
             debug!("✅ [RESUME] Asset '{}' confirmed up-to-date", path);
+            
+            // Also check for subscriptions on up-to-date (file existed locally but was verified)
+            let subscription_instances = lua_ctx.script_cache.take_pending_subscription_instances(&path);
+            if !subscription_instances.is_empty() {
+                debug!("📝 [SUBSCRIPTION] {} instance(s) subscribing to '{}' (up-to-date)", subscription_instances.len(), path);
+                
+                for instance_id in &subscription_instances {
+                    lua_ctx.script_cache.subscribe(path.clone(), *instance_id);
+                }
+                
+                let first_instance = subscription_instances[0];
+                pending_requests.queue_subscription(AssetSubscriptionMessage::Subscribe {
+                    paths: vec![path.clone()],
+                    instance_id: first_instance,
+                });
+            }
+            
             pending_requests.mark_up_to_date(&path); // Clear the status
             resume_coroutines(&lua_ctx, &path);
         }
@@ -237,16 +317,15 @@ fn resume_coroutines(
                                     }
                                 };
                                 
-                                // Determine if this is a binary download (check if path starts with "images/" etc.)
-                                // For now, assume anything not starting with "scripts/" is binary
-                                let is_binary = !new_path.starts_with("scripts/");
-                                
+                                // Note: is_binary is just metadata - actual binary/text detection
+                                // uses UTF-8 parsing at resume time
                                 lua_ctx.script_cache.register_pending_download_coroutine(
                                     new_path.clone(),
                                     coroutine_key,
                                     instance_id,
-                                    is_binary,
+                                    false, // Detection happens at resume via UTF-8 parsing
                                     Some(path.to_string()), // Use the current path as context
+                                    false, // should_subscribe handled at original require level
                                 );
                                 
                                 debug!("📋 [RESUME] Re-registered coroutine for '{}'", new_path);
@@ -288,8 +367,49 @@ fn resume_coroutines_with_source(
             
             // Resume with the source code
             match coroutine.resume::<mlua::Value>(source.clone()) {
-                Ok(_) => {
-                    debug!("✓ Coroutine resumed successfully for '{}'", path);
+                Ok(yield_value) => {
+                    debug!("✓ Coroutine resumed for '{}'", path);
+                    
+                    // Check if the coroutine yielded again (needs another download)
+                    match coroutine.status() {
+                        mlua::ThreadStatus::Finished => {
+                            debug!("✓ Coroutine completed for '{}'", path);
+                        }
+                        mlua::ThreadStatus::Resumable => {
+                            // Coroutine yielded again - needs another download
+                            if let mlua::Value::String(path_str) = yield_value {
+                                if let Ok(new_path) = path_str.to_str() {
+                                    let new_path = new_path.to_string();
+                                    info!("📥 [RESUME] Coroutine yielded again for new download: {}", new_path);
+                                    
+                                    // Re-register the coroutine for the new path
+                                    let coroutine_key = match lua_ctx.lua.create_registry_value(coroutine) {
+                                        Ok(key) => std::sync::Arc::new(key),
+                                        Err(e) => {
+                                            error!("❌ [RESUME] Failed to store coroutine in registry: {}", e);
+                                            continue;
+                                        }
+                                    };
+                                    
+                                    // Note: is_binary is just metadata - actual binary/text detection
+                                    // uses UTF-8 parsing at resume time
+                                    lua_ctx.script_cache.register_pending_download_coroutine(
+                                        new_path.clone(),
+                                        coroutine_key,
+                                        instance_id,
+                                        false, // Detection happens at resume via UTF-8 parsing
+                                        Some(path.to_string()),
+                                        false,
+                                    );
+                                    
+                                    debug!("📋 [RESUME] Re-registered coroutine for '{}'", new_path);
+                                }
+                            } else {
+                                debug!("⏳ [RESUME] Coroutine yielded with non-string value (may need another download)");
+                            }
+                        }
+                        _ => {}
+                    }
                 }
                 Err(e) => {
                     error!("❌ Failed to resume coroutine for '{}': {}", path, e);
@@ -370,3 +490,101 @@ pub fn get_download_status(
 ) -> Option<crate::network_asset_client::AssetRequestStatus> {
     pending_requests.get_request(path).map(|r| r.status)
 }
+
+/// System to send pending subscription messages to server
+#[cfg(feature = "networking")]
+pub fn send_subscription_messages(
+    pending_requests: Res<PendingAssetRequests>,
+    client: Option<ResMut<bevy_replicon_renet::renet::RenetClient>>,
+) {
+    let Some(mut client) = client else { return };
+    
+    // Get pending subscription messages
+    let subscriptions = pending_requests.drain_pending_subscriptions();
+    
+    for sub_msg in subscriptions {
+        match &sub_msg {
+            AssetSubscriptionMessage::Subscribe { paths, instance_id } => {
+                info!("📤 [CLIENT] Sending Subscribe for {} paths (instance {})", paths.len(), instance_id);
+            }
+            AssetSubscriptionMessage::Unsubscribe { paths, instance_id } => {
+                info!("📤 [CLIENT] Sending Unsubscribe for {} paths (instance {})", paths.len(), instance_id);
+            }
+            AssetSubscriptionMessage::UnsubscribeAll { instance_id } => {
+                info!("📤 [CLIENT] Sending UnsubscribeAll for instance {}", instance_id);
+            }
+        }
+        
+        // Wrap in ClientToServerMessage for proper type discrimination
+        let wrapped = crate::network_asset_client::ClientToServerMessage::Subscription(sub_msg);
+        if let Ok(message_bytes) = bincode::serialize(&wrapped) {
+            client.send_message(ASSET_CHANNEL, bytes::Bytes::from(message_bytes));
+        }
+    }
+}
+
+/// System to receive file update notifications from server (push updates)
+/// Processes updates that were queued by receive_asset_responses_global
+#[cfg(feature = "networking")]
+pub fn receive_asset_updates(
+    lua_ctx: Option<Res<LuaScriptContext>>,
+    pending_updates: Option<Res<crate::network_asset_client::PendingAssetUpdates>>,
+    mut file_events: bevy::prelude::MessageWriter<bevy_lua_ecs::lua_file_watcher::LuaFileChangeEvent>,
+) {
+    let Some(ref lua_ctx) = lua_ctx else { return };
+    let Some(ref pending_updates) = pending_updates else { return };
+    
+    // Process all queued updates
+    for notification in pending_updates.take_all() {
+        info!("📥 [CLIENT] Received file update notification for '{}' ({} bytes, chunk {}/{})", 
+            notification.path, notification.total_size, 
+            notification.chunk_index + 1, notification.total_chunks);
+        
+        // For single-chunk files, process immediately
+        // TODO: For multi-chunk files, we'd need to assemble them (similar to asset_server_delivery)
+        if notification.total_chunks == 1 {
+            // Decrypt the data
+            let decrypted = match decrypt_data(&notification.data) {
+                Ok(data) => data,
+                Err(e) => {
+                    error!("❌ [CLIENT] Failed to decrypt update for '{}': {}", notification.path, e);
+                    continue;
+                }
+            };
+            
+            // Write to disk
+            let asset_path = std::path::Path::new("assets").join(&notification.path);
+            if let Some(parent) = asset_path.parent() {
+                if let Err(e) = std::fs::create_dir_all(parent) {
+                    error!("❌ [CLIENT] Failed to create directory for '{}': {}", notification.path, e);
+                    continue;
+                }
+            }
+            
+            if let Err(e) = std::fs::write(&asset_path, &decrypted) {
+                error!("❌ [CLIENT] Failed to write updated file '{}': {}", notification.path, e);
+                continue;
+            }
+            
+            info!("✅ [CLIENT] Updated file: '{}' ({} bytes)", notification.path, decrypted.len());
+            
+            // If it's a Lua script, update source cache and trigger hot reload
+            if let Ok(source) = String::from_utf8(decrypted.clone()) {
+                lua_ctx.script_cache.update_source(&notification.path, source);
+                
+                // Trigger hot reload via LuaFileChangeEvent
+                file_events.write(bevy_lua_ecs::lua_file_watcher::LuaFileChangeEvent {
+                    path: std::path::PathBuf::from(&notification.path),
+                });
+                
+                info!("🔄 [CLIENT] Triggered hot reload for '{}'", notification.path);
+            }
+        } else {
+            // Multi-chunk file - would need assembly logic
+            // For now, log a warning
+            debug!("📥 [CLIENT] Multi-chunk update for '{}' (chunk {}/{}) - assembly not yet implemented", 
+                notification.path, notification.chunk_index + 1, notification.total_chunks);
+        }
+    }
+}
+

@@ -28,7 +28,12 @@ impl Default for ResourceQueue {
 
 impl ResourceQueue {
     /// Add a resource insertion request
-    pub fn queue_insert(&self, resource_name: String, data: LuaRegistryKey, instance_id: Option<u64>) {
+    pub fn queue_insert(
+        &self,
+        resource_name: String,
+        data: LuaRegistryKey,
+        instance_id: Option<u64>,
+    ) {
         let request = ResourceRequest {
             resource_name,
             data,
@@ -36,7 +41,7 @@ impl ResourceQueue {
         };
         self.queue.lock().unwrap().push(request);
     }
-    
+
     /// Track that a resource was inserted by a script instance
     pub fn track_resource(&self, instance_id: u64, resource_name: String) {
         let mut map = self.instance_resources.lock().unwrap();
@@ -44,20 +49,22 @@ impl ResourceQueue {
             .or_insert_with(Vec::new)
             .push(resource_name);
     }
-    
+
     /// Get all resources inserted by a specific instance
     pub fn get_instance_resources(&self, instance_id: u64) -> Vec<String> {
-        self.instance_resources.lock().unwrap()
+        self.instance_resources
+            .lock()
+            .unwrap()
             .get(&instance_id)
             .cloned()
             .unwrap_or_default()
     }
-    
+
     /// Clear tracking for a specific instance
     pub fn clear_instance_tracking(&self, instance_id: u64) {
         self.instance_resources.lock().unwrap().remove(&instance_id);
     }
-    
+
     /// Drain all pending resource requests
     pub fn drain(&self) -> Vec<ResourceRequest> {
         self.queue.lock().unwrap().drain(..).collect()

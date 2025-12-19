@@ -1,6 +1,6 @@
+use bevy::ecs::reflect::{ReflectCommandExt, ReflectComponent};
 use bevy::prelude::*;
-use bevy::reflect::{TypeInfo, PartialReflect, ReflectMut};
-use bevy::ecs::reflect::{ReflectComponent, ReflectCommandExt};
+use bevy::reflect::{PartialReflect, ReflectMut, TypeInfo};
 use mlua::prelude::*;
 use std::collections::HashMap;
 
@@ -34,36 +34,36 @@ impl ComponentRegistry {
             asset_registry: None,
             non_reflected_components: HashMap::new(),
         };
-        
+
         // Auto-discover and register all components
         registry.discover_components();
-        
+
         registry
     }
-    
+
     /// Set the asset registry (called after AssetRegistry is created)
     pub fn set_asset_registry(&mut self, asset_registry: crate::asset_loading::AssetRegistry) {
         self.asset_registry = Some(asset_registry);
         // Re-discover components to update handlers with asset registry
         self.discover_components();
     }
-    
+
     /// Automatically discover all registered components via reflection
     fn discover_components(&mut self) {
         let type_registry = self.type_registry.read();
-        
+
         for registration in type_registry.iter() {
             // Check if this type is a component
             if registration.data::<ReflectComponent>().is_some() {
                 let type_info = registration.type_info();
                 let short_name = type_info.type_path_table().short_path().to_string();
                 let full_path = type_info.type_path().to_string();
-                
+
                 // Clone what we need for the closure
                 let registry_clone = self.type_registry.clone();
                 let full_path_clone = full_path.clone();
                 let asset_registry_clone = self.asset_registry.clone();
-                
+
                 // Create handler using reflection
                 let handler = Box::new(move |data: &LuaValue, entity: &mut EntityCommands| {
                     spawn_component_via_reflection(
@@ -74,24 +74,24 @@ impl ComponentRegistry {
                         asset_registry_clone.as_ref(),
                     )
                 });
-                
+
                 self.handlers.insert(short_name, handler);
             }
         }
     }
-    
+
     /// Get a component handler by name
     pub fn get(&self, name: &str) -> Option<&ComponentHandler> {
         self.handlers.get(name)
     }
-    
+
     /// Get the full type path for a component by short name
     pub fn get_type_path(&self, short_name: &str) -> Option<String> {
         // Check non-reflected components first
         if let Some(type_id) = self.non_reflected_components.get(short_name) {
             return Some(std::any::type_name_of_val(type_id).to_string());
         }
-        
+
         // Fall back to reflected components
         let type_registry = self.type_registry.read();
         for registration in type_registry.iter() {
@@ -104,28 +104,29 @@ impl ComponentRegistry {
         }
         None
     }
-    
+
     /// Register a component that doesn't implement Reflect for queryability
     pub fn register_non_reflected_component<C: Component + 'static>(&mut self, short_name: &str) {
         use std::any::TypeId;
-        self.non_reflected_components.insert(short_name.to_string(), TypeId::of::<C>());
+        self.non_reflected_components
+            .insert(short_name.to_string(), TypeId::of::<C>());
     }
-    
+
     /// Check if a non-reflected component is registered
     pub fn is_non_reflected_component(&self, short_name: &str) -> bool {
         self.non_reflected_components.contains_key(short_name)
     }
-    
+
     /// Get the TypeId of a non-reflected component
     pub fn get_non_reflected_type_id(&self, short_name: &str) -> Option<&std::any::TypeId> {
         self.non_reflected_components.get(short_name)
     }
-    
+
     /// Get access to the type registry
     pub fn type_registry(&self) -> &AppTypeRegistry {
         &self.type_registry
     }
-    
+
     /// Register an entity wrapper component (newtype around Entity)
     /// These components have pattern: pub struct ComponentName(pub Entity);
     /// Lua table should have format: { entity = entity_id }
@@ -140,37 +141,42 @@ impl ComponentRegistry {
         F: Fn(Entity) -> C + Send + Sync + 'static,
     {
         let component_name = short_name.to_string();
-        
-        let handler: ComponentHandler = Box::new(move |data: &LuaValue, entity_commands: &mut EntityCommands| {
-            if let LuaValue::Table(table) = data {
-                // Get entity ID from Lua table
-                if let Ok(entity_id) = table.get::<u64>("entity") {
-                    // Create Entity from bits using Bevy 0.17 API
-                    // from_bits reconstructs the full Entity (index + generation) from to_bits()
-                    let target_entity = Entity::from_bits(entity_id);
-                    debug!("[ENTITY_COMPONENT] {} targeting entity bits {} -> {:?}", component_name, entity_id, target_entity);
-                    let component = constructor(target_entity);
-                    entity_commands.insert(component);
-                    return Ok(());
+
+        let handler: ComponentHandler = Box::new(
+            move |data: &LuaValue, entity_commands: &mut EntityCommands| {
+                if let LuaValue::Table(table) = data {
+                    // Get entity ID from Lua table
+                    if let Ok(entity_id) = table.get::<u64>("entity") {
+                        // Create Entity from bits using Bevy 0.17 API
+                        // from_bits reconstructs the full Entity (index + generation) from to_bits()
+                        let target_entity = Entity::from_bits(entity_id);
+                        debug!(
+                            "[ENTITY_COMPONENT] {} targeting entity bits {} -> {:?}",
+                            component_name, entity_id, target_entity
+                        );
+                        let component = constructor(target_entity);
+                        entity_commands.insert(component);
+                        return Ok(());
+                    }
                 }
-            }
-            Err(mlua::Error::RuntimeError(format!(
-                "Failed to create {} from Lua. Expected table with 'entity' field.", 
-                component_name
-            )))
-        });
-        
+                Err(mlua::Error::RuntimeError(format!(
+                    "Failed to create {} from Lua. Expected table with 'entity' field.",
+                    component_name
+                )))
+            },
+        );
+
         self.handlers.insert(short_name.to_string(), handler);
         debug!("✓ Registered entity component handler: {}", short_name);
     }
 }
 
 /// Register entity wrapper components at runtime using TypeRegistry
-/// 
+///
 /// This function takes a list of discovered type names and looks up each one
 /// in the TypeRegistry. If found and it's a valid entity wrapper component
 /// (a tuple struct with a single Entity field), it registers a handler.
-/// 
+///
 /// This enables true auto-discovery without compile-time type paths.
 pub fn register_entity_wrappers_runtime(
     component_registry: &mut ComponentRegistry,
@@ -178,42 +184,48 @@ pub fn register_entity_wrappers_runtime(
     discovered_names: &[&str],
 ) {
     let registry = type_registry.read();
-    
+
     // Blocklist of internal Bevy types that should NOT be registered as Lua entity wrappers
     // These are internal rendering/ECS relationship types that Bevy manages automatically
     let blocklist = [
-        "ChildOf",          // Bevy hierarchy - managed internally
-        "Children",         // Bevy hierarchy - managed internally  
-        "RenderEntity",     // Bevy render world - internal
-        "MainEntity",       // Bevy render world - internal
+        "ChildOf",                         // Bevy hierarchy - managed internally
+        "Children",                        // Bevy hierarchy - managed internally
+        "RenderEntity",                    // Bevy render world - internal
+        "MainEntity",                      // Bevy render world - internal
         "OcclusionCullingSubviewEntities", // Internal render optimization
-        "UiCameraView",     // Internal UI rendering
-        "UiViewTarget",     // Internal UI rendering
-        "TargetCamera",     // Use the specific UiTargetCamera instead
+        "UiCameraView",                    // Internal UI rendering
+        "UiViewTarget",                    // Internal UI rendering
+        "TargetCamera",                    // Use the specific UiTargetCamera instead
     ];
-    
+
     for &type_name in discovered_names {
         // Skip blocklisted internal types
         if blocklist.contains(&type_name) {
-            debug!("[RUNTIME_ENTITY_WRAPPER] Skipping blocklisted internal type: {}", type_name);
+            debug!(
+                "[RUNTIME_ENTITY_WRAPPER] Skipping blocklisted internal type: {}",
+                type_name
+            );
             continue;
         }
-        
+
         // Try to find this type by its short name
         let mut found = false;
-        
+
         for registration in registry.iter() {
             let type_info = registration.type_info();
             let short_path = type_info.type_path_table().short_path();
-            
+
             // Check if this is the type we're looking for
             if short_path == type_name {
                 // Verify it's a component
                 if registration.data::<ReflectComponent>().is_none() {
-                    debug!("[RUNTIME_ENTITY_WRAPPER] {} is not a Component, skipping", type_name);
+                    debug!(
+                        "[RUNTIME_ENTITY_WRAPPER] {} is not a Component, skipping",
+                        type_name
+                    );
                     continue;
                 }
-                
+
                 // Verify it's a tuple struct (entity wrappers are tuple structs)
                 if let TypeInfo::TupleStruct(tuple_info) = type_info {
                     // Check if it has exactly one field that could be an Entity
@@ -224,15 +236,19 @@ pub fn register_entity_wrappers_runtime(
                             // Check if it's an Entity wrapper
                             if field_type.contains("Entity") {
                                 debug!("[RUNTIME_ENTITY_WRAPPER] ✓ Registering entity wrapper: {} (field: {})", type_name, field_type);
-                                
+
                                 // Clone what we need for the closure
                                 let type_registry_clone = type_registry.clone();
                                 let full_path = type_info.type_path().to_string();
                                 let name_for_closure = type_name.to_string();
-                                
+
                                 // Create a handler that uses reflection to create the component
-                                let handler: Box<dyn Fn(&LuaValue, &mut EntityCommands) -> LuaResult<()> + Send + Sync> = 
-                                    Box::new(move |data: &LuaValue, entity_commands: &mut EntityCommands| {
+                                let handler: Box<
+                                    dyn Fn(&LuaValue, &mut EntityCommands) -> LuaResult<()>
+                                        + Send
+                                        + Sync,
+                                > = Box::new(
+                                    move |data: &LuaValue, entity_commands: &mut EntityCommands| {
                                         if let LuaValue::Table(table) = data {
                                             if let Ok(entity_id) = table.get::<u64>("entity") {
                                                 // entity_spawner pre-resolves temp_ids -> entity bits via resolve_entity()
@@ -240,29 +256,42 @@ pub fn register_entity_wrappers_runtime(
                                                 let target_entity = Entity::from_bits(entity_id);
                                                 debug!("[RUNTIME_ENTITY_WRAPPER] {} targeting entity bits {} -> {:?}", 
                                                     name_for_closure, entity_id, target_entity);
-                                                
+
                                                 // Create a DynamicTupleStruct with the Entity value
                                                 // Entity wrappers don't implement Default, so we can't use ReflectDefault
                                                 // Instead, we build the tuple struct dynamically with just the Entity field
                                                 use bevy::reflect::DynamicTupleStruct;
-                                                
+
                                                 // Create dynamic tuple struct with the Entity as the only field
-                                                let dynamic_tuple = DynamicTupleStruct::from_iter([
-                                                    Box::new(target_entity) as Box<dyn bevy::reflect::PartialReflect>
-                                                ]);
-                                                
+                                                let dynamic_tuple = DynamicTupleStruct::from_iter(
+                                                    [Box::new(target_entity)
+                                                        as Box<dyn bevy::reflect::PartialReflect>],
+                                                );
+
                                                 // Insert the component via reflection
                                                 let full_path_clone = full_path.clone();
-                                                let type_registry_for_cmd = type_registry_clone.clone();
-                                                entity_commands.queue(move |entity: bevy::prelude::EntityWorldMut| {
-                                                    let mut entity = entity;
-                                                    let reg = type_registry_for_cmd.read();
-                                                    if let Some(registration) = reg.get_with_type_path(&full_path_clone) {
-                                                        if let Some(reflect_component) = registration.data::<ReflectComponent>() {
-                                                            reflect_component.insert(&mut entity, &dynamic_tuple, &reg);
+                                                let type_registry_for_cmd =
+                                                    type_registry_clone.clone();
+                                                entity_commands.queue(
+                                                    move |entity: bevy::prelude::EntityWorldMut| {
+                                                        let mut entity = entity;
+                                                        let reg = type_registry_for_cmd.read();
+                                                        if let Some(registration) =
+                                                            reg.get_with_type_path(&full_path_clone)
+                                                        {
+                                                            if let Some(reflect_component) =
+                                                                registration
+                                                                    .data::<ReflectComponent>()
+                                                            {
+                                                                reflect_component.insert(
+                                                                    &mut entity,
+                                                                    &dynamic_tuple,
+                                                                    &reg,
+                                                                );
+                                                            }
                                                         }
-                                                    }
-                                                });
+                                                    },
+                                                );
                                                 return Ok(());
                                             }
                                         }
@@ -270,9 +299,12 @@ pub fn register_entity_wrappers_runtime(
                                             "Failed to create {} from Lua. Expected table with 'entity' field.", 
                                             name_for_closure
                                         )))
-                                    });
-                                
-                                component_registry.handlers.insert(type_name.to_string(), handler);
+                                    },
+                                );
+
+                                component_registry
+                                    .handlers
+                                    .insert(type_name.to_string(), handler);
                                 found = true;
                                 break;
                             }
@@ -281,11 +313,14 @@ pub fn register_entity_wrappers_runtime(
                 }
             }
         }
-        
+
         if !found {
             // This is expected - many discovered types aren't in TypeRegistry
             // (internal types, types not registered, etc.)
-            debug!("[RUNTIME_ENTITY_WRAPPER] Type not found or not usable: {}", type_name);
+            debug!(
+                "[RUNTIME_ENTITY_WRAPPER] Type not found or not usable: {}",
+                type_name
+            );
         }
     }
 }
@@ -299,52 +334,67 @@ fn spawn_component_via_reflection(
     asset_registry: Option<&crate::asset_loading::AssetRegistry>,
 ) -> LuaResult<()> {
     let registry = type_registry.read();
-    
+
     // Get type registration
     let Some(registration) = registry.get_with_type_path(type_path) else {
-        return Err(LuaError::RuntimeError(format!("Type not found: {}", type_path)));
+        return Err(LuaError::RuntimeError(format!(
+            "Type not found: {}",
+            type_path
+        )));
     };
-    
+
     // PATH 1: Try Reflect-based creation (existing system)
     if let Some(reflect_default) = registration.data::<ReflectDefault>() {
         let mut component = reflect_default.default();
         let type_info = registration.type_info();
-        
+
         // Patch component with Lua data
         match type_info {
             TypeInfo::Struct(struct_info) => {
                 // Structs require a table
                 let data_table = match data {
                     LuaValue::Table(t) => t,
-                    _ => return Err(LuaError::RuntimeError(
-                        format!("{} requires a table, got {:?}", type_path, data)
-                    )),
+                    _ => {
+                        return Err(LuaError::RuntimeError(format!(
+                            "{} requires a table, got {:?}",
+                            type_path, data
+                        )))
+                    }
                 };
-                
+
                 // Get mutable reflection
                 let reflect_mut = component.reflect_mut();
-                
+
                 // Pattern match to get struct
                 if let ReflectMut::Struct(struct_mut) = reflect_mut {
-                    
                     // Iterate through struct fields
                     for i in 0..struct_info.field_len() {
                         let field_info = struct_info.field_at(i).unwrap();
                         let field_name = field_info.name();
-                        
+
                         // Try to get value from Lua table
                         if let Ok(lua_value) = data_table.get::<LuaValue>(field_name) {
                             // Get mutable field
                             if let Some(field) = struct_mut.field_at_mut(i) {
-                                set_field_from_lua(field, &lua_value, asset_registry, type_registry, Some(field_name))?;
+                                set_field_from_lua(
+                                    field,
+                                    &lua_value,
+                                    asset_registry,
+                                    type_registry,
+                                    Some(field_name),
+                                )?;
                             }
                         }
                     }
                 }
             }
-            
+
             TypeInfo::TupleStruct(struct_info) => {
-                debug!("[COMPONENT_SPAWN] TupleStruct detected: {} with {} fields", type_path, struct_info.field_len());
+                debug!(
+                    "[COMPONENT_SPAWN] TupleStruct detected: {} with {} fields",
+                    type_path,
+                    struct_info.field_len()
+                );
                 // Special case: single-field tuple struct (newtype wrapper) with scalar value
                 // This handles types like GravityScale(f32), Restitution { coefficient: f32, ... }
                 // where Lua can just pass a number instead of a table
@@ -354,7 +404,15 @@ fn spawn_component_via_reflection(
                         let reflect_mut = component.reflect_mut();
                         if let ReflectMut::TupleStruct(tuple_mut) = reflect_mut {
                             if let Some(field) = tuple_mut.field_mut(0) {
-                                if set_field_from_lua(field, data, asset_registry, type_registry, Some("_0")).is_ok() {
+                                if set_field_from_lua(
+                                    field,
+                                    data,
+                                    asset_registry,
+                                    type_registry,
+                                    Some("_0"),
+                                )
+                                .is_ok()
+                                {
                                     // Successfully set the field from scalar value
                                     entity.insert_reflect(component);
                                     return Ok(());
@@ -363,15 +421,18 @@ fn spawn_component_via_reflection(
                         }
                     }
                 }
-                
+
                 // Tuple structs require a table for non-scalar cases
                 let data_table = match data {
                     LuaValue::Table(t) => t,
-                    _ => return Err(LuaError::RuntimeError(
-                        format!("{} requires a table, got {:?}", type_path, data)
-                    )),
+                    _ => {
+                        return Err(LuaError::RuntimeError(format!(
+                            "{} requires a table, got {:?}",
+                            type_path, data
+                        )))
+                    }
                 };
-                
+
                 // Handle single-field tuple structs like Text(String)
                 // Try to get the value from common keys
                 // Handle single-field tuple structs like Text(String)
@@ -380,79 +441,110 @@ fn spawn_component_via_reflection(
                     // Check "_0" (reflection-style field name)
                     if let Ok(val) = data_table.raw_get::<LuaValue>("_0") {
                         if !matches!(val, LuaValue::Nil) {
-                            debug!("[COMPONENT_SPAWN] Found _0 field for {}: {:?}", type_path, val);
+                            debug!(
+                                "[COMPONENT_SPAWN] Found _0 field for {}: {:?}",
+                                type_path, val
+                            );
                             break 'search val;
                         }
                     }
-                    
+
                     // Check "id" (common for handle-wrapping newtypes like Mesh3d, MeshMaterial3d)
                     if let Ok(val) = data_table.raw_get::<LuaValue>("id") {
                         if !matches!(val, LuaValue::Nil) {
-                            debug!("[COMPONENT_SPAWN] Found id field for {}: {:?}", type_path, val);
+                            debug!(
+                                "[COMPONENT_SPAWN] Found id field for {}: {:?}",
+                                type_path, val
+                            );
                             break 'search val;
                         }
                     }
-                    
+
                     // Check "value"
                     if let Ok(val) = data_table.raw_get::<LuaValue>("value") {
-                        if !matches!(val, LuaValue::Nil) { break 'search val; }
+                        if !matches!(val, LuaValue::Nil) {
+                            break 'search val;
+                        }
                     }
-                    
+
                     // Check "0"
                     if let Ok(val) = data_table.raw_get::<LuaValue>("0") {
-                        if !matches!(val, LuaValue::Nil) { break 'search val; }
+                        if !matches!(val, LuaValue::Nil) {
+                            break 'search val;
+                        }
                     }
-                    
+
                     // Check index 1
                     if let Ok(val) = data_table.get::<LuaValue>(1) {
-                        if !matches!(val, LuaValue::Nil) { break 'search val; }
+                        if !matches!(val, LuaValue::Nil) {
+                            break 'search val;
+                        }
                     }
-                    
+
                     // Fallback: if the tuple struct has 1 field, check if we can find a single value
                     if struct_info.field_len() == 1 {
                         let mut pairs = data_table.pairs::<LuaValue, LuaValue>();
-                        
+
                         // Get first pair
                         if let Some(Ok((_, val))) = pairs.next() {
                             // Ensure there is no second pair (to avoid ambiguity)
                             if pairs.next().is_none() {
                                 break 'search val;
                             } else {
-                                return Err(LuaError::RuntimeError("Ambiguous tuple struct data: multiple keys found".to_string()));
+                                return Err(LuaError::RuntimeError(
+                                    "Ambiguous tuple struct data: multiple keys found".to_string(),
+                                ));
                             }
                         }
                     }
-                    
+
                     LuaValue::Nil
                 };
-                
+
                 if matches!(lua_value, LuaValue::Nil) {
-                     debug!("[COMPONENT_SPAWN] ERROR: Failed to access tuple struct data for {}", type_path);
-                     return Err(LuaError::RuntimeError("Failed to access tuple struct data".to_string()));
+                    debug!(
+                        "[COMPONENT_SPAWN] ERROR: Failed to access tuple struct data for {}",
+                        type_path
+                    );
+                    return Err(LuaError::RuntimeError(
+                        "Failed to access tuple struct data".to_string(),
+                    ));
                 }
-                
+
                 let reflect_mut = component.reflect_mut();
                 if let ReflectMut::TupleStruct(tuple_mut) = reflect_mut {
                     if let Some(field) = tuple_mut.field_mut(0) {
                         debug!("[COMPONENT_SPAWN] Setting tuple struct field 0 for {} with value: {:?}", type_path, lua_value);
-                        set_field_from_lua(field, &lua_value, asset_registry, type_registry, Some("_0"))?;
-                        debug!("[COMPONENT_SPAWN] Successfully set tuple struct field for {}", type_path);
-                        
+                        set_field_from_lua(
+                            field,
+                            &lua_value,
+                            asset_registry,
+                            type_registry,
+                            Some("_0"),
+                        )?;
+                        debug!(
+                            "[COMPONENT_SPAWN] Successfully set tuple struct field for {}",
+                            type_path
+                        );
+
                         // Debug: Print the actual field value after setting
                         if type_path.contains("Mesh3d") || type_path.contains("MeshMaterial3d") {
-                            debug!("[COMPONENT_SPAWN] DEBUG: Field value after setting: {:?}", field);
+                            debug!(
+                                "[COMPONENT_SPAWN] DEBUG: Field value after setting: {:?}",
+                                field
+                            );
                         }
                     }
                 }
             }
-            
+
             TypeInfo::Enum(enum_info) => {
                 // Enums can be specified as:
                 // 1. Strings for unit variants: "Relative"
                 // 2. Tables for tuple/struct variants: { Px = 200 } or { SomeVariant = { field = value } }
-                
-                use bevy::reflect::{DynamicEnum, DynamicVariant, DynamicTuple, DynamicStruct};
-                
+
+                use bevy::reflect::{DynamicEnum, DynamicStruct, DynamicTuple, DynamicVariant};
+
                 let (variant_name, variant_data) = match data {
                     LuaValue::String(s) => {
                         // Unit variant
@@ -462,95 +554,132 @@ fn spawn_component_via_reflection(
                         // Tuple or struct variant
                         // The table should have exactly one key (the variant name)
                         let mut pairs = t.pairs::<String, LuaValue>();
-                        
+
                         if let Some(Ok((variant_name, variant_value))) = pairs.next() {
                             // Ensure there's only one key
                             if pairs.next().is_some() {
-                                return Err(LuaError::RuntimeError(
-                                    format!("Enum table must have exactly one key (the variant name)")
-                                ));
+                                return Err(LuaError::RuntimeError(format!(
+                                    "Enum table must have exactly one key (the variant name)"
+                                )));
                             }
                             (variant_name, Some(variant_value))
                         } else {
-                            return Err(LuaError::RuntimeError(
-                                format!("{} enum requires a variant name", type_path)
-                            ));
+                            return Err(LuaError::RuntimeError(format!(
+                                "{} enum requires a variant name",
+                                type_path
+                            )));
                         }
                     }
-                    _ => return Err(LuaError::RuntimeError(
-                        format!("{} enum requires a string or table, got {:?}", type_path, data)
-                    )),
+                    _ => {
+                        return Err(LuaError::RuntimeError(format!(
+                            "{} enum requires a string or table, got {:?}",
+                            type_path, data
+                        )))
+                    }
                 };
-                
+
                 // Find matching variant
-                let variant_info = enum_info.variant(&variant_name)
-                    .ok_or_else(|| LuaError::RuntimeError(
-                        format!("Unknown variant '{}' for enum {}. Available variants: {}",
-                            variant_name,
-                            type_path,
-                            enum_info.iter().map(|v| v.name()).collect::<Vec<_>>().join(", ")
-                        )
-                    ))?;
-                
+                let variant_info = enum_info.variant(&variant_name).ok_or_else(|| {
+                    LuaError::RuntimeError(format!(
+                        "Unknown variant '{}' for enum {}. Available variants: {}",
+                        variant_name,
+                        type_path,
+                        enum_info
+                            .iter()
+                            .map(|v| v.name())
+                            .collect::<Vec<_>>()
+                            .join(", ")
+                    ))
+                })?;
+
                 let dynamic_variant = match variant_info {
                     bevy::reflect::VariantInfo::Unit(_) => {
                         // Unit variant
                         if variant_data.is_some() {
-                            return Err(LuaError::RuntimeError(
-                                format!("Variant '{}' is a unit variant and does not accept data", variant_name)
-                            ));
+                            return Err(LuaError::RuntimeError(format!(
+                                "Variant '{}' is a unit variant and does not accept data",
+                                variant_name
+                            )));
                         }
                         DynamicVariant::Unit
                     }
                     bevy::reflect::VariantInfo::Tuple(tuple_info) => {
                         // Tuple variant like Val::Px(200.0) or RenderTarget::Image(ImageRenderTarget)
-                        let data_value = variant_data.ok_or_else(|| LuaError::RuntimeError(
-                            format!("Variant '{}' is a tuple variant and requires data", variant_name)
-                        ))?;
-                        
+                        let data_value = variant_data.ok_or_else(|| {
+                            LuaError::RuntimeError(format!(
+                                "Variant '{}' is a tuple variant and requires data",
+                                variant_name
+                            ))
+                        })?;
+
                         let mut dynamic_tuple = DynamicTuple::default();
-                        
+
                         // Handle single-field tuple variants (most common case)
                         if tuple_info.field_len() == 1 {
                             // Check if this is a newtype wrapper using type_info
                             // Handles both TupleStruct newtypes and Struct newtypes (like ImageRenderTarget)
                             // Returns (handle_inner_type, newtype_type_info, field_name, newtype_type_path)
                             let field_info = tuple_info.field_at(0);
-                            let newtype_info = field_info
-                                .and_then(|f| f.type_info())
-                                .and_then(|ti| {
+                            let newtype_info =
+                                field_info.and_then(|f| f.type_info()).and_then(|ti| {
                                     match ti {
                                         bevy::reflect::TypeInfo::TupleStruct(ts) => {
                                             if ts.field_len() == 1 {
-                                                let inner = ts.field_at(0).map(|inner_f| inner_f.type_path().to_string());
+                                                let inner = ts
+                                                    .field_at(0)
+                                                    .map(|inner_f| inner_f.type_path().to_string());
                                                 let newtype_path = ti.type_path().to_string();
-                                                Some((inner, Some(ti), Some("0".to_string()), Some(newtype_path)))
+                                                Some((
+                                                    inner,
+                                                    Some(ti),
+                                                    Some("0".to_string()),
+                                                    Some(newtype_path),
+                                                ))
                                             } else {
                                                 None
                                             }
                                         }
                                         bevy::reflect::TypeInfo::Struct(s) => {
                                             // Check if any field is a Handle<T>
-                                            let handle_field_info = (0..s.field_len())
-                                                .find_map(|i| s.field_at(i).filter(|f| f.type_path().contains("Handle<"))
-                                                    .map(|f| (f.type_path().to_string(), f.name().to_string())));
-                                            
+                                            let handle_field_info =
+                                                (0..s.field_len()).find_map(|i| {
+                                                    s.field_at(i)
+                                                        .filter(|f| {
+                                                            f.type_path().contains("Handle<")
+                                                        })
+                                                        .map(|f| {
+                                                            (
+                                                                f.type_path().to_string(),
+                                                                f.name().to_string(),
+                                                            )
+                                                        })
+                                                });
+
                                             if let Some((inner, field_name)) = handle_field_info {
                                                 let newtype_path = ti.type_path().to_string();
-                                                Some((Some(inner), Some(ti), Some(field_name), Some(newtype_path)))
+                                                Some((
+                                                    Some(inner),
+                                                    Some(ti),
+                                                    Some(field_name),
+                                                    Some(newtype_path),
+                                                ))
                                             } else {
                                                 None
                                             }
                                         }
-                                        _ => None
+                                        _ => None,
                                     }
                                 });
-                            
-                            let (newtype_inner_type, newtype_type_info, newtype_field_name, newtype_type_path) = 
-                                newtype_info.unwrap_or((None, None, None, None));
+
+                            let (
+                                newtype_inner_type,
+                                newtype_type_info,
+                                newtype_field_name,
+                                newtype_type_path,
+                            ) = newtype_info.unwrap_or((None, None, None, None));
                             let is_newtype_wrapper = newtype_inner_type.is_some();
                             let _ = (newtype_type_info, newtype_field_name); // silence unused warnings
-                            
+
                             // The value can be a scalar or table
                             match &data_value {
                                 LuaValue::Number(n) => {
@@ -559,16 +688,32 @@ fn spawn_component_via_reflection(
                                         debug!("[ENUM_GENERIC] Detected newtype with inner type '{:?}', wrapping handle ID {}", 
                                             newtype_inner_type, *n);
                                         if let Some(asset_reg) = asset_registry {
-                                            if let Some(untyped_handle) = asset_reg.get_untyped_handle(*n as u32) {
+                                            if let Some(untyped_handle) =
+                                                asset_reg.get_untyped_handle(*n as u32)
+                                            {
                                                 // First create typed Handle<T> from UntypedHandle
-                                                let handle_box = newtype_inner_type.as_ref()
-                                                    .and_then(|inner_type| asset_reg.try_create_typed_handle_box(inner_type, untyped_handle.clone()));
-                                                
+                                                let handle_box = newtype_inner_type
+                                                    .as_ref()
+                                                    .and_then(|inner_type| {
+                                                        asset_reg.try_create_typed_handle_box(
+                                                            inner_type,
+                                                            untyped_handle.clone(),
+                                                        )
+                                                    });
+
                                                 // Then try to wrap in newtype (e.g., Handle<Image> -> ImageRenderTarget)
                                                 if let Some(typed_handle) = handle_box {
                                                     // Try to wrap in newtype if a wrapper is registered
-                                                    if let Some(ref newtype_path) = newtype_type_path {
-                                                        if let Some(wrapped) = asset_reg.try_wrap_in_newtype_with_reflection(newtype_path, typed_handle, type_registry) {
+                                                    if let Some(ref newtype_path) =
+                                                        newtype_type_path
+                                                    {
+                                                        if let Some(wrapped) = asset_reg
+                                                            .try_wrap_in_newtype_with_reflection(
+                                                                newtype_path,
+                                                                typed_handle,
+                                                                type_registry,
+                                                            )
+                                                        {
                                                             debug!("[ENUM_GENERIC] ✓ Wrapped Handle in newtype '{}'", newtype_path);
                                                             dynamic_tuple.insert_boxed(wrapped);
                                                         } else {
@@ -591,10 +736,15 @@ fn spawn_component_via_reflection(
                                                     )));
                                                 }
                                             } else {
-                                                return Err(LuaError::RuntimeError(format!("Asset ID {} not found", *n as u32)));
+                                                return Err(LuaError::RuntimeError(format!(
+                                                    "Asset ID {} not found",
+                                                    *n as u32
+                                                )));
                                             }
                                         } else {
-                                            return Err(LuaError::RuntimeError("Asset registry not available".to_string()));
+                                            return Err(LuaError::RuntimeError(
+                                                "Asset registry not available".to_string(),
+                                            ));
                                         }
                                     } else {
                                         dynamic_tuple.insert(*n as f32);
@@ -605,17 +755,33 @@ fn spawn_component_via_reflection(
                                         // This is a newtype-wrapped variant, treat integer as asset ID
                                         debug!("[ENUM_GENERIC] Detected newtype with inner type '{:?}', wrapping handle ID {}", 
                                             newtype_inner_type, *i);
-                                            if let Some(asset_reg) = asset_registry {
-                                            if let Some(untyped_handle) = asset_reg.get_untyped_handle(*i as u32) {
+                                        if let Some(asset_reg) = asset_registry {
+                                            if let Some(untyped_handle) =
+                                                asset_reg.get_untyped_handle(*i as u32)
+                                            {
                                                 // First create typed Handle<T> from UntypedHandle
-                                                let handle_box = newtype_inner_type.as_ref()
-                                                    .and_then(|inner_type| asset_reg.try_create_typed_handle_box(inner_type, untyped_handle.clone()));
-                                                
+                                                let handle_box = newtype_inner_type
+                                                    .as_ref()
+                                                    .and_then(|inner_type| {
+                                                        asset_reg.try_create_typed_handle_box(
+                                                            inner_type,
+                                                            untyped_handle.clone(),
+                                                        )
+                                                    });
+
                                                 // Then try to wrap in newtype (e.g., Handle<Image> -> ImageRenderTarget)
                                                 if let Some(typed_handle) = handle_box {
                                                     // Try to wrap in newtype if a wrapper is registered
-                                                    if let Some(ref newtype_path) = newtype_type_path {
-                                                        if let Some(wrapped) = asset_reg.try_wrap_in_newtype_with_reflection(newtype_path, typed_handle, type_registry) {
+                                                    if let Some(ref newtype_path) =
+                                                        newtype_type_path
+                                                    {
+                                                        if let Some(wrapped) = asset_reg
+                                                            .try_wrap_in_newtype_with_reflection(
+                                                                newtype_path,
+                                                                typed_handle,
+                                                                type_registry,
+                                                            )
+                                                        {
                                                             debug!("[ENUM_GENERIC] ✓ Wrapped Handle in newtype '{}'", newtype_path);
                                                             dynamic_tuple.insert_boxed(wrapped);
                                                         } else {
@@ -634,17 +800,23 @@ fn spawn_component_via_reflection(
                                                     )));
                                                 }
                                             } else {
-                                                return Err(LuaError::RuntimeError(format!("Asset ID {} not found", *i as u32)));
+                                                return Err(LuaError::RuntimeError(format!(
+                                                    "Asset ID {} not found",
+                                                    *i as u32
+                                                )));
                                             }
                                         } else {
-                                            return Err(LuaError::RuntimeError("Asset registry not available".to_string()));
+                                            return Err(LuaError::RuntimeError(
+                                                "Asset registry not available".to_string(),
+                                            ));
                                         }
                                     } else {
                                         // Check if the field type is Uuid (for PointerId::Custom, etc.)
-                                        let field_type_path = tuple_info.field_at(0)
+                                        let field_type_path = tuple_info
+                                            .field_at(0)
                                             .map(|f| f.type_path().to_string())
                                             .unwrap_or_default();
-                                        
+
                                         if field_type_path == "uuid::Uuid" {
                                             // Construct Uuid from integer
                                             let uuid = uuid::Uuid::from_u128(*i as u128);
@@ -663,63 +835,80 @@ fn spawn_component_via_reflection(
                                 }
                                 LuaValue::Table(nested_table) => {
                                     // Try to create the inner value from the table
-                                    if let Some(inner_value) = try_create_value_from_table(nested_table, asset_registry)? {
+                                    if let Some(inner_value) =
+                                        try_create_value_from_table(nested_table, asset_registry)?
+                                    {
                                         dynamic_tuple.insert_boxed(inner_value);
                                     } else {
-                                        return Err(LuaError::RuntimeError(
-                                            format!("Failed to create value for tuple variant '{}'", variant_name)
-                                        ));
+                                        return Err(LuaError::RuntimeError(format!(
+                                            "Failed to create value for tuple variant '{}'",
+                                            variant_name
+                                        )));
                                     }
                                 }
                                 _ => {
-                                    return Err(LuaError::RuntimeError(
-                                        format!("Unsupported value type for tuple variant '{}'", variant_name)
-                                    ));
+                                    return Err(LuaError::RuntimeError(format!(
+                                        "Unsupported value type for tuple variant '{}'",
+                                        variant_name
+                                    )));
                                 }
                             }
                         } else {
                             // Multi-field tuple variant (less common)
-                            return Err(LuaError::RuntimeError(
-                                format!("Multi-field tuple variants are not yet supported for '{}'", variant_name)
-                            ));
+                            return Err(LuaError::RuntimeError(format!(
+                                "Multi-field tuple variants are not yet supported for '{}'",
+                                variant_name
+                            )));
                         }
-                        
+
                         DynamicVariant::Tuple(dynamic_tuple)
                     }
                     bevy::reflect::VariantInfo::Struct(struct_info) => {
                         // Struct variant like SomeEnum::StructVariant { field: value }
                         let data_table = match variant_data {
                             Some(LuaValue::Table(t)) => t,
-                            _ => return Err(LuaError::RuntimeError(
-                                format!("Variant '{}' is a struct variant and requires a table", variant_name)
-                            )),
+                            _ => {
+                                return Err(LuaError::RuntimeError(format!(
+                                    "Variant '{}' is a struct variant and requires a table",
+                                    variant_name
+                                )))
+                            }
                         };
-                        
+
                         let mut dynamic_struct = DynamicStruct::default();
-                        
+
                         // Populate struct fields
                         for i in 0..struct_info.field_len() {
                             if let Some(field_info) = struct_info.field_at(i) {
                                 let field_name = field_info.name();
-                                
+
                                 if let Ok(lua_value) = data_table.get::<LuaValue>(field_name) {
                                     // Convert Lua value to appropriate Rust type
                                     match &lua_value {
                                         LuaValue::Number(n) => {
-                                            dynamic_struct.insert_boxed(field_name, Box::new(*n as f32));
+                                            dynamic_struct
+                                                .insert_boxed(field_name, Box::new(*n as f32));
                                         }
                                         LuaValue::Integer(i) => {
-                                            dynamic_struct.insert_boxed(field_name, Box::new(*i as i32));
+                                            dynamic_struct
+                                                .insert_boxed(field_name, Box::new(*i as i32));
                                         }
                                         LuaValue::Boolean(b) => {
                                             dynamic_struct.insert_boxed(field_name, Box::new(*b));
                                         }
                                         LuaValue::String(s) => {
-                                            dynamic_struct.insert_boxed(field_name, Box::new(s.to_str()?.to_string()));
+                                            dynamic_struct.insert_boxed(
+                                                field_name,
+                                                Box::new(s.to_str()?.to_string()),
+                                            );
                                         }
                                         LuaValue::Table(nested_table) => {
-                                            if let Some(inner_value) = try_create_value_from_table(nested_table, asset_registry)? {
-                                                dynamic_struct.insert_boxed(field_name, inner_value);
+                                            if let Some(inner_value) = try_create_value_from_table(
+                                                nested_table,
+                                                asset_registry,
+                                            )? {
+                                                dynamic_struct
+                                                    .insert_boxed(field_name, inner_value);
                                             }
                                         }
                                         _ => {}
@@ -727,43 +916,57 @@ fn spawn_component_via_reflection(
                                 }
                             }
                         }
-                        
+
                         DynamicVariant::Struct(dynamic_struct)
                     }
                 };
-                
+
                 let dynamic_enum = DynamicEnum::new(&variant_name, dynamic_variant);
-                
+
                 // Convert to concrete type via ReflectFromReflect
-                let reflect_from_reflect = registration.data::<bevy::reflect::ReflectFromReflect>()
-                    .ok_or_else(|| LuaError::RuntimeError(
-                        format!("{} doesn't implement FromReflect", type_path)
-                    ))?;
-                
-                let new_component = reflect_from_reflect.from_reflect(&dynamic_enum)
-                    .ok_or_else(|| LuaError::RuntimeError(
-                        format!("Failed to create {} from reflection.", type_path)
-                    ))?;
-                
+                let reflect_from_reflect = registration
+                    .data::<bevy::reflect::ReflectFromReflect>()
+                    .ok_or_else(|| {
+                        LuaError::RuntimeError(format!(
+                            "{} doesn't implement FromReflect",
+                            type_path
+                        ))
+                    })?;
+
+                let new_component = reflect_from_reflect
+                    .from_reflect(&dynamic_enum)
+                    .ok_or_else(|| {
+                        LuaError::RuntimeError(format!(
+                            "Failed to create {} from reflection.",
+                            type_path
+                        ))
+                    })?;
+
                 component.apply(new_component.as_ref());
             }
-            
+
             _ => {
-                return Err(LuaError::RuntimeError(format!("Unsupported type: {}", type_path)));
+                return Err(LuaError::RuntimeError(format!(
+                    "Unsupported type: {}",
+                    type_path
+                )));
             }
         }
-        
+
         // Insert component via reflection
-        debug!("[COMPONENT_SPAWN] ✓ Calling insert_reflect for component: {}", type_path);
+        debug!(
+            "[COMPONENT_SPAWN] ✓ Calling insert_reflect for component: {}",
+            type_path
+        );
         entity.insert_reflect(component);
         return Ok(());
     }
-    
+
     // PATH 2: Try Serde deserialization (fallback for non-Reflect types like Collider)
-    // Note: This path is for types that ARE in the TypeRegistry (implement Reflect) 
-    // but use serde for deserialization. Collider is NOT in TypeRegistry, so it 
+    // Note: This path is for types that ARE in the TypeRegistry (implement Reflect)
+    // but use serde for deserialization. Collider is NOT in TypeRegistry, so it
     // will be handled by SerdeComponentRegistry in entity_spawner.rs instead.
-    
+
     // Neither Reflect nor Serde available
     Err(LuaError::RuntimeError(format!(
         "{} doesn't implement Reflect (with Default). Cannot create from Lua via reflection.",
@@ -784,7 +987,10 @@ fn set_field_from_lua(
     // The AssetRegistry was populated at startup with setters for all asset types in TypeRegistry.
     let type_path = field.reflect_type_path().to_string();
     let field_name_str = field_name.unwrap_or("<unknown>");
-    debug!("[FIELD_SET] Setting field '{}' of type: {}, lua_value: {:?}", field_name_str, type_path, lua_value);
+    debug!(
+        "[FIELD_SET] Setting field '{}' of type: {}, lua_value: {:?}",
+        field_name_str, type_path, lua_value
+    );
     if type_path.contains("Handle<") {
         debug!("[FIELD_SET] Handle detected: {}", type_path);
         if let LuaValue::Integer(asset_id) = lua_value {
@@ -792,17 +998,30 @@ fn set_field_from_lua(
                 debug!("[FIELD_SET] Looking up asset ID {} in registry", asset_id);
                 // Try using the generic handle setter system
                 if let Some(untyped_handle) = registry.get_untyped_handle(*asset_id as u32) {
-                    debug!("[FIELD_SET] Found untyped handle for asset ID {}: {:?}", asset_id, untyped_handle.id());
+                    debug!(
+                        "[FIELD_SET] Found untyped handle for asset ID {}: {:?}",
+                        asset_id,
+                        untyped_handle.id()
+                    );
                     if registry.try_set_handle_field(field, &type_path, untyped_handle.clone()) {
-                        debug!("[FIELD_SET] ✓ Successfully set handle field {} with asset ID {}", type_path, asset_id);
+                        debug!(
+                            "[FIELD_SET] ✓ Successfully set handle field {} with asset ID {}",
+                            type_path, asset_id
+                        );
                         return Ok(());
                     } else {
-                        debug!("[FIELD_SET] WARNING: try_set_handle_field failed for {}", type_path);
+                        debug!(
+                            "[FIELD_SET] WARNING: try_set_handle_field failed for {}",
+                            type_path
+                        );
                     }
                 } else {
-                    debug!("[FIELD_SET] ERROR: Asset ID {} not found in registry!", asset_id);
+                    debug!(
+                        "[FIELD_SET] ERROR: Asset ID {} not found in registry!",
+                        asset_id
+                    );
                 }
-                
+
                 // Fallback: image_handles (for loaded images via load_asset)
                 if let Some(image_handle) = registry.get_image_handle(*asset_id as u32) {
                     if let Some(handle_field) = field.try_downcast_mut::<Handle<Image>>() {
@@ -813,10 +1032,10 @@ fn set_field_from_lua(
             }
         }
     }
-    
+
     // NOTE: Enum types (including RenderTarget) are handled generically via try_construct_enum_variant
     // which detects newtype wrappers and handles asset IDs automatically
-    
+
     // Try to downcast to common types
     if let Some(f32_field) = field.try_downcast_mut::<f32>() {
         match lua_value {
@@ -856,7 +1075,10 @@ fn set_field_from_lua(
             let g: f32 = color_table.get("g").unwrap_or(1.0);
             let b: f32 = color_table.get("b").unwrap_or(1.0);
             let a: f32 = color_table.get("a").unwrap_or(1.0);
-            debug!("[COLOR_SET] Setting Color from table: r={}, g={}, b={}, a={}", r, g, b, a);
+            debug!(
+                "[COLOR_SET] Setting Color from table: r={}, g={}, b={}, a={}",
+                r, g, b, a
+            );
             *color_field = Color::srgba(r, g, b, a);
         } else {
             warn!("[COLOR_SET] Expected Table for Color, got: {:?}", lua_value);
@@ -884,7 +1106,9 @@ fn set_field_from_lua(
         }
     } else if let LuaValue::Table(nested_table) = lua_value {
         // Generic nested struct/enum handling using reflection
-        if let Err(e) = set_nested_field_from_lua(field, nested_table, asset_registry, type_registry) {
+        if let Err(e) =
+            set_nested_field_from_lua(field, nested_table, asset_registry, type_registry)
+        {
             // Silently continue if nested field setting fails - might not be a nested struct
             let _ = e;
         }
@@ -894,7 +1118,7 @@ fn set_field_from_lua(
         //     field.reflect_type_path()
         // );
     }
-    
+
     Ok(())
 }
 
@@ -906,20 +1130,21 @@ fn try_create_value_from_table(
     asset_registry: Option<&crate::asset_loading::AssetRegistry>,
 ) -> LuaResult<Option<Box<dyn PartialReflect>>> {
     use bevy::reflect::{DynamicStruct, Struct};
-    
+
     // Create a dynamic struct and populate it from the table
     let mut dynamic_struct = DynamicStruct::default();
-    
+
     // Try array-style access first (for tuple-like tables: {50, 50})
     let mut array_values = Vec::new();
-    for i in 1..=10 {  // Check up to 10 elements
+    for i in 1..=10 {
+        // Check up to 10 elements
         match table.get::<LuaValue>(i) {
             Ok(LuaValue::Number(n)) => array_values.push(n as f32),
             Ok(LuaValue::Integer(n)) => array_values.push(n as f32),
             _ => break,
         }
     }
-    
+
     // If we found array values, try to map them to common struct patterns
     if !array_values.is_empty() {
         match array_values.len() {
@@ -944,7 +1169,7 @@ fn try_create_value_from_table(
             _ => {}
         }
     }
-    
+
     // Object-style access: populate all named fields from the table
     for pair in table.pairs::<String, LuaValue>() {
         if let Ok((key, value)) = pair {
@@ -966,7 +1191,9 @@ fn try_create_value_from_table(
                 }
                 LuaValue::Table(nested_table) => {
                     // Recursively handle nested tables
-                    if let Ok(Some(nested_value)) = try_create_value_from_table(&nested_table, asset_registry) {
+                    if let Ok(Some(nested_value)) =
+                        try_create_value_from_table(&nested_table, asset_registry)
+                    {
                         dynamic_struct.insert_boxed(&key, nested_value);
                     }
                 }
@@ -974,7 +1201,7 @@ fn try_create_value_from_table(
             }
         }
     }
-    
+
     if dynamic_struct.field_len() > 0 {
         Ok(Some(Box::new(dynamic_struct)))
     } else {
@@ -989,8 +1216,8 @@ fn set_nested_field_from_lua(
     asset_registry: Option<&crate::asset_loading::AssetRegistry>,
     type_registry: &bevy::prelude::AppTypeRegistry,
 ) -> LuaResult<()> {
-    use bevy::reflect::{DynamicStruct, DynamicTuple, DynamicEnum, DynamicVariant};
-    
+    use bevy::reflect::{DynamicEnum, DynamicStruct, DynamicTuple, DynamicVariant};
+
     match field.reflect_mut() {
         ReflectMut::Struct(struct_mut) => {
             // Set each field in the struct from the table
@@ -999,7 +1226,13 @@ fn set_nested_field_from_lua(
                     let field_name_owned = field_name.to_string();
                     if let Ok(lua_value) = table.get::<LuaValue>(field_name) {
                         if let Some(nested_field) = struct_mut.field_at_mut(i) {
-                            set_field_from_lua(nested_field, &lua_value, asset_registry, type_registry, Some(&field_name_owned))?;
+                            set_field_from_lua(
+                                nested_field,
+                                &lua_value,
+                                asset_registry,
+                                type_registry,
+                                Some(&field_name_owned),
+                            )?;
                         }
                     }
                 }
@@ -1008,7 +1241,7 @@ fn set_nested_field_from_lua(
         ReflectMut::Enum(_enum_mut) => {
             // Get the type info to understand the enum structure
             let type_path = field.reflect_type_path().to_string();
-            
+
             // For Option types, we want to create Some(inner_value)
             // The table represents the inner value (e.g., Rect { min, max })
             if type_path.contains("Option<") {
@@ -1022,11 +1255,11 @@ fn set_nested_field_from_lua(
                     field.apply(&some_enum);
                     return Ok(());
                 }
-                
+
                 // Fallback to struct-based approach for complex types
                 // Create a dynamic struct for the inner value
                 let mut inner_struct = DynamicStruct::default();
-                
+
                 // Populate the inner struct from all table fields
                 for pair in table.pairs::<String, LuaValue>() {
                     if let Ok((key, value)) = pair {
@@ -1049,10 +1282,9 @@ fn set_nested_field_from_lua(
                                 // Handle nested tables (e.g., min/max in Rect)
                                 if key == "min" || key == "max" {
                                     // Try to create Vec2
-                                    if let (Ok(x), Ok(y)) = (
-                                        nested_table.get::<f32>("x"),
-                                        nested_table.get::<f32>("y")
-                                    ) {
+                                    if let (Ok(x), Ok(y)) =
+                                        (nested_table.get::<f32>("x"), nested_table.get::<f32>("y"))
+                                    {
                                         inner_struct.insert_boxed(&key, Box::new(Vec2::new(x, y)));
                                     }
                                 } else {
@@ -1062,10 +1294,16 @@ fn set_nested_field_from_lua(
                                         if let Ok((nested_key, nested_value)) = nested_pair {
                                             match &nested_value {
                                                 LuaValue::Number(n) => {
-                                                    nested_struct.insert_boxed(&nested_key, Box::new(*n as f32));
+                                                    nested_struct.insert_boxed(
+                                                        &nested_key,
+                                                        Box::new(*n as f32),
+                                                    );
                                                 }
                                                 LuaValue::Integer(i) => {
-                                                    nested_struct.insert_boxed(&nested_key, Box::new(*i as i32));
+                                                    nested_struct.insert_boxed(
+                                                        &nested_key,
+                                                        Box::new(*i as i32),
+                                                    );
                                                 }
                                                 _ => {}
                                             }
@@ -1078,45 +1316,56 @@ fn set_nested_field_from_lua(
                         }
                     }
                 }
-                
+
                 // Wrap in tuple for Some(.0)
                 let mut some_tuple = DynamicTuple::default();
                 some_tuple.insert_boxed(Box::new(inner_struct));
-                
+
                 let some_variant = DynamicVariant::Tuple(some_tuple);
                 let some_enum = DynamicEnum::new("Some", some_variant);
-                
+
                 field.apply(&some_enum);
             } else {
                 // Non-Option enum (like Val, RenderTarget) - create the enum variant from table
                 // Table should have format: { VariantName = value }
                 let mut pairs = table.pairs::<String, LuaValue>();
-                
+
                 if let Some(Ok((variant_name, variant_value))) = pairs.next() {
                     // Ensure there's only one key
                     if pairs.next().is_some() {
                         return Err(LuaError::RuntimeError(
-                            "Enum table must have exactly one key (the variant name)".to_string()
+                            "Enum table must have exactly one key (the variant name)".to_string(),
                         ));
                     }
                     // Get enum info to check if this variant's field is a newtype wrapper
                     // Returns (is_newtype, handle_inner_type_path, newtype_type_info, field_name, newtype_type_path)
-                    let (variant_is_newtype, newtype_inner_type, newtype_type_info, newtype_field_name, newtype_type_path) = 
-                        if let Some(TypeInfo::Enum(enum_info)) = field.get_represented_type_info() {
-                            debug!("[ENUM_NEWTYPE] Found enum info for type '{}', checking variant '{}'", enum_info.type_path(), variant_name);
-                            // Debug: list all available variants
-                            let all_variants: Vec<_> = enum_info.iter().map(|v| v.name().to_string()).collect();
-                            debug!("[ENUM_NEWTYPE]   Available variants: {:?}", all_variants);
-                            
-                            // Try direct variant lookup first, fall back to iteration
-                            let variant = enum_info.variant(&variant_name)
-                                .or_else(|| {
-                                    // Fallback: search through all variants by name (case-insensitive)
-                                    debug!("[ENUM_NEWTYPE]   Direct lookup failed, trying iteration...");
-                                    enum_info.iter().find(|v| v.name().eq_ignore_ascii_case(&variant_name))
-                                });
-                            
-                            variant.and_then(|v| {
+                    let (
+                        variant_is_newtype,
+                        newtype_inner_type,
+                        newtype_type_info,
+                        newtype_field_name,
+                        newtype_type_path,
+                    ) = if let Some(TypeInfo::Enum(enum_info)) = field.get_represented_type_info() {
+                        debug!(
+                            "[ENUM_NEWTYPE] Found enum info for type '{}', checking variant '{}'",
+                            enum_info.type_path(),
+                            variant_name
+                        );
+                        // Debug: list all available variants
+                        let all_variants: Vec<_> =
+                            enum_info.iter().map(|v| v.name().to_string()).collect();
+                        debug!("[ENUM_NEWTYPE]   Available variants: {:?}", all_variants);
+
+                        // Try direct variant lookup first, fall back to iteration
+                        let variant = enum_info.variant(&variant_name).or_else(|| {
+                            // Fallback: search through all variants by name (case-insensitive)
+                            debug!("[ENUM_NEWTYPE]   Direct lookup failed, trying iteration...");
+                            enum_info
+                                .iter()
+                                .find(|v| v.name().eq_ignore_ascii_case(&variant_name))
+                        });
+
+                        variant.and_then(|v| {
                                     debug!("[ENUM_NEWTYPE]   Variant exists");
                                     match v {
                                         bevy::reflect::VariantInfo::Tuple(tv) => {
@@ -1216,14 +1465,17 @@ fn set_nested_field_from_lua(
                                     }
                                 })
                                 .unwrap_or((false, None, None, None, None))
-                        } else {
-                            debug!("[ENUM_NEWTYPE] No enum info found for field");
-                            (false, None, None, None, None)
-                        };
+                    } else {
+                        debug!("[ENUM_NEWTYPE] No enum info found for field");
+                        (false, None, None, None, None)
+                    };
                     let _ = (newtype_type_info, newtype_field_name); // silence unused warnings
-                    
-                    debug!("[ENUM_NEWTYPE] Result: variant_is_newtype={}, inner_type={:?}", variant_is_newtype, newtype_inner_type);
-                    
+
+                    debug!(
+                        "[ENUM_NEWTYPE] Result: variant_is_newtype={}, inner_type={:?}",
+                        variant_is_newtype, newtype_inner_type
+                    );
+
                     // Create the dynamic enum variant
                     let dynamic_variant = match &variant_value {
                         LuaValue::Nil => {
@@ -1237,18 +1489,30 @@ fn set_nested_field_from_lua(
                                 // Treat number as asset ID and create properly typed Handle wrapped in DynamicStruct
                                 debug!("[ENUM_GENERIC] Detected newtype variant '{}', treating {} as asset ID, inner_type={:?}", variant_name, *n, newtype_inner_type);
                                 if let Some(registry) = asset_registry {
-                                    if let Some(untyped_handle) = registry.get_untyped_handle(*n as u32) {
+                                    if let Some(untyped_handle) =
+                                        registry.get_untyped_handle(*n as u32)
+                                    {
                                         // First create typed Handle<T> from UntypedHandle
-                                        let handle_box = if let Some(ref inner_type) = newtype_inner_type {
-                                            registry.try_create_typed_handle_box(inner_type, untyped_handle.clone())
-                                        } else {
-                                            None
-                                        };
-                                        
+                                        let handle_box =
+                                            if let Some(ref inner_type) = newtype_inner_type {
+                                                registry.try_create_typed_handle_box(
+                                                    inner_type,
+                                                    untyped_handle.clone(),
+                                                )
+                                            } else {
+                                                None
+                                            };
+
                                         // Then try to wrap in newtype (e.g., Handle<Image> -> ImageRenderTarget)
                                         if let Some(typed_handle) = handle_box {
                                             if let Some(ref newtype_path) = newtype_type_path {
-                                                if let Some(wrapped) = registry.try_wrap_in_newtype_with_reflection(newtype_path, typed_handle, type_registry) {
+                                                if let Some(wrapped) = registry
+                                                    .try_wrap_in_newtype_with_reflection(
+                                                        newtype_path,
+                                                        typed_handle,
+                                                        type_registry,
+                                                    )
+                                                {
                                                     debug!("[ENUM_GENERIC] ✓ Wrapped Handle in newtype '{}'", newtype_path);
                                                     tuple.insert_boxed(wrapped);
                                                 } else {
@@ -1263,14 +1527,20 @@ fn set_nested_field_from_lua(
                                             }
                                         } else {
                                             return Err(LuaError::RuntimeError(format!(
-                                                "Failed to create typed handle for inner type {:?}", newtype_inner_type
+                                                "Failed to create typed handle for inner type {:?}",
+                                                newtype_inner_type
                                             )));
                                         }
                                     } else {
-                                        return Err(LuaError::RuntimeError(format!("Asset ID {} not found", *n as u32)));
+                                        return Err(LuaError::RuntimeError(format!(
+                                            "Asset ID {} not found",
+                                            *n as u32
+                                        )));
                                     }
                                 } else {
-                                    return Err(LuaError::RuntimeError("Asset registry not available".to_string()));
+                                    return Err(LuaError::RuntimeError(
+                                        "Asset registry not available".to_string(),
+                                    ));
                                 }
                             } else {
                                 // Regular tuple variant with single f32
@@ -1284,18 +1554,30 @@ fn set_nested_field_from_lua(
                                 // This is a newtype-wrapped variant
                                 debug!("[ENUM_GENERIC] Detected newtype variant '{}', treating {} as asset ID, inner_type={:?}", variant_name, *i, newtype_inner_type);
                                 if let Some(registry) = asset_registry {
-                                    if let Some(untyped_handle) = registry.get_untyped_handle(*i as u32) {
+                                    if let Some(untyped_handle) =
+                                        registry.get_untyped_handle(*i as u32)
+                                    {
                                         // First create typed Handle<T> from UntypedHandle
-                                        let handle_box = if let Some(ref inner_type) = newtype_inner_type {
-                                            registry.try_create_typed_handle_box(inner_type, untyped_handle.clone())
-                                        } else {
-                                            None
-                                        };
-                                        
+                                        let handle_box =
+                                            if let Some(ref inner_type) = newtype_inner_type {
+                                                registry.try_create_typed_handle_box(
+                                                    inner_type,
+                                                    untyped_handle.clone(),
+                                                )
+                                            } else {
+                                                None
+                                            };
+
                                         // Then try to wrap in newtype (e.g., Handle<Image> -> ImageRenderTarget)
                                         if let Some(typed_handle) = handle_box {
                                             if let Some(ref newtype_path) = newtype_type_path {
-                                                if let Some(wrapped) = registry.try_wrap_in_newtype_with_reflection(newtype_path, typed_handle, type_registry) {
+                                                if let Some(wrapped) = registry
+                                                    .try_wrap_in_newtype_with_reflection(
+                                                        newtype_path,
+                                                        typed_handle,
+                                                        type_registry,
+                                                    )
+                                                {
                                                     debug!("[ENUM_GENERIC] ✓ Wrapped Handle in newtype '{}'", newtype_path);
                                                     tuple.insert_boxed(wrapped);
                                                 } else {
@@ -1310,14 +1592,20 @@ fn set_nested_field_from_lua(
                                             }
                                         } else {
                                             return Err(LuaError::RuntimeError(format!(
-                                                "Failed to create typed handle for inner type {:?}", newtype_inner_type
+                                                "Failed to create typed handle for inner type {:?}",
+                                                newtype_inner_type
                                             )));
                                         }
                                     } else {
-                                        return Err(LuaError::RuntimeError(format!("Asset ID {} not found", *i as u32)));
+                                        return Err(LuaError::RuntimeError(format!(
+                                            "Asset ID {} not found",
+                                            *i as u32
+                                        )));
                                     }
                                 } else {
-                                    return Err(LuaError::RuntimeError("Asset registry not available".to_string()));
+                                    return Err(LuaError::RuntimeError(
+                                        "Asset registry not available".to_string(),
+                                    ));
                                 }
                             } else {
                                 // Regular tuple variant with single i32/f32
@@ -1341,7 +1629,9 @@ fn set_nested_field_from_lua(
                         }
                         LuaValue::Table(nested_table) => {
                             // Could be tuple or struct variant
-                            if let Some(inner_value) = try_create_value_from_table(nested_table, asset_registry)? {
+                            if let Some(inner_value) =
+                                try_create_value_from_table(nested_table, asset_registry)?
+                            {
                                 let mut tuple = DynamicTuple::default();
                                 tuple.insert_boxed(inner_value);
                                 DynamicVariant::Tuple(tuple)
@@ -1351,7 +1641,7 @@ fn set_nested_field_from_lua(
                         }
                         _ => DynamicVariant::Unit,
                     };
-                    
+
                     let mut dynamic_enum = DynamicEnum::new(&variant_name, dynamic_variant);
                     // CRITICAL: Set the represented type so apply() knows the target enum type
                     let has_type_info = field.get_represented_type_info().is_some();
@@ -1360,10 +1650,11 @@ fn set_nested_field_from_lua(
                     }
                     debug!("[ENUM_SET] Applying enum variant '{}' to field of type: {} (has_type_info={})", 
                         variant_name, type_path, has_type_info);
-                    
+
                     // Try to use from_reflect to create concrete enum value (preserves handles better)
                     let registry = type_registry.read();
-                    let concrete_applied = registry.get_with_type_path(&type_path)
+                    let concrete_applied = registry
+                        .get_with_type_path(&type_path)
                         .and_then(|reg| reg.data::<bevy::reflect::ReflectFromReflect>())
                         .and_then(|from_reflect| from_reflect.from_reflect(&dynamic_enum))
                         .map(|concrete| {
@@ -1373,13 +1664,18 @@ fn set_nested_field_from_lua(
                         })
                         .unwrap_or(false);
                     drop(registry); // Release read lock
-                    
+
                     if !concrete_applied {
                         // Fallback: try apply directly with DynamicEnum
                         match field.try_apply(&dynamic_enum) {
-                            Ok(_) => debug!("[ENUM_SET] ✓ Applied DynamicEnum directly to {}", type_path),
+                            Ok(_) => {
+                                debug!("[ENUM_SET] ✓ Applied DynamicEnum directly to {}", type_path)
+                            }
                             Err(e) => {
-                                warn!("[ENUM_SET] ✗ Failed to apply enum variant '{}' to {}: {:?}", variant_name, type_path, e);
+                                warn!(
+                                    "[ENUM_SET] ✗ Failed to apply enum variant '{}' to {}: {:?}",
+                                    variant_name, type_path, e
+                                );
                                 field.apply(&dynamic_enum);
                             }
                         }
@@ -1389,6 +1685,6 @@ fn set_nested_field_from_lua(
         }
         _ => {}
     }
-    
+
     Ok(())
 }

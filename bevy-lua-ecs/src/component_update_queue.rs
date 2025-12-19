@@ -25,12 +25,7 @@ impl Default for ComponentUpdateQueue {
 
 impl ComponentUpdateQueue {
     /// Add a component update request
-    pub fn queue_update(
-        &self,
-        entity: Entity,
-        component_name: String,
-        data: LuaRegistryKey,
-    ) {
+    pub fn queue_update(&self, entity: Entity, component_name: String, data: LuaRegistryKey) {
         let request = ComponentUpdateRequest {
             entity,
             component_name,
@@ -38,17 +33,17 @@ impl ComponentUpdateQueue {
         };
         self.queue.lock().unwrap().push(request);
     }
-    
+
     /// Drain all pending update requests
     pub fn drain(&self) -> Vec<ComponentUpdateRequest> {
         self.queue.lock().unwrap().drain(..).collect()
     }
-    
+
     /// Remove all pending updates for specific entities (e.g., when they're despawned)
     pub fn clear_for_entities(&self, entities: &[Entity]) -> Vec<LuaRegistryKey> {
         let mut queue = self.queue.lock().unwrap();
         let mut removed_requests = Vec::new();
-        
+
         // Separate updates: keep those NOT for the specified entities, collect the rest
         let mut remaining = Vec::new();
         for request in queue.drain(..) {
@@ -58,10 +53,10 @@ impl ComponentUpdateQueue {
                 remaining.push(request);
             }
         }
-        
+
         // Put back the remaining requests
         *queue = remaining;
-        
+
         // Return the registry keys that need to be cleaned up
         removed_requests.into_iter().map(|r| r.data).collect()
     }

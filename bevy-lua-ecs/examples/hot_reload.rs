@@ -1,7 +1,6 @@
 /// Hot Reload Example
 /// Demonstrates moving sprites that "hot reload" every 5 seconds
 /// Run with: cargo run --example hot_reload
-
 use bevy::prelude::*;
 use bevy_lua_ecs::*;
 use std::fs;
@@ -15,17 +14,16 @@ struct TestResource {
 fn main() {
     let mut app = App::new();
 
-    app
-        .add_plugins(DefaultPlugins.set(AssetPlugin {
-            // Enable asset hot-reloading for file watching
-            watch_for_changes_override: Some(true),
-            ..default()
-        }))
-        .add_plugins(LuaSpawnPlugin)
-        .add_systems(Startup, setup)
-        .add_systems(Startup, setup_lua_resources)
-        .add_systems(PostStartup, load_and_run_script)
-        .run();
+    app.add_plugins(DefaultPlugins.set(AssetPlugin {
+        // Enable asset hot-reloading for file watching
+        watch_for_changes_override: Some(true),
+        ..default()
+    }))
+    .add_plugins(LuaSpawnPlugin)
+    .add_systems(Startup, setup)
+    .add_systems(Startup, setup_lua_resources)
+    .add_systems(PostStartup, load_and_run_script)
+    .run();
 }
 
 fn setup(mut commands: Commands) {
@@ -35,7 +33,8 @@ fn setup(mut commands: Commands) {
 
 fn setup_lua_resources(world: &mut World) {
     // Register TestResource so it can be inserted and removed from Lua
-    let mut serde_registry = world.resource_mut::<crate::serde_components::SerdeComponentRegistry>();
+    let mut serde_registry =
+        world.resource_mut::<crate::serde_components::SerdeComponentRegistry>();
     serde_registry.register_resource::<TestResource>("TestResource");
     info!("Registered TestResource");
 }

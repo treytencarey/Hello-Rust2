@@ -7,7 +7,8 @@ use std::sync::{Arc, Mutex};
 /// Method handler for a resource
 /// Takes: Lua context, World, method arguments
 /// Returns: Lua value result
-pub type ResourceMethod = Arc<dyn Fn(&Lua, &World, LuaMultiValue) -> LuaResult<LuaValue> + Send + Sync>;
+pub type ResourceMethod =
+    Arc<dyn Fn(&Lua, &World, LuaMultiValue) -> LuaResult<LuaValue> + Send + Sync>;
 
 /// Builder for registering resource methods (type-safe version)
 pub struct LuaResourceMethods<R: Resource> {
@@ -22,9 +23,9 @@ impl<R: Resource + 'static> LuaResourceMethods<R> {
             _phantom: std::marker::PhantomData,
         }
     }
-    
+
     /// Add a method - type-safe!
-    /// 
+    ///
     /// # Example
     /// ```ignore
     /// methods.add("receive_message", |resource, lua, channel_id: u8| {
@@ -42,7 +43,7 @@ impl<R: Resource + 'static> LuaResourceMethods<R> {
         let handler = Arc::new(move |lua: &Lua, world: &World, args: LuaMultiValue| {
             // Parse arguments
             let parsed_args: Args = FromLuaMulti::from_lua_multi(args, lua)?;
-            
+
             // Get mutable resource
             #[allow(invalid_reference_casting)]
             unsafe {
@@ -52,16 +53,16 @@ impl<R: Resource + 'static> LuaResourceMethods<R> {
                     result.into_lua(lua)
                 } else {
                     Err(LuaError::RuntimeError(format!(
-                        "Resource {} not found", 
+                        "Resource {} not found",
                         std::any::type_name::<R>()
                     )))
                 }
             }
         });
-        
+
         self.methods.insert(name.to_string(), handler);
     }
-    
+
     pub fn into_map(self) -> HashMap<String, ResourceMethod> {
         self.methods
     }
@@ -78,7 +79,7 @@ pub struct LuaResourceRegistry {
 impl LuaResourceRegistry {
     /// Register a resource type with its methods
     /// This is the main API for registering resources
-    /// 
+    ///
     /// # Example
     /// ```ignore
     /// registry.register_resource::<RenetClient>("RenetClient", |methods| {
@@ -95,15 +96,21 @@ impl LuaResourceRegistry {
     {
         let mut methods_builder = LuaResourceMethods::new();
         register_fn(&mut methods_builder);
-        
+
         let type_id = TypeId::of::<R>();
-        
-        self.resources.lock().unwrap().insert(type_id, methods_builder.into_map());
-        self.type_names.lock().unwrap().insert(type_name.to_string(), type_id);
-        
+
+        self.resources
+            .lock()
+            .unwrap()
+            .insert(type_id, methods_builder.into_map());
+        self.type_names
+            .lock()
+            .unwrap()
+            .insert(type_name.to_string(), type_id);
+
         debug!("✓ Registered Lua resource: {}", type_name);
     }
-    
+
     /// Call a method on a resource
     pub fn call_method(
         &self,
@@ -114,16 +121,22 @@ impl LuaResourceRegistry {
         args: LuaMultiValue,
     ) -> LuaResult<LuaValue> {
         let type_names = self.type_names.lock().unwrap();
-        let type_id = type_names.get(type_name)
-            .ok_or_else(|| LuaError::RuntimeError(format!("Resource type '{}' not registered", type_name)))?;
-        
+        let type_id = type_names.get(type_name).ok_or_else(|| {
+            LuaError::RuntimeError(format!("Resource type '{}' not registered", type_name))
+        })?;
+
         let resources = self.resources.lock().unwrap();
-        let methods = resources.get(type_id)
-            .ok_or_else(|| LuaError::RuntimeError(format!("Resource type '{}' has no methods", type_name)))?;
-        
-        let method = methods.get(method_name)
-            .ok_or_else(|| LuaError::RuntimeError(format!("Method '{}' not found on '{}'", method_name, type_name)))?;
-        
+        let methods = resources.get(type_id).ok_or_else(|| {
+            LuaError::RuntimeError(format!("Resource type '{}' has no methods", type_name))
+        })?;
+
+        let method = methods.get(method_name).ok_or_else(|| {
+            LuaError::RuntimeError(format!(
+                "Method '{}' not found on '{}'",
+                method_name, type_name
+            ))
+        })?;
+
         method(lua, world, args)
     }
 }

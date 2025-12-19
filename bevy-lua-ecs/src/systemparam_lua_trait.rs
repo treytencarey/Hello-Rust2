@@ -15,8 +15,8 @@
 //! });
 //! ```
 
-use bevy::prelude::*;
 use bevy::ecs::system::{SystemParam, SystemState};
+use bevy::prelude::*;
 use mlua::prelude::*;
 use std::any::TypeId;
 use std::collections::HashMap;
@@ -25,13 +25,16 @@ use std::sync::{Arc, Mutex};
 /// Method handler for a SystemParam
 /// Takes: Lua context, mutable World, method arguments
 /// Returns: Lua value result
-pub type SystemParamMethod = Arc<dyn Fn(&Lua, &mut World, LuaMultiValue) -> LuaResult<LuaValue> + Send + Sync>;
+pub type SystemParamMethod =
+    Arc<dyn Fn(&Lua, &mut World, LuaMultiValue) -> LuaResult<LuaValue> + Send + Sync>;
 
 /// Function signature for the auto-generated SystemParam method dispatcher
-pub type SystemParamDispatchFn = fn(&Lua, &mut World, &str, &str, LuaMultiValue) -> LuaResult<LuaValue>;
+pub type SystemParamDispatchFn =
+    fn(&Lua, &mut World, &str, &str, LuaMultiValue) -> LuaResult<LuaValue>;
 
 /// Global dispatch function set by the parent crate's generated code
-static SYSTEMPARAM_DISPATCHER: std::sync::OnceLock<SystemParamDispatchFn> = std::sync::OnceLock::new();
+static SYSTEMPARAM_DISPATCHER: std::sync::OnceLock<SystemParamDispatchFn> =
+    std::sync::OnceLock::new();
 
 /// Set the global SystemParam method dispatcher
 /// This should be called by the parent crate's initialization code
@@ -91,7 +94,8 @@ pub fn call_read_events_global(
 pub type EventWriteDispatchFn = fn(&Lua, &mut World, &str, &LuaTable) -> Result<(), String>;
 
 /// Global dispatch function for event writing set by the parent crate's generated code
-static EVENT_WRITE_DISPATCHER: std::sync::OnceLock<EventWriteDispatchFn> = std::sync::OnceLock::new();
+static EVENT_WRITE_DISPATCHER: std::sync::OnceLock<EventWriteDispatchFn> =
+    std::sync::OnceLock::new();
 
 /// Set the global event writer dispatcher
 /// This should be called by the parent crate's initialization code
@@ -121,7 +125,8 @@ pub fn call_write_events_global(
 pub type MessageWriteDispatchFn = fn(&Lua, &mut World, &str, &LuaTable) -> Result<(), String>;
 
 /// Global dispatch function for message writing set by the parent crate's generated code
-static MESSAGE_WRITE_DISPATCHER: std::sync::OnceLock<MessageWriteDispatchFn> = std::sync::OnceLock::new();
+static MESSAGE_WRITE_DISPATCHER: std::sync::OnceLock<MessageWriteDispatchFn> =
+    std::sync::OnceLock::new();
 
 /// Set the global message writer dispatcher
 /// This should be called by the parent crate's initialization code
@@ -161,9 +166,9 @@ impl LuaSystemParamRegistry {
     pub fn new() -> Self {
         Self::default()
     }
-    
+
     /// Register a SystemParam type with its methods
-    /// 
+    ///
     /// # Example
     /// ```ignore
     /// registry.register_systemparam::<MeshRayCast>("MeshRayCast", |methods| {
@@ -181,15 +186,21 @@ impl LuaSystemParamRegistry {
     {
         let mut methods_builder = LuaSystemParamMethods::new();
         register_fn(&mut methods_builder);
-        
+
         let type_id = TypeId::of::<P>();
-        
-        self.params.lock().unwrap().insert(type_id, methods_builder.into_map());
-        self.type_names.lock().unwrap().insert(type_name.to_string(), type_id);
-        
+
+        self.params
+            .lock()
+            .unwrap()
+            .insert(type_id, methods_builder.into_map());
+        self.type_names
+            .lock()
+            .unwrap()
+            .insert(type_name.to_string(), type_id);
+
         debug!("✓ Registered Lua systemparam: {}", type_name);
     }
-    
+
     /// Call a method on a SystemParam
     pub fn call_method(
         &self,
@@ -200,34 +211,40 @@ impl LuaSystemParamRegistry {
         args: LuaMultiValue,
     ) -> LuaResult<LuaValue> {
         let type_names = self.type_names.lock().unwrap();
-        let type_id = type_names.get(type_name)
-            .ok_or_else(|| LuaError::RuntimeError(format!("SystemParam type '{}' not registered", type_name)))?;
-        
+        let type_id = type_names.get(type_name).ok_or_else(|| {
+            LuaError::RuntimeError(format!("SystemParam type '{}' not registered", type_name))
+        })?;
+
         let params = self.params.lock().unwrap();
-        let methods = params.get(type_id)
-            .ok_or_else(|| LuaError::RuntimeError(format!("SystemParam type '{}' has no methods", type_name)))?;
-        
-        let method = methods.get(method_name)
-            .ok_or_else(|| LuaError::RuntimeError(format!("Method '{}' not found on '{}'", method_name, type_name)))?;
-        
+        let methods = params.get(type_id).ok_or_else(|| {
+            LuaError::RuntimeError(format!("SystemParam type '{}' has no methods", type_name))
+        })?;
+
+        let method = methods.get(method_name).ok_or_else(|| {
+            LuaError::RuntimeError(format!(
+                "Method '{}' not found on '{}'",
+                method_name, type_name
+            ))
+        })?;
+
         // Clone the Arc since we need to release the lock before calling
         let method = method.clone();
         drop(params);
         drop(type_names);
-        
+
         method(lua, world, args)
     }
-    
+
     /// List all registered SystemParam types
     pub fn list_types(&self) -> Vec<String> {
         self.type_names.lock().unwrap().keys().cloned().collect()
     }
-    
+
     /// List all methods for a SystemParam type
     pub fn list_methods(&self, type_name: &str) -> Option<Vec<String>> {
         let type_names = self.type_names.lock().unwrap();
         let type_id = type_names.get(type_name)?;
-        
+
         let params = self.params.lock().unwrap();
         params.get(type_id).map(|m| m.keys().cloned().collect())
     }
@@ -250,11 +267,11 @@ where
             _phantom: std::marker::PhantomData,
         }
     }
-    
+
     /// Add a method - uses SystemState for access
-    /// 
+    ///
     /// The handler receives the SystemParam item directly.
-    /// 
+    ///
     /// # Example
     /// ```ignore
     /// methods.add("cast_ray", |raycast, lua, ray_data: LuaTable| {
@@ -264,26 +281,29 @@ where
     /// ```
     pub fn add<F, Args, Ret>(&mut self, name: &str, handler: F)
     where
-        F: for<'w, 's> Fn(&mut <P as SystemParam>::Item<'w, 's>, &Lua, Args) -> LuaResult<Ret> + Send + Sync + 'static,
+        F: for<'w, 's> Fn(&mut <P as SystemParam>::Item<'w, 's>, &Lua, Args) -> LuaResult<Ret>
+            + Send
+            + Sync
+            + 'static,
         Args: FromLuaMulti,
         Ret: IntoLua,
     {
         let handler = Arc::new(move |lua: &Lua, world: &mut World, args: LuaMultiValue| {
             // Parse arguments
             let parsed_args: Args = FromLuaMulti::from_lua_multi(args, lua)?;
-            
+
             // Create SystemState and get the param
             let mut system_state = SystemState::<P>::new(world);
             let mut param = system_state.get_mut(world);
-            
+
             // Call the handler
             let result = handler(&mut param, lua, parsed_args)?;
             result.into_lua(lua)
         });
-        
+
         self.methods.insert(name.to_string(), handler);
     }
-    
+
     pub fn into_map(self) -> HashMap<String, SystemParamMethod> {
         self.methods
     }

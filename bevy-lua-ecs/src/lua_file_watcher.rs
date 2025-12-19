@@ -48,11 +48,11 @@ fn poll_file_changes(
 ) {
     // Watch assets/ directory (not just scripts/) to support scripts in any location
     let script_dir = Path::new("assets");
-    
+
     if !script_dir.exists() {
         return;
     }
-    
+
     // Recursively walk the assets directory for .lua files
     visit_lua_files(script_dir, &mut state, &mut events);
 }
@@ -66,18 +66,18 @@ fn visit_lua_files(
     if let Ok(entries) = std::fs::read_dir(dir) {
         for entry in entries.flatten() {
             let path = entry.path();
-            
+
             // Recursively check subdirectories
             if path.is_dir() {
                 visit_lua_files(&path, state, events);
                 continue;
             }
-            
+
             // Only check .lua files
             if path.extension().and_then(|s| s.to_str()) != Some("lua") {
                 continue;
             }
-            
+
             // Get file metadata
             if let Ok(metadata) = std::fs::metadata(&path) {
                 if let Ok(modified) = metadata.modified() {
@@ -88,9 +88,7 @@ fn visit_lua_files(
                             if let Ok(duration) = modified.duration_since(*last_mod) {
                                 if duration >= state.debounce_duration {
                                     debug!("Detected change in Lua script: {:?}", path);
-                                    events.write(LuaFileChangeEvent {
-                                        path: path.clone(),
-                                    });
+                                    events.write(LuaFileChangeEvent { path: path.clone() });
                                     state.last_modified.insert(path.clone(), modified);
                                 }
                             }

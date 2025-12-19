@@ -7,29 +7,13 @@
 use bevy::prelude::*;
 use bytes::Bytes;
 use crate::network_asset_client::{
-    AssetRequestMessage, AssetResponseMessage,
+    AssetRequestMessage, AssetResponseMessage, AssetSubscriptionMessage, AssetUpdateNotification,
     ASSET_CHANNEL, chunk_and_encrypt, decrypt_data,
 };
+use crate::subscription_registry::{AssetSubscriptionRegistry, FileWatcherResource};
 
 use bevy_replicon_renet::renet::{RenetClient, RenetServer};
-
-/// Normalize a path by resolving .. and . components and converting to forward slashes
-fn normalize_path(path: &str) -> String {
-    let path = path.replace("\\", "/");
-    let mut parts: Vec<&str> = Vec::new();
-    
-    for part in path.split('/') {
-        match part {
-            "" | "." => {} // Skip empty and current directory
-            ".." => {
-                parts.pop(); // Go up one directory
-            }
-            _ => parts.push(part),
-        }
-    }
-    
-    parts.join("/")
-}
+use bevy_lua_ecs::path_utils::normalize_path;
 
 /// Resolve asset path using context for relative paths
 /// If context_path is provided, tries relative to context's directory first
@@ -63,6 +47,8 @@ fn resolve_asset_path(requested_path: &str, context_path: Option<&str>) -> std::
 #[cfg(feature = "networking")]
 pub fn handle_asset_requests_global(
     server: Option<ResMut<RenetServer>>,
+    subscription_registry: Option<ResMut<AssetSubscriptionRegistry>>,
+    mut file_watcher: Option<ResMut<FileWatcherResource>>,
 ) {
     let Some(mut server) = server else { return };
     
@@ -70,10 +56,20 @@ pub fn handle_asset_requests_global(
     let client_ids: Vec<u64> = server.clients_id().into_iter().collect();
     
     for client_id in client_ids {
-        // Process all asset request messages from this client
+        // Process all messages from this client on the asset channel
         while let Some(message_bytes) = server.receive_message(client_id, ASSET_CHANNEL) {
-            match bincode::deserialize::<AssetRequestMessage>(&message_bytes) {
-                Ok(request) => {
+            // Deserialize as ClientToServerMessage wrapper for proper type discrimination
+            match bincode::deserialize::<crate::network_asset_client::ClientToServerMessage>(&message_bytes) {
+                Ok(crate::network_asset_client::ClientToServerMessage::Subscription(sub_msg)) => {
+                    // Handle subscription message
+                    if let Some(ref registry) = subscription_registry {
+                        handle_subscription_message(client_id, sub_msg, registry, &mut file_watcher);
+                    } else {
+                        debug!("📡 [SERVER] Received subscription message but no registry");
+                    }
+                    continue;
+                }
+                Ok(crate::network_asset_client::ClientToServerMessage::Request(request)) => {
                     info!(
                         "📥 [SERVER] Asset request from client {}: {} (local_hash: {:?})",
                         client_id, request.path, request.local_hash
@@ -112,7 +108,8 @@ pub fn handle_asset_requests_global(
                                         error: None,
                                     };
                                     
-                                    if let Ok(response_bytes) = bincode::serialize(&response) {
+                                    let wrapped = crate::network_asset_client::ServerToClientMessage::Response(response);
+                                    if let Ok(response_bytes) = bincode::serialize(&wrapped) {
                                         server.send_message(client_id, ASSET_CHANNEL, Bytes::from(response_bytes));
                                     }
                                     continue;
@@ -142,7 +139,8 @@ pub fn handle_asset_requests_global(
                                     error: None,
                                 };
                                 
-                                if let Ok(response_bytes) = bincode::serialize(&response) {
+                                let wrapped = crate::network_asset_client::ServerToClientMessage::Response(response);
+                                if let Ok(response_bytes) = bincode::serialize(&wrapped) {
                                     server.send_message(client_id, ASSET_CHANNEL, Bytes::from(response_bytes));
                                 }
                             }
@@ -166,14 +164,67 @@ pub fn handle_asset_requests_global(
                                 error: Some(format!("Asset not found: {}", e)),
                             };
                             
-                            if let Ok(response_bytes) = bincode::serialize(&response) {
+                            let wrapped = crate::network_asset_client::ServerToClientMessage::Response(response);
+                            if let Ok(response_bytes) = bincode::serialize(&wrapped) {
                                 server.send_message(client_id, ASSET_CHANNEL, Bytes::from(response_bytes));
                             }
                         }
                     }
                 }
                 Err(e) => {
-                    warn!("❌ [SERVER] Failed to deserialize asset request: {}", e);
+                    warn!("❌ [SERVER] Failed to deserialize message: {}", e);
+                }
+            }
+        }
+    }
+}
+
+/// Handle a subscription message from a client
+#[cfg(feature = "networking")]
+fn handle_subscription_message(
+    client_id: u64,
+    message: AssetSubscriptionMessage,
+    registry: &AssetSubscriptionRegistry,
+    file_watcher: &mut Option<ResMut<FileWatcherResource>>,
+) {
+    match message {
+        AssetSubscriptionMessage::Subscribe { paths, instance_id } => {
+            info!("📡 [SERVER] Client {} instance {} subscribing to {} paths", 
+                client_id, instance_id, paths.len());
+            for path in paths {
+                info!("  - '{}'", path);
+                let is_first = registry.subscribe(client_id, path.clone(), instance_id);
+                if is_first {
+                    // Start file watching for this path
+                    if let Some(ref mut watcher) = file_watcher {
+                        watcher.watch(&path);
+                    }
+                }
+            }
+        }
+        AssetSubscriptionMessage::Unsubscribe { paths, instance_id } => {
+            info!("📡 [SERVER] Client {} instance {} unsubscribing from {} paths", 
+                client_id, instance_id, paths.len());
+            for path in paths {
+                info!("  - '{}'", path);
+                let is_last = registry.unsubscribe(client_id, &path, instance_id);
+                if is_last {
+                    // Stop file watching for this path
+                    if let Some(ref mut watcher) = file_watcher {
+                        watcher.unwatch(&path);
+                    }
+                }
+            }
+        }
+        AssetSubscriptionMessage::UnsubscribeAll { instance_id } => {
+            info!("📡 [SERVER] Client {} instance {} unsubscribing from all paths", 
+                client_id, instance_id);
+            let empty_paths = registry.unsubscribe_all(client_id, instance_id);
+            for path in empty_paths {
+                info!("  - '{}'", path);
+                // Stop file watching for paths with no more subscribers
+                if let Some(ref mut watcher) = file_watcher {
+                    watcher.unwatch(&path);
                 }
             }
         }
@@ -192,7 +243,9 @@ pub fn send_asset_requests_global(
     let requests_to_send = pending_requests.drain_pending_requests();
     
     for request in requests_to_send {
-        if let Ok(message_bytes) = bincode::serialize(&request) {
+        // Wrap in ClientToServerMessage for proper type discrimination
+        let wrapped = crate::network_asset_client::ClientToServerMessage::Request(request.clone());
+        if let Ok(message_bytes) = bincode::serialize(&wrapped) {
             info!(
                 "📤 [CLIENT] Sending asset request: {} (id: {})",
                 request.path, request.request_id
@@ -203,24 +256,31 @@ pub fn send_asset_requests_global(
 }
 
 /// System to receive asset responses using global RenetClient resource
+/// Handles both AssetResponseMessage and AssetUpdateNotification via the wrapper enum
 #[cfg(feature = "networking")]
 pub fn receive_asset_responses_global(
     pending_requests: Res<crate::network_asset_client::PendingAssetRequests>,
+    mut pending_updates: ResMut<crate::network_asset_client::PendingAssetUpdates>,
     client: Option<ResMut<RenetClient>>,
 ) {
     let Some(mut client) = client else { return };
     
     while let Some(message_bytes) = client.receive_message(ASSET_CHANNEL) {
-        match bincode::deserialize::<AssetResponseMessage>(&message_bytes) {
-            Ok(response) => {
+        match bincode::deserialize::<crate::network_asset_client::ServerToClientMessage>(&message_bytes) {
+            Ok(crate::network_asset_client::ServerToClientMessage::Response(response)) => {
                 process_asset_response(&pending_requests, response);
             }
+            Ok(crate::network_asset_client::ServerToClientMessage::Update(notification)) => {
+                // Queue the update for processing by receive_asset_updates system
+                pending_updates.queue(notification);
+            }
             Err(e) => {
-                warn!("❌ [CLIENT] Failed to deserialize asset response: {}", e);
+                warn!("❌ [CLIENT] Failed to deserialize server message: {}", e);
             }
         }
     }
 }
+
 
 /// Process an asset response message
 #[cfg(feature = "networking")]
@@ -328,4 +388,113 @@ pub fn check_request_timeouts(
         warn!("⏱️ [CLIENT] Asset request timed out: '{}'", path);
         pending_requests.mark_failed(&path, "Request timed out".to_string());
     }
+}
+
+/// System to poll file watcher for changes and broadcast updates to subscribed clients
+#[cfg(feature = "networking")]
+pub fn broadcast_file_updates(
+    server: Option<ResMut<RenetServer>>,
+    subscription_registry: Option<Res<AssetSubscriptionRegistry>>,
+    mut file_watcher: Option<ResMut<FileWatcherResource>>,
+) {
+    let Some(mut server) = server else { return };
+    let Some(registry) = subscription_registry else { return };
+    let Some(mut watcher) = file_watcher else { return };
+    
+    // Poll for file changes
+    let changed_paths = watcher.poll_changes();
+    
+    for path in changed_paths {
+        // Get subscribers for this path
+        let subscribers = registry.get_subscribers(&path);
+        
+        if subscribers.is_empty() {
+            debug!("📡 [BROADCAST] No subscribers for changed file: {}", path);
+            continue;
+        }
+        
+        info!("📡 [BROADCAST] File '{}' changed, notifying {} clients", path, subscribers.len());
+        
+        // Read the updated file
+        let file_path = std::path::Path::new("assets").join(&path);
+        match std::fs::read(&file_path) {
+            Ok(data) => {
+                // Compute hash
+                let server_hash = crate::network_asset_client::compute_hash(&data);
+                
+                // Chunk and encrypt for sending
+                let chunks = chunk_and_encrypt(&data);
+                let total_chunks = chunks.len() as u32;
+                
+                // Send to each subscriber
+                for client_id in subscribers {
+                    info!("📡 [BROADCAST] Sending update for '{}' to client {} ({} chunks)", 
+                        path, client_id, total_chunks);
+                    
+                    for (index, chunk) in chunks.iter().enumerate() {
+                        let notification = AssetUpdateNotification {
+                            path: path.clone(),
+                            server_hash: server_hash.clone(),
+                            data: chunk.clone(),
+                            total_size: data.len(),
+                            chunk_index: index as u32,
+                            total_chunks,
+                        };
+                        
+                        let wrapped = crate::network_asset_client::ServerToClientMessage::Update(notification);
+                        if let Ok(msg_bytes) = bincode::serialize(&wrapped) {
+                            server.send_message(client_id, ASSET_CHANNEL, Bytes::from(msg_bytes));
+                        }
+                    }
+                }
+            }
+            Err(e) => {
+                warn!("📡 [BROADCAST] Failed to read changed file '{}': {}", path, e);
+            }
+        }
+    }
+}
+
+/// Resource to track connected clients for disconnect detection
+#[cfg(feature = "networking")]
+#[derive(Resource, Default)]
+pub struct ConnectedClients {
+    clients: std::collections::HashSet<u64>,
+}
+
+/// System to clean up subscriptions for disconnected clients
+#[cfg(feature = "networking")]
+pub fn cleanup_disconnected_clients(
+    server: Option<Res<RenetServer>>,
+    mut connected_clients: ResMut<ConnectedClients>,
+    subscription_registry: Option<Res<AssetSubscriptionRegistry>>,
+    mut file_watcher: Option<ResMut<FileWatcherResource>>,
+) {
+    let Some(server) = server else { return };
+    let Some(registry) = subscription_registry else { return };
+    
+    // Get current connected clients
+    let current_clients: std::collections::HashSet<u64> = server.clients_id().into_iter().collect();
+    
+    // Find disconnected clients (were connected, now not)
+    let disconnected: Vec<u64> = connected_clients.clients
+        .difference(&current_clients)
+        .cloned()
+        .collect();
+    
+    // Clean up subscriptions for disconnected clients
+    for client_id in disconnected {
+        info!("🧹 [SERVER] Cleaning up subscriptions for disconnected client {}", client_id);
+        let empty_paths = registry.unsubscribe_client(client_id);
+        
+        // Unwatch paths that have no more subscribers
+        if let Some(ref mut watcher) = file_watcher {
+            for path in empty_paths {
+                watcher.unwatch(&path);
+            }
+        }
+    }
+    
+    // Update connected clients set
+    connected_clients.clients = current_clients;
 }

@@ -42,7 +42,7 @@ impl ResourceConstructorRegistry {
             .unwrap()
             .insert(name.into(), Arc::new(constructor));
     }
-    
+
     /// Try to construct a resource from Lua data
     /// Returns None if no constructor is registered for this type
     pub fn try_construct(
@@ -52,9 +52,11 @@ impl ResourceConstructorRegistry {
         data: LuaValue,
     ) -> Option<LuaResult<Box<dyn Reflect>>> {
         let constructors = self.constructors.lock().unwrap();
-        constructors.get(name).map(|constructor| constructor(lua, data))
+        constructors
+            .get(name)
+            .map(|constructor| constructor(lua, data))
     }
-    
+
     /// Check if a constructor is registered for a resource type
     pub fn has_constructor(&self, name: &str) -> bool {
         self.constructors.lock().unwrap().contains_key(name)

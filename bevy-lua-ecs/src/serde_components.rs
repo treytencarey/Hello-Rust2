@@ -4,7 +4,8 @@ use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 
 /// Function that deserializes a component from Lua and inserts it
-type SerdeComponentHandler = Box<dyn Fn(&LuaValue, &mut EntityCommands) -> LuaResult<()> + Send + Sync>;
+type SerdeComponentHandler =
+    Box<dyn Fn(&LuaValue, &mut EntityCommands) -> LuaResult<()> + Send + Sync>;
 
 /// Function that deserializes a resource from Lua and inserts it into World
 type SerdeResourceHandler = Box<dyn Fn(&LuaValue, &mut World) -> LuaResult<()> + Send + Sync>;
@@ -32,19 +33,24 @@ impl SerdeComponentRegistry {
         let name = name.into();
         let handler = Box::new(move |data: &LuaValue, entity: &mut EntityCommands| {
             // Convert LuaValue to T using serde via JSON intermediate
-            let json_value = serde_json::to_value(data)
-                .map_err(|e| LuaError::SerializeError(format!("Failed to serialize Lua value: {}", e)))?;
-            
-            let component: T = serde_json::from_value(json_value)
-                .map_err(|e| LuaError::DeserializeError(format!("Failed to deserialize component: {}", e)))?;
-            
+            let json_value = serde_json::to_value(data).map_err(|e| {
+                LuaError::SerializeError(format!("Failed to serialize Lua value: {}", e))
+            })?;
+
+            let component: T = serde_json::from_value(json_value).map_err(|e| {
+                LuaError::DeserializeError(format!("Failed to deserialize component: {}", e))
+            })?;
+
             entity.insert(component);
             Ok(())
         });
-        
-        self.component_handlers.lock().unwrap().insert(name, handler);
+
+        self.component_handlers
+            .lock()
+            .unwrap()
+            .insert(name, handler);
     }
-    
+
     /// Register a marker component (zero-sized type, no fields)
     pub fn register_marker<T>(&mut self, name: impl Into<String>)
     where
@@ -56,10 +62,13 @@ impl SerdeComponentRegistry {
             entity.insert(T::default());
             Ok(())
         });
-        
-        self.component_handlers.lock().unwrap().insert(name, handler);
+
+        self.component_handlers
+            .lock()
+            .unwrap()
+            .insert(name, handler);
     }
-    
+
     /// Register a newtype wrapper component (tuple struct with single field)
     /// Accepts a scalar value from Lua and wraps it in an array for deserialization
     pub fn register_newtype<T>(&mut self, name: impl Into<String>)
@@ -69,22 +78,30 @@ impl SerdeComponentRegistry {
         let name = name.into();
         let handler = Box::new(move |data: &LuaValue, entity: &mut EntityCommands| {
             // Wrap scalar value in array for tuple struct deserialization
-            let json_value = serde_json::to_value(data)
-                .map_err(|e| LuaError::SerializeError(format!("Failed to serialize Lua value: {}", e)))?;
-            
+            let json_value = serde_json::to_value(data).map_err(|e| {
+                LuaError::SerializeError(format!("Failed to serialize Lua value: {}", e))
+            })?;
+
             // Wrap in array to match tuple struct format
             let wrapped = serde_json::json!([json_value]);
-            
-            let component: T = serde_json::from_value(wrapped)
-                .map_err(|e| LuaError::DeserializeError(format!("Failed to deserialize newtype component: {}", e)))?;
-            
+
+            let component: T = serde_json::from_value(wrapped).map_err(|e| {
+                LuaError::DeserializeError(format!(
+                    "Failed to deserialize newtype component: {}",
+                    e
+                ))
+            })?;
+
             entity.insert(component);
             Ok(())
         });
-        
-        self.component_handlers.lock().unwrap().insert(name, handler);
+
+        self.component_handlers
+            .lock()
+            .unwrap()
+            .insert(name, handler);
     }
-    
+
     /// Register a resource that implements Deserialize
     pub fn register_resource<T>(&mut self, name: impl Into<String>)
     where
@@ -95,32 +112,48 @@ impl SerdeComponentRegistry {
         let inserted_resources = self.inserted_resources.clone();
         let handler = Box::new(move |data: &LuaValue, world: &mut World| {
             // Convert LuaValue to T using serde via JSON intermediate
-            let json_value = serde_json::to_value(data)
-                .map_err(|e| LuaError::SerializeError(format!("Failed to serialize Lua value: {}", e)))?;
-            
-            let resource: T = serde_json::from_value(json_value)
-                .map_err(|e| LuaError::DeserializeError(format!("Failed to deserialize resource: {}", e)))?;
-            
+            let json_value = serde_json::to_value(data).map_err(|e| {
+                LuaError::SerializeError(format!("Failed to serialize Lua value: {}", e))
+            })?;
+
+            let resource: T = serde_json::from_value(json_value).map_err(|e| {
+                LuaError::DeserializeError(format!("Failed to deserialize resource: {}", e))
+            })?;
+
             world.insert_resource(resource);
-            
+
             // Track that this resource has been inserted (generic tracking)
-            inserted_resources.lock().unwrap().insert(name_clone.clone());
-            
+            inserted_resources
+                .lock()
+                .unwrap()
+                .insert(name_clone.clone());
+
             Ok(())
         });
-        
-        self.resource_handlers.lock().unwrap().insert(name.clone(), handler);
-        
+
+        self.resource_handlers
+            .lock()
+            .unwrap()
+            .insert(name.clone(), handler);
+
         // Register removal handler
         let removal_handler = Box::new(move |world: &mut World| {
             world.remove_resource::<T>();
         });
-        
-        self.resource_removal_handlers.lock().unwrap().insert(name, removal_handler);
+
+        self.resource_removal_handlers
+            .lock()
+            .unwrap()
+            .insert(name, removal_handler);
     }
-    
+
     /// Try to handle a component via serde
-    pub fn try_handle(&self, name: &str, data: &LuaValue, entity: &mut EntityCommands) -> Option<LuaResult<()>> {
+    pub fn try_handle(
+        &self,
+        name: &str,
+        data: &LuaValue,
+        entity: &mut EntityCommands,
+    ) -> Option<LuaResult<()>> {
         let handlers = self.component_handlers.lock().unwrap();
         if let Some(handler) = handlers.get(name) {
             Some(handler(data, entity))
@@ -128,9 +161,14 @@ impl SerdeComponentRegistry {
             None
         }
     }
-    
+
     /// Try to insert a resource via serde
-    pub fn try_insert_resource(&self, name: &str, data: &LuaValue, world: &mut World) -> Option<LuaResult<()>> {
+    pub fn try_insert_resource(
+        &self,
+        name: &str,
+        data: &LuaValue,
+        world: &mut World,
+    ) -> Option<LuaResult<()>> {
         let handlers = self.resource_handlers.lock().unwrap();
         if let Some(handler) = handlers.get(name) {
             Some(handler(data, world))
@@ -138,7 +176,7 @@ impl SerdeComponentRegistry {
             None
         }
     }
-    
+
     /// Try to remove a resource by name
     pub fn try_remove_resource(&self, name: &str, world: &mut World) -> bool {
         let handlers = self.resource_removal_handlers.lock().unwrap();
@@ -149,12 +187,12 @@ impl SerdeComponentRegistry {
             false
         }
     }
-    
+
     /// Check if a resource has been inserted (generic tracking)
     pub fn has_resource(&self, name: &str) -> bool {
         self.inserted_resources.lock().unwrap().contains(name)
     }
-    
+
     /// Mark a resource as inserted (for tracking by Rust code)
     /// This is generic - works for any resource name
     pub fn mark_resource_inserted(&self, name: impl Into<String>) {

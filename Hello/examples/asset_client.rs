@@ -15,19 +15,10 @@ use bevy_renet::netcode::{NetcodeClientTransport, ClientAuthentication, ConnectT
 use bevy_renet::{RenetClientPlugin, netcode::NetcodeClientPlugin};
 use bevy_replicon_renet::renet::{RenetClient, ConnectionConfig, ChannelConfig, SendType};
 
-// Include auto-generated bindings
-#[path = "../src/auto_resource_bindings.rs"]
-mod auto_resource_bindings;
-
-// Include network asset modules from Hello crate
-#[path = "../src/network_asset_client.rs"]
-mod network_asset_client;
-
-#[path = "../src/asset_server_delivery.rs"]
-mod asset_server_delivery;
-
-#[path = "../src/network_asset_integration.rs"]
-mod network_asset_integration;
+// Import from hello library crate
+use hello::auto_resource_bindings;
+use hello::network_asset_client;
+use hello::network_asset_integration;
 
 // Channel 5 is used for asset delivery
 const ASSET_CHANNEL: u8 = 5;
@@ -43,10 +34,10 @@ fn main() {
     
     App::new()
         .add_plugins(DefaultPlugins)
-        .add_plugins(crate::auto_resource_bindings::LuaBindingsPlugin)
+        .add_plugins(auto_resource_bindings::LuaBindingsPlugin)
         .add_plugins(RenetClientPlugin)
         .add_plugins(NetcodeClientPlugin)
-        .add_plugins(crate::network_asset_integration::NetworkAssetPlugin)
+        .add_plugins(network_asset_integration::NetworkAssetPlugin)
         .init_resource::<TestState>()
         .add_systems(Startup, setup_client)
         .add_systems(Update, (
@@ -164,7 +155,7 @@ fn create_channel_config() -> Vec<ChannelConfig> {
 fn wait_for_connection(
     client: Option<Res<RenetClient>>,
     mut state: ResMut<TestState>,
-    pending_requests: Res<crate::network_asset_client::PendingAssetRequests>,
+    pending_requests: Res<network_asset_client::PendingAssetRequests>,
     lua_ctx: Option<Res<LuaScriptContext>>,
 ) {
     if state.request_queued {
@@ -194,6 +185,7 @@ fn wait_for_connection(
             0, // instance_id - we'll set this when we execute
             false, // is_binary=false - this is a script
             None, // No context - this is the root script
+            true, // should_subscribe=true for main script to enable hot reload
         );
         
         state.request_queued = true;
@@ -205,7 +197,7 @@ fn wait_for_connection(
 /// This polls the PendingAssetRequests for completion
 fn run_script_when_ready(
     mut state: ResMut<TestState>,
-    pending_requests: Res<crate::network_asset_client::PendingAssetRequests>,
+    pending_requests: Res<network_asset_client::PendingAssetRequests>,
     lua_ctx: Res<LuaScriptContext>,
     script_instance: Res<ScriptInstance>,
     script_registry: Res<ScriptRegistry>,

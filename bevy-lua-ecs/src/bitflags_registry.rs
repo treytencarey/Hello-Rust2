@@ -1,12 +1,12 @@
 //! Bitflags Registry - runtime registration of bitflags types for generic handling
-//! 
+//!
 //! This module provides a registry that maps bitflags type paths to their variant
 //! name->value mappings. Build scripts generate registration code that populates
 //! this registry at startup, allowing asset_loading.rs to apply bitflags generically.
 
+use bevy::prelude::*;
 use std::collections::HashMap;
 use std::sync::{Arc, RwLock};
-use bevy::prelude::*;
 
 /// A registered bitflags type with its variants
 #[derive(Clone, Debug)]
@@ -30,7 +30,7 @@ impl BitflagsRegistry {
             entries: Arc::new(RwLock::new(HashMap::new())),
         }
     }
-    
+
     /// Register a bitflags type with its variants
     /// Called by generated code from build.rs
     pub fn register(&self, type_path: impl Into<String>, variants: &[(&str, u32)]) {
@@ -41,7 +41,7 @@ impl BitflagsRegistry {
         };
         self.entries.write().unwrap().insert(type_path, entry);
     }
-    
+
     /// Look up a bitflags type by checking if any registered type path is contained
     /// in the given type_path string (partial matching)
     pub fn find_by_type_path(&self, type_path: &str) -> Option<BitflagsEntry> {
@@ -53,7 +53,7 @@ impl BitflagsRegistry {
         }
         None
     }
-    
+
     /// Parse flag names to a u32 value using the registered variants
     pub fn parse_flags(&self, type_path: &str, flag_names: &[&str]) -> Option<u32> {
         let entry = self.find_by_type_path(type_path)?;

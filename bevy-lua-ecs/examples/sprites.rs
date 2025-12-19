@@ -45,4 +45,3 @@ fn load_and_run_script(
         }
     }
 }
-

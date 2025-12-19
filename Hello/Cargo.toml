@@ -3,6 +3,13 @@ name = "hello"
 version = "0.1.0"
 edition = "2021"
 
+[lib]
+path = "src/lib.rs"
+
+[[bin]]
+name = "hello"
+path = "src/main.rs"
+
 [package.metadata.lua_resources]
 types = [
     # Core renet types (using canonical renet paths for auto-discovery)
@@ -39,7 +46,7 @@ default = ["physics", "tiled", "networking", "bevy_mod_xr"]
 physics = ["dep:bevy_rapier2d"]
 physics3d = ["dep:bevy_rapier3d"]
 tiled = ["dep:bevy_ecs_tiled"]
-networking = ["dep:bevy_replicon", "dep:bevy_replicon_renet", "dep:bevy_renet", "dep:renet", "dep:serde", "dep:mlua"]
+networking = ["dep:bevy_replicon", "dep:bevy_replicon_renet", "dep:bevy_renet", "dep:renet", "dep:serde", "dep:mlua", "dep:notify"]
 replicon_server = ["bevy_replicon/server"]
 replicon_client = ["bevy_replicon/client"]
 lightyear_net = [
@@ -82,6 +89,7 @@ serde_json = { workspace = true }  # Required for replicon_lua
 bincode = "1.3"  # Required for renet_lua message serialization
 bytes = "1"  # Required for Renet message types
 mlua = { workspace = true, optional = true }
+notify = { version = "6.1", optional = true }
 bevy_mod_xr = { workspace = true, optional = true }
 rand = "0.8"
 clap = { version = "4.1", features = ["derive"] }

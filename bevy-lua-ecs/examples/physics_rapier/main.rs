@@ -1,28 +1,26 @@
 use bevy::prelude::*;
-use bevy_rapier2d::prelude::*;
-use bevy_lua_ecs::*;
 use bevy_lua_ecs::component_updater::process_component_updates;
+use bevy_lua_ecs::*;
+use bevy_rapier2d::prelude::*;
 use std::fs;
 
 fn main() {
     let mut app = App::new();
-    
+
     // Add Bevy's default plugins
     app.add_plugins(DefaultPlugins);
-    
+
     // Add Rapier physics plugins (external plugin!)
     app.add_plugins(RapierPhysicsPlugin::<NoUserData>::pixels_per_meter(100.0));
     app.add_plugins(RapierDebugRenderPlugin::default());
-    
+
     // Add Lua plugin (auto-initializes all resources and systems)
     app.add_plugins(LuaSpawnPlugin);
-    
+
     // Register serde-based components (for types that don't implement Reflect)
     // This uses the SerdeComponentRegistry that was auto-initialized by LuaSpawnPlugin
-    app.insert_resource(bevy_lua_ecs::serde_components![
-        Collider,
-    ]);
-    
+    app.insert_resource(bevy_lua_ecs::serde_components![Collider,]);
+
     app.add_systems(Startup, setup)
         .add_systems(PostStartup, load_and_run_script)
         .run();

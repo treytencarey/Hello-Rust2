@@ -34,24 +34,36 @@ impl ResourceBuilderRegistry {
     where
         F: Fn(&Lua, LuaValue, &mut World) -> LuaResult<()> + Send + Sync + 'static,
     {
-        self.builders.lock().unwrap().insert(name.into(), Arc::new(builder));
+        self.builders
+            .lock()
+            .unwrap()
+            .insert(name.into(), Arc::new(builder));
     }
-    
+
     /// Register a removal function
     pub fn register_removal<F>(&self, name: impl Into<String>, remover: F)
     where
         F: Fn(&mut World) + Send + Sync + 'static,
     {
-        self.removers.lock().unwrap().insert(name.into(), Arc::new(remover));
+        self.removers
+            .lock()
+            .unwrap()
+            .insert(name.into(), Arc::new(remover));
     }
-    
+
     /// Try to build and insert a resource from Lua data
     /// Returns None if no builder is registered for this type
-    pub fn try_build(&self, lua: &Lua, name: &str, data: LuaValue, world: &mut World) -> Option<LuaResult<()>> {
+    pub fn try_build(
+        &self,
+        lua: &Lua,
+        name: &str,
+        data: LuaValue,
+        world: &mut World,
+    ) -> Option<LuaResult<()>> {
         let builders = self.builders.lock().unwrap();
         builders.get(name).map(|builder| builder(lua, data, world))
     }
-    
+
     /// Try to remove a resource by name
     /// Returns true if a remover was found and executed
     pub fn try_remove(&self, name: &str, world: &mut World) -> bool {
@@ -63,7 +75,7 @@ impl ResourceBuilderRegistry {
             false
         }
     }
-    
+
     /// Check if a builder is registered for a resource type
     pub fn has_builder(&self, name: &str) -> bool {
         self.builders.lock().unwrap().contains_key(name)

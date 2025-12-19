@@ -1,10 +1,10 @@
-use bevy::prelude::*;
+use crate::component_update_queue::ComponentUpdateQueue;
+use crate::components::ComponentRegistry;
 use bevy::ecs::reflect::ReflectComponent;
+use bevy::prelude::*;
 use mlua::prelude::*;
 use std::collections::HashMap;
 use std::sync::Arc;
-use crate::component_update_queue::ComponentUpdateQueue;
-use crate::components::ComponentRegistry;
 
 /// Lua userdata representing a query builder
 #[derive(Clone)]
@@ -29,7 +29,7 @@ impl LuaUserData for LuaQueryBuilder {
             new_builder.with_components.push(component_name);
             Ok(new_builder)
         });
-        
+
         methods.add_method("changed", |_, this, component_name: String| {
             let mut new_builder = this.clone();
             new_builder.changed_components.push(component_name);
@@ -70,7 +70,7 @@ impl LuaUserData for LuaEntitySnapshot {
                 let value: LuaValue = lua.registry_value(&**key)?;
                 return Ok(value);
             }
-            
+
             // Check reflected Rust components
             if let Some(data_str) = this.component_data.get(&component_name) {
                 // Try to deserialize JSON string to Lua table
@@ -85,25 +85,27 @@ impl LuaUserData for LuaEntitySnapshot {
                 Ok(LuaValue::Nil)
             }
         });
-        
+
         methods.add_method("has", |_, this, component_name: String| {
-            Ok(this.lua_components.contains_key(&component_name) || 
-               this.component_data.contains_key(&component_name))
+            Ok(this.lua_components.contains_key(&component_name)
+                || this.component_data.contains_key(&component_name))
         });
-        
-        methods.add_method("id", |_, this, ()| {
-            Ok(this.entity.to_bits())
-        });
-        
-        methods.add_method("set", |lua, this, (component_name, component_data): (String, LuaTable)| {
-            // Create a registry key for the component data
-            let registry_key = lua.create_registry_value(component_data)?;
-            
-            // Queue the update
-            this.update_queue.queue_update(this.entity, component_name, registry_key);
-            
-            Ok(())
-        });
+
+        methods.add_method("id", |_, this, ()| Ok(this.entity.to_bits()));
+
+        methods.add_method(
+            "set",
+            |lua, this, (component_name, component_data): (String, LuaTable)| {
+                // Create a registry key for the component data
+                let registry_key = lua.create_registry_value(component_data)?;
+
+                // Queue the update
+                this.update_queue
+                    .queue_update(this.entity, component_name, registry_key);
+
+                Ok(())
+            },
+        );
     }
 }
 
@@ -113,7 +115,11 @@ fn json_to_lua(lua: &Lua, value: &serde_json::Value) -> LuaResult<LuaValue> {
 }
 
 /// Helper function to convert serde_json::Value to Lua value with context about parent key
-fn json_to_lua_impl(lua: &Lua, value: &serde_json::Value, parent_key: Option<&str>) -> LuaResult<LuaValue> {
+fn json_to_lua_impl(
+    lua: &Lua,
+    value: &serde_json::Value,
+    parent_key: Option<&str>,
+) -> LuaResult<LuaValue> {
     match value {
         serde_json::Value::Null => Ok(LuaValue::Nil),
         serde_json::Value::Bool(b) => Ok(LuaValue::Boolean(*b)),
@@ -138,7 +144,7 @@ fn json_to_lua_impl(lua: &Lua, value: &serde_json::Value, parent_key: Option<&st
                     (_, 4) if arr.iter().all(|v| v.is_number()) => Some(&["x", "y", "z", "w"]),
                     _ => None,
                 };
-                
+
                 if let Some(names) = field_names {
                     let table = lua.create_table()?;
                     for (i, (name, item)) in names.iter().zip(arr.iter()).enumerate() {
@@ -149,7 +155,7 @@ fn json_to_lua_impl(lua: &Lua, value: &serde_json::Value, parent_key: Option<&st
                     return Ok(LuaValue::Table(table));
                 }
             }
-            
+
             // Regular array (1-indexed for Lua)
             let table = lua.create_table()?;
             for (i, item) in arr.iter().enumerate() {
@@ -181,7 +187,7 @@ pub fn execute_query(
 ) -> LuaResult<Vec<LuaEntitySnapshot>> {
     let mut results = Vec::new();
     let type_registry = component_registry.type_registry().read();
-    
+
     // Iterate all entities using world entities iterator
     // In Bevy 0.17, we can use world.iter_entities() but it's deprecated
     // The recommended way is to use a system with Query, but since we're in a Lua context
@@ -190,7 +196,7 @@ pub fn execute_query(
         let mut matches = true;
         let mut component_data = HashMap::new();
         let mut lua_components = HashMap::new();
-        
+
         // Check with() filters and collect component data
         for component_name in &query_builder.with_components {
             // 1. Check if it's a non-reflected component (like Lightyear components)
@@ -207,15 +213,20 @@ pub fn execute_query(
                 matches = false;
                 break;
             }
-            
+
             // 2. Check if it's a known Rust component (with Reflect)
             if let Some(type_path) = component_registry.get_type_path(component_name) {
                 if let Some(registration) = type_registry.get_with_type_path(&type_path) {
                     if let Some(reflect_component) = registration.data::<ReflectComponent>() {
-                        if let Some(component) = reflect_component.reflect(Into::<bevy::ecs::world::FilteredEntityRef>::into(&entity_ref)) {
+                        if let Some(component) =
+                            reflect_component.reflect(
+                                Into::<bevy::ecs::world::FilteredEntityRef>::into(&entity_ref),
+                            )
+                        {
                             // Use TypedReflectSerializer to get proper JSON serialization
                             use bevy::reflect::serde::TypedReflectSerializer;
-                            let serializer = TypedReflectSerializer::new(component.as_reflect(), &type_registry);
+                            let serializer =
+                                TypedReflectSerializer::new(component.as_reflect(), &type_registry);
                             if let Ok(json_value) = serde_json::to_value(serializer) {
                                 if let Ok(json_string) = serde_json::to_string(&json_value) {
                                     component_data.insert(component_name.clone(), json_string);
@@ -223,7 +234,8 @@ pub fn execute_query(
                                 }
                             }
                             // Fallback to Debug if serialization fails
-                            component_data.insert(component_name.clone(), format!("{:?}", component));
+                            component_data
+                                .insert(component_name.clone(), format!("{:?}", component));
                             continue;
                         }
                     }
@@ -231,8 +243,8 @@ pub fn execute_query(
                 // If known type but not found on entity -> mismatch
                 matches = false;
                 break;
-            } 
-            
+            }
+
             // 3. Check if it's a generic Lua component
             if let Some(custom_components) = entity_ref.get::<LuaCustomComponents>() {
                 if let Some(key) = custom_components.components.get(component_name) {
@@ -241,12 +253,12 @@ pub fn execute_query(
                     continue;
                 }
             }
-            
+
             // Not found anywhere
             matches = false;
             break;
         }
-        
+
         // Check changed() filters
         if matches {
             for component_name in &query_builder.changed_components {
@@ -271,7 +283,7 @@ pub fn execute_query(
                 // For now, we assume they don't change or we can't detect it easily without a wrapper.
             }
         }
-        
+
         if matches {
             results.push(LuaEntitySnapshot {
                 entity: entity_ref.id(),
@@ -281,6 +293,6 @@ pub fn execute_query(
             });
         }
     }
-    
+
     Ok(results)
 }

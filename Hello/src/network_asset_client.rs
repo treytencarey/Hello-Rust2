@@ -134,6 +134,77 @@ pub struct AssetResponseMessage {
     pub error: Option<String>,
 }
 
+/// Subscribe/Unsubscribe message from client to server for file sync
+#[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
+pub enum AssetSubscriptionMessage {
+    /// Client wants updates for these paths (when require with reload=true completes)
+    Subscribe { paths: Vec<String>, instance_id: u64 },
+    /// Client no longer needs updates for these paths from this instance
+    Unsubscribe { paths: Vec<String>, instance_id: u64 },
+    /// Client instance stopped, remove all its subscriptions
+    UnsubscribeAll { instance_id: u64 },
+}
+
+/// Wrapper enum for all client-to-server messages
+/// This ensures proper type discrimination when deserializing with bincode
+#[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
+pub enum ClientToServerMessage {
+    /// Asset request
+    Request(AssetRequestMessage),
+    /// Subscription control
+    Subscription(AssetSubscriptionMessage),
+}
+
+/// Server pushes file update to client when a subscribed file changes
+#[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
+pub struct AssetUpdateNotification {
+    /// Path that changed (relative to assets/)
+    pub path: String,
+    /// Hash of the new file content
+    pub server_hash: String,
+    /// Encrypted chunk data
+    pub data: Vec<u8>,
+    /// Total size of the complete file in bytes
+    pub total_size: usize,
+    /// Current chunk index (0-based)
+    pub chunk_index: u32,
+    /// Total number of chunks
+    pub total_chunks: u32,
+}
+
+/// Wrapper enum for all server-to-client messages
+/// This ensures proper type discrimination when deserializing with bincode
+#[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
+pub enum ServerToClientMessage {
+    /// Asset response (reply to request)
+    Response(AssetResponseMessage),
+    /// File update notification (push)
+    Update(AssetUpdateNotification),
+}
+
+/// Resource to queue pending file update notifications
+/// Updates are received by one system and processed by another
+#[derive(Resource, Default)]
+pub struct PendingAssetUpdates {
+    updates: std::sync::Mutex<Vec<AssetUpdateNotification>>,
+}
+
+impl PendingAssetUpdates {
+    pub fn new() -> Self {
+        Self::default()
+    }
+    
+    /// Queue an update notification for processing
+    pub fn queue(&self, notification: AssetUpdateNotification) {
+        self.updates.lock().unwrap().push(notification);
+    }
+    
+    /// Take all pending updates for processing
+    pub fn take_all(&self) -> Vec<AssetUpdateNotification> {
+        std::mem::take(&mut *self.updates.lock().unwrap())
+    }
+}
+
 /// Individual asset request tracking
 #[derive(Clone, Debug)]
 pub struct AssetRequest {
@@ -205,6 +276,8 @@ pub struct PendingAssetRequests {
     next_request_id: Arc<std::sync::atomic::AtomicU64>,
     /// Completed assets ready for use (path -> data)
     completed_assets: Arc<Mutex<HashMap<String, Vec<u8>>>>,
+    /// Pending subscription messages to send to server
+    pending_subscriptions: Arc<Mutex<Vec<AssetSubscriptionMessage>>>,
 }
 
 impl PendingAssetRequests {
@@ -394,6 +467,16 @@ impl PendingAssetRequests {
         if let Some(req) = self.requests.lock().unwrap().get_mut(path) {
             req.status = AssetRequestStatus::Error(error);
         }
+    }
+    
+    /// Queue a subscription message to be sent to server
+    pub fn queue_subscription(&self, message: AssetSubscriptionMessage) {
+        self.pending_subscriptions.lock().unwrap().push(message);
+    }
+    
+    /// Drain pending subscription messages for sending
+    pub fn drain_pending_subscriptions(&self) -> Vec<AssetSubscriptionMessage> {
+        std::mem::take(&mut *self.pending_subscriptions.lock().unwrap())
     }
 }
 

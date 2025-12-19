@@ -1,12 +1,12 @@
 // Build script for bevy-lua-ecs
 // Automatically generates Lua bindings for resource types specified in dependent crates
 
+use quote::quote;
+use serde::{Deserialize, Serialize};
 use std::env;
 use std::fs;
 use std::path::{Path, PathBuf};
-use syn::{File, Item, ItemImpl, ImplItem, Visibility, FnArg, ReturnType};
-use quote::quote;
-use serde::{Serialize, Deserialize};
+use syn::{File, FnArg, ImplItem, Item, ItemImpl, ReturnType, Visibility};
 
 fn main() {
     // Only rerun if these files change (not on every compile)
@@ -14,17 +14,17 @@ fn main() {
     println!("cargo:rerun-if-changed=Cargo.toml");
     println!("cargo:rerun-if-changed=../Hello/Cargo.toml");
     println!("cargo:rerun-if-changed=../Hello/Cargo.lock");
-    
+
     let pkg_name = env::var("CARGO_PKG_NAME").unwrap_or_default();
     println!("cargo:warning=Build script: PKG={}", pkg_name);
-    
+
     // Read our own Cargo.toml for event types
     if let Ok(manifest_dir) = env::var("CARGO_MANIFEST_DIR") {
         let own_manifest = PathBuf::from(manifest_dir).join("Cargo.toml");
         if let Ok(content) = fs::read_to_string(&own_manifest) {
             if let Ok(manifest) = toml::from_str::<toml::Value>(&content) {
                 let event_types = generate_event_registrations(&manifest);
-                
+
                 // Try to find parent manifest with lua_resources metadata
                 if let Ok(out_dir) = env::var("OUT_DIR") {
                     let build_dir = PathBuf::from(out_dir);
@@ -34,7 +34,7 @@ fn main() {
                         return;
                     }
                 }
-                
+
                 write_empty_bindings_with_events(event_types);
                 return;
             }
@@ -63,12 +63,12 @@ fn to_snake_case(s: &str) -> String {
 fn find_parent_manifest(build_dir: &Path) -> Option<PathBuf> {
     // Strategy 1: Navigate up from build directory to find workspace root
     let mut current = build_dir.to_path_buf();
-    
+
     // Go up several levels to escape the build directory structure
     for _ in 0..10 {
         if let Some(parent) = current.parent() {
             current = parent.to_path_buf();
-            
+
             // Look for Cargo.toml files
             let cargo_toml = current.join("Cargo.toml");
             if cargo_toml.exists() {
@@ -84,13 +84,13 @@ fn find_parent_manifest(build_dir: &Path) -> Option<PathBuf> {
             break;
         }
     }
-    
+
     // Strategy 2: Look for Hello/Cargo.toml relative to workspace
     // Try to find it by looking for the workspace root
     if let Ok(manifest_dir) = env::var("CARGO_MANIFEST_DIR") {
         // Go up from bevy-lua-ecs to workspace root
         let workspace_root = PathBuf::from(&manifest_dir).parent()?.to_path_buf();
-        
+
         // Check Hello/Cargo.toml
         let hello_manifest = workspace_root.join("Hello").join("Cargo.toml");
         if hello_manifest.exists() {
@@ -102,7 +102,7 @@ fn find_parent_manifest(build_dir: &Path) -> Option<PathBuf> {
             }
         }
     }
-    
+
     eprintln!("No parent manifest found with lua_resources metadata");
     None
 }
@@ -118,7 +118,7 @@ fn generate_bindings_for_manifest(manifest_path: &Path) {
             return;
         }
     };
-    
+
     let manifest: toml::Value = match toml::from_str(&manifest_content) {
         Ok(m) => m,
         Err(e) => {
@@ -127,84 +127,103 @@ fn generate_bindings_for_manifest(manifest_path: &Path) {
             return;
         }
     };
-    
+
     // Get types from metadata
     let types_to_expose = get_types_from_metadata(&manifest);
-    
+
     if types_to_expose.is_empty() {
         println!("cargo:warning=No types specified in [package.metadata.lua_resources]");
         write_empty_bindings_with_events(Vec::new());
         return;
     }
-    
+
     // Generate bindings for each type
     let mut all_bindings = Vec::new();
     for type_spec in types_to_expose {
         match generate_bindings_for_type(&type_spec) {
             Ok(bindings) => {
-                println!("cargo:warning=✓ Generated bindings for {}", type_spec.full_path);
+                println!(
+                    "cargo:warning=✓ Generated bindings for {}",
+                    type_spec.full_path
+                );
                 all_bindings.push(bindings);
             }
             Err(e) => {
-                println!("cargo:warning=⚠ Failed to generate bindings for {}: {}", type_spec.full_path, e);
+                println!(
+                    "cargo:warning=⚠ Failed to generate bindings for {}: {}",
+                    type_spec.full_path, e
+                );
             }
         }
     }
-    
+
     // Process constructors
     let constructors_to_expose = get_constructors_from_metadata(&manifest);
     let mut all_constructor_bindings = Vec::new();
-    
+
     for constructor_spec in constructors_to_expose {
         match generate_bindings_for_constructor(&constructor_spec) {
             Ok(bindings) => {
-                println!("cargo:warning=✓ Generated constructor binding for {}", constructor_spec.full_path);
+                println!(
+                    "cargo:warning=✓ Generated constructor binding for {}",
+                    constructor_spec.full_path
+                );
                 all_constructor_bindings.push(bindings);
             }
             Err(e) => {
-                println!("cargo:warning=⚠ Failed to generate constructor binding for {}: {}", constructor_spec.full_path, e);
+                println!(
+                    "cargo:warning=⚠ Failed to generate constructor binding for {}: {}",
+                    constructor_spec.full_path, e
+                );
             }
         }
     }
-    
+
     // Auto-discover asset types by scanning bevy crates and workspace members
     // Pattern: impl Asset for Type or #[derive(Asset)]
-    // 
+    //
     // RUNTIME-BASED: We collect TYPE NAMES only (not compile-time paths)
     // The runtime will look up each name in TypeRegistry and register if found
     let discovered_assets = discover_asset_types();
-    
+
     // Collect just the type names for runtime lookup (no compile-time paths)
-    let asset_type_names: Vec<String> = discovered_assets.iter()
+    let asset_type_names: Vec<String> = discovered_assets
+        .iter()
         .map(|a| a.type_name.clone())
         .collect();
-    
-    println!("cargo:warning=  ✓ Collected {} asset type names for runtime registration", asset_type_names.len());
-    
+
+    println!(
+        "cargo:warning=  ✓ Collected {} asset type names for runtime registration",
+        asset_type_names.len()
+    );
+
     // Auto-discover constructors for asset types (new_*, from_*, etc.)
     // These are used for opaque types that can't be created via reflection
     let discovered_constructors = discover_asset_constructors(&discovered_assets);
-    
+
     let all_discovered_bitflags: Vec<DiscoveredBitflags> = Vec::new();
-    
+
     // Get parent crate's src directory
     let parent_src_dir = manifest_path.parent().unwrap().join("src");
-    
+
     // Auto-discover entity wrapper components by scanning bevy crates and workspace members
     // Pattern: pub struct Foo(pub Entity) with #[derive(Component)]
-    // 
+    //
     // RUNTIME-BASED: We collect TYPE NAMES (not compile-time paths) for runtime registration
     // The runtime will look up each name in TypeRegistry and register if found
     let discovered_entity_wrappers = discover_entity_wrapper_components();
-    
+
     // Collect just the type names for runtime lookup (no compile-time paths)
     let entity_wrapper_names: Vec<String> = discovered_entity_wrappers
         .iter()
         .map(|w| w.type_name.clone())
         .collect();
-    
-    println!("cargo:warning=  ✓ Collected {} entity wrapper type names for runtime registration", entity_wrapper_names.len());
-    
+
+    println!(
+        "cargo:warning=  ✓ Collected {} entity wrapper type names for runtime registration",
+        entity_wrapper_names.len()
+    );
+
     // Generate event registrations from our own manifest (not parent's)
     let event_types = if let Ok(manifest_dir) = env::var("CARGO_MANIFEST_DIR") {
         let own_manifest = PathBuf::from(manifest_dir).join("Cargo.toml");
@@ -220,28 +239,29 @@ fn generate_bindings_for_manifest(manifest_path: &Path) {
     } else {
         Vec::new()
     };
-    
-    
+
     // Auto-discover Handle<T> newtype wrappers (e.g., ImageRenderTarget)
     // No manual metadata configuration needed!
     let discovered_newtypes = discover_handle_newtype_wrappers();
-    
+
     // Convert to NewtypeSpec format for code generation
-    let newtypes: Vec<NewtypeSpec> = discovered_newtypes.into_iter()
+    let newtypes: Vec<NewtypeSpec> = discovered_newtypes
+        .into_iter()
         .map(|dn| NewtypeSpec {
             newtype_path: dn.newtype_path,
             // Use inner asset name as path placeholder - runtime will resolve via TypeRegistry
             inner_asset_path: dn.inner_asset_name,
         })
         .collect();
-    
+
     // Auto-discover SystemParam types and methods (with caching)
     // Uses JSON cache file in OUT_DIR, invalidated when Cargo.lock changes
-    let (discovered_systemparams, discovered_systemparam_methods) = get_discovered_systemparams_and_methods();
-    
+    let (discovered_systemparams, discovered_systemparam_methods) =
+        get_discovered_systemparams_and_methods();
+
     // Parse bitflags from metadata [package.metadata.lua_bitflags]
     let metadata_bitflags = get_bitflags_from_metadata(&manifest);
-    
+
     // Convert metadata bitflags to DiscoveredBitflags format
     let mut all_bitflags = all_discovered_bitflags;
     for bf in metadata_bitflags {
@@ -254,23 +274,23 @@ fn generate_bindings_for_manifest(manifest_path: &Path) {
             });
         }
     }
-    
+
     // Write generated code to parent crate's src directory
     // Now with simplified signature - asset_type_names for runtime registration
     write_bindings_to_parent_crate(
-        all_bindings, 
-        all_constructor_bindings, 
-        entity_wrapper_names, 
+        all_bindings,
+        all_constructor_bindings,
+        entity_wrapper_names,
         asset_type_names,
         discovered_assets,
         discovered_constructors,
-        all_bitflags, 
+        all_bitflags,
         newtypes,
         discovered_systemparams,
         discovered_systemparam_methods,
-        &parent_src_dir
+        &parent_src_dir,
     );
-    
+
     //Write events to our own auto_bindings.rs
     write_empty_bindings_with_events(event_types);
 }
@@ -282,12 +302,13 @@ fn generate_event_registrations(manifest: &toml::Value) -> Vec<String> {
         .and_then(|m| m.get("lua_events"))
         .and_then(|le| le.get("types"))
         .and_then(|t| t.as_array());
-    
+
     let Some(events) = events_array else {
         return Vec::new();
     };
-    
-    events.iter()
+
+    events
+        .iter()
         .filter_map(|v| v.as_str())
         .map(|s| s.to_string())
         .collect()
@@ -303,9 +324,9 @@ struct TypeSpec {
 
 #[derive(Debug, Clone)]
 struct ConstructorSpec {
-    full_path: String,  // e.g., "renet::RenetClient::new"
+    full_path: String, // e.g., "renet::RenetClient::new"
     type_spec: TypeSpec,
-    function_name: String,  // e.g., "new"
+    function_name: String, // e.g., "new"
 }
 
 fn get_types_from_metadata(manifest: &toml::Value) -> Vec<TypeSpec> {
@@ -315,12 +336,13 @@ fn get_types_from_metadata(manifest: &toml::Value) -> Vec<TypeSpec> {
         .and_then(|m| m.get("lua_resources"))
         .and_then(|lr| lr.get("types"))
         .and_then(|t| t.as_array());
-    
+
     let Some(types) = types_array else {
         return Vec::new();
     };
-    
-    types.iter()
+
+    types
+        .iter()
         .filter_map(|v| v.as_str())
         .filter_map(|s| parse_type_spec(s))
         .collect()
@@ -329,10 +351,10 @@ fn get_types_from_metadata(manifest: &toml::Value) -> Vec<TypeSpec> {
 /// Asset constructor specification - includes type path for generated function naming
 #[derive(Debug, Clone)]
 struct AssetConstructorSpec {
-    full_path: String,  // e.g., "bevy_image::image::Image::new_fill"
-    type_path: String,  // e.g., "bevy_image::image::Image"
+    full_path: String, // e.g., "bevy_image::image::Image::new_fill"
+    type_path: String, // e.g., "bevy_image::image::Image"
     type_spec: TypeSpec,
-    function_name: String,  // e.g., "new_fill"
+    function_name: String, // e.g., "new_fill"
 }
 
 /// Get asset types from [package.metadata.lua_assets.types] in Cargo.toml
@@ -345,12 +367,13 @@ fn get_asset_types_from_metadata(manifest: &toml::Value) -> Vec<TypeSpec> {
         .and_then(|m| m.get("lua_assets"))
         .and_then(|la| la.get("types"))
         .and_then(|t| t.as_array());
-    
+
     let Some(types) = types_array else {
         return Vec::new();
     };
-    
-    types.iter()
+
+    types
+        .iter()
         .filter_map(|v| v.as_str())
         .filter_map(|s| parse_type_spec(s))
         .collect()
@@ -360,7 +383,7 @@ fn get_asset_types_from_metadata(manifest: &toml::Value) -> Vec<TypeSpec> {
 #[derive(Debug, Clone)]
 struct BitflagsSpec {
     name: String,
-    flags: Vec<(String, u32)>,  // (flag_name, bit_value)
+    flags: Vec<(String, u32)>, // (flag_name, bit_value)
 }
 
 /// Parse bitflags from [package.metadata.lua_bitflags] in Cargo.toml
@@ -374,26 +397,32 @@ fn get_bitflags_from_metadata(manifest: &toml::Value) -> Vec<BitflagsSpec> {
         .and_then(|p| p.get("metadata"))
         .and_then(|m| m.get("lua_bitflags"))
         .and_then(|bf| bf.as_table());
-    
+
     let Some(table) = bitflags_table else {
         return Vec::new();
     };
-    
-    table.iter()
+
+    table
+        .iter()
         .filter_map(|(name, value)| {
             let flags = value.as_array()?;
-            let flag_tuples: Vec<(String, u32)> = flags.iter()
+            let flag_tuples: Vec<(String, u32)> = flags
+                .iter()
                 .enumerate()
                 .filter_map(|(idx, v)| {
                     let flag_name = v.as_str()?.to_string();
                     Some((flag_name, 1u32 << idx))
                 })
                 .collect();
-            
+
             if flag_tuples.is_empty() {
                 None
             } else {
-                println!("cargo:warning=  ✓ Found metadata bitflags {} with {} flags", name, flag_tuples.len());
+                println!(
+                    "cargo:warning=  ✓ Found metadata bitflags {} with {} flags",
+                    name,
+                    flag_tuples.len()
+                );
                 Some(BitflagsSpec {
                     name: name.clone(),
                     flags: flag_tuples,
@@ -408,13 +437,14 @@ fn parse_type_spec(full_path: &str) -> Option<TypeSpec> {
     if parts.len() < 2 {
         return None;
     }
-    
+
     let crate_name = parts[0].to_string();
     let type_name = parts.last()?.to_string();
-    let module_path = parts[1..parts.len()-1].iter()
+    let module_path = parts[1..parts.len() - 1]
+        .iter()
         .map(|s| s.to_string())
         .collect();
-    
+
     Some(TypeSpec {
         full_path: full_path.to_string(),
         crate_name,
@@ -423,7 +453,6 @@ fn parse_type_spec(full_path: &str) -> Option<TypeSpec> {
     })
 }
 
-
 fn get_constructors_from_metadata(manifest: &toml::Value) -> Vec<ConstructorSpec> {
     let constructors_array = manifest
         .get("package")
@@ -431,25 +460,29 @@ fn get_constructors_from_metadata(manifest: &toml::Value) -> Vec<ConstructorSpec
         .and_then(|m| m.get("lua_resources"))
         .and_then(|lr| lr.get("constructors"))
         .and_then(|c| c.as_array());
-    
+
     constructors_array
-        .map(|arr| arr.iter()
-            .filter_map(|v| v.as_str())
-            .filter_map(|s| parse_constructor_spec(s))
-            .collect())
+        .map(|arr| {
+            arr.iter()
+                .filter_map(|v| v.as_str())
+                .filter_map(|s| parse_constructor_spec(s))
+                .collect()
+        })
         .unwrap_or_default()
 }
 
 fn parse_constructor_spec(full_path: &str) -> Option<ConstructorSpec> {
     let parts: Vec<&str> = full_path.split("::").collect();
-    if parts.len() < 3 { return None; }
+    if parts.len() < 3 {
+        return None;
+    }
     let function_name = parts.last()?.to_string();
-    let type_path = parts[..parts.len()-1].join("::");
+    let type_path = parts[..parts.len() - 1].join("::");
     let type_spec = parse_type_spec(&type_path)?;
-    Some(ConstructorSpec { 
-        full_path: full_path.to_string(), 
-        type_spec, 
-        function_name 
+    Some(ConstructorSpec {
+        full_path: full_path.to_string(),
+        type_spec,
+        function_name,
     })
 }
 
@@ -462,12 +495,14 @@ fn get_entity_components_from_metadata(manifest: &toml::Value) -> Vec<String> {
         .and_then(|m| m.get("lua_resources"))
         .and_then(|lr| lr.get("entity_components"))
         .and_then(|ec| ec.as_array());
-    
+
     entity_components_array
-        .map(|arr| arr.iter()
-            .filter_map(|v| v.as_str())
-            .map(|s| s.to_string())
-            .collect())
+        .map(|arr| {
+            arr.iter()
+                .filter_map(|v| v.as_str())
+                .map(|s| s.to_string())
+                .collect()
+        })
         .unwrap_or_default()
 }
 
@@ -523,7 +558,6 @@ struct DiscoveredAssetConstructor {
     /// Parameters with names and types
     params: Vec<ConstructorParam>,
 }
-
 
 /// Discovered Handle<T> newtype wrapper (e.g., ImageRenderTarget wraps Handle<Image>)
 #[derive(Debug, Clone)]
@@ -602,9 +636,12 @@ fn compute_cargo_lock_hash() -> String {
     let paths_to_try = [
         PathBuf::from(&manifest_dir).join("../Hello/Cargo.lock"),
         PathBuf::from(&manifest_dir).join("Cargo.lock"),
-        PathBuf::from(&manifest_dir).parent().map(|p| p.join("Cargo.lock")).unwrap_or_default(),
+        PathBuf::from(&manifest_dir)
+            .parent()
+            .map(|p| p.join("Cargo.lock"))
+            .unwrap_or_default(),
     ];
-    
+
     for path in &paths_to_try {
         if let Ok(content) = fs::read_to_string(path) {
             // Simple hash: use length and first/last bytes
@@ -614,12 +651,15 @@ fn compute_cargo_lock_hash() -> String {
             return format!("{}-{}-{}", len, first, last);
         }
     }
-    
+
     // No Cargo.lock found, use timestamp to invalidate frequently
-    format!("no-lock-{}", std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .map(|d| d.as_secs())
-        .unwrap_or(0))
+    format!(
+        "no-lock-{}",
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|d| d.as_secs())
+            .unwrap_or(0)
+    )
 }
 
 /// Try to load SystemParam cache from disk
@@ -627,12 +667,15 @@ fn load_systemparam_cache() -> Option<SystemParamCache> {
     let cache_path = get_systemparam_cache_path()?;
     let content = fs::read_to_string(&cache_path).ok()?;
     let cache: SystemParamCache = serde_json::from_str(&content).ok()?;
-    
+
     // Check if cache is still valid (Cargo.lock hasn't changed)
     let current_hash = compute_cargo_lock_hash();
     if cache.cargo_lock_hash == current_hash {
-        println!("cargo:warning=[CACHE] Loaded {} SystemParams and {} methods from cache", 
-            cache.systemparams.len(), cache.methods.len());
+        println!(
+            "cargo:warning=[CACHE] Loaded {} SystemParams and {} methods from cache",
+            cache.systemparams.len(),
+            cache.methods.len()
+        );
         Some(cache)
     } else {
         println!("cargo:warning=[CACHE] Cache invalidated (Cargo.lock changed)");
@@ -641,38 +684,47 @@ fn load_systemparam_cache() -> Option<SystemParamCache> {
 }
 
 /// Save SystemParam cache to disk
-fn save_systemparam_cache(systemparams: &[DiscoveredSystemParam], methods: &[DiscoveredSystemParamMethod]) {
-    let Some(cache_path) = get_systemparam_cache_path() else { return };
-    
+fn save_systemparam_cache(
+    systemparams: &[DiscoveredSystemParam],
+    methods: &[DiscoveredSystemParamMethod],
+) {
+    let Some(cache_path) = get_systemparam_cache_path() else {
+        return;
+    };
+
     let cache = SystemParamCache {
         cargo_lock_hash: compute_cargo_lock_hash(),
         systemparams: systemparams.to_vec(),
         methods: methods.to_vec(),
     };
-    
+
     if let Ok(json) = serde_json::to_string_pretty(&cache) {
         if fs::write(&cache_path, json).is_ok() {
-            println!("cargo:warning=[CACHE] Saved {} SystemParams and {} methods to cache",
-                systemparams.len(), methods.len());
+            println!(
+                "cargo:warning=[CACHE] Saved {} SystemParams and {} methods to cache",
+                systemparams.len(),
+                methods.len()
+            );
         }
     }
 }
 
 /// Get discovered SystemParams and methods (from cache or by discovery)
-fn get_discovered_systemparams_and_methods() -> (Vec<DiscoveredSystemParam>, Vec<DiscoveredSystemParamMethod>) {
+fn get_discovered_systemparams_and_methods(
+) -> (Vec<DiscoveredSystemParam>, Vec<DiscoveredSystemParamMethod>) {
     // Try cache first
     if let Some(cache) = load_systemparam_cache() {
         return (cache.systemparams, cache.methods);
     }
-    
+
     // Cache miss - run discovery
     println!("cargo:warning=[CACHE] Cache miss - running SystemParam discovery...");
     let systemparams = discover_systemparam_types();
     let methods = discover_systemparam_methods(&systemparams);
-    
+
     // Save to cache for next time
     save_systemparam_cache(&systemparams, &methods);
-    
+
     (systemparams, methods)
 }
 
@@ -692,108 +744,121 @@ fn resolve_short_type_to_full_path(short_name: &str) -> Option<String> {
         ("Vec4", "bevy::math::Vec4"),
         ("Quat", "bevy::math::Quat"),
         ("Mat4", "bevy::math::Mat4"),
-        
         // Picking types
-        ("MeshRayCastSettings", "bevy::picking::mesh_picking::ray_cast::MeshRayCastSettings"),
-        ("RayCastSettings", "bevy::picking::mesh_picking::ray_cast::RayCastSettings"),
-        
+        (
+            "MeshRayCastSettings",
+            "bevy::picking::mesh_picking::ray_cast::MeshRayCastSettings",
+        ),
+        (
+            "RayCastSettings",
+            "bevy::picking::mesh_picking::ray_cast::RayCastSettings",
+        ),
         // ECS types
         ("Entity", "bevy::ecs::entity::Entity"),
-        
         // Common types - these are primitives and don't need full paths
         // Just return them as-is if they parse ok
     ];
-    
+
     for (short, full) in mappings {
         if short_name == *short {
             return Some(full.to_string());
         }
     }
-    
+
     // If it already contains ::, assume it's a full path
     if short_name.contains("::") {
         return Some(short_name.to_string());
     }
-    
+
     // Primitive types don't need resolution
     if is_primitive_type(short_name) {
         return Some(short_name.to_string());
     }
-    
+
     // Unknown type - can't resolve
     None
 }
 
 /// Auto-discover entity wrapper components from bevy crates and workspace members
 /// Pattern: pub struct Foo(pub Entity) with #[derive(Component)]
-/// 
+///
 /// RUNTIME-BASED DISCOVERY: This function discovers ALL entity wrapper type names.
 /// No filtering is applied - runtime TypeRegistry lookup will determine which types
 /// are actually available and usable.
 fn discover_entity_wrapper_components() -> Vec<DiscoveredEntityWrapper> {
     let mut wrappers = Vec::new();
-    
+
     // Get cargo registry path
     let cargo_home = env::var("CARGO_HOME")
         .or_else(|_| env::var("HOME").map(|h| format!("{}/.cargo", h)))
         .or_else(|_| env::var("USERPROFILE").map(|h| format!("{}/.cargo", h)))
         .unwrap_or_default();
-    
+
     if cargo_home.is_empty() {
         println!("cargo:warning=  ⚠ Cannot find CARGO_HOME for entity wrapper discovery");
         return wrappers;
     }
-    
+
     let registry_src = PathBuf::from(&cargo_home).join("registry").join("src");
-    
+
     if !registry_src.exists() {
         println!("cargo:warning=  ⚠ Registry source not found for entity wrapper discovery");
         return wrappers;
     }
-    
+
     // Read ALL bevy_* dependencies from Cargo.lock - no filtering
     let dependencies = get_bevy_dependencies_from_lock();
-    println!("cargo:warning=  📦 Found {} bevy_* dependencies in Cargo.lock", dependencies.len());
-    
+    println!(
+        "cargo:warning=  📦 Found {} bevy_* dependencies in Cargo.lock",
+        dependencies.len()
+    );
+
     // Scan ALL bevy_* dependency crates for entity wrappers
     for index_entry in fs::read_dir(&registry_src).into_iter().flatten().flatten() {
         let index_dir = index_entry.path();
-        if !index_dir.is_dir() { continue; }
-        
+        if !index_dir.is_dir() {
+            continue;
+        }
+
         for crate_entry in fs::read_dir(&index_dir).into_iter().flatten().flatten() {
             let crate_dir = crate_entry.path();
-            let dir_name = crate_dir.file_name()
-                .and_then(|n| n.to_str())
-                .unwrap_or("");
-            
+            let dir_name = crate_dir.file_name().and_then(|n| n.to_str()).unwrap_or("");
+
             // Extract base crate name (e.g., "bevy_ui" from "bevy_ui-0.17.2")
             let base_crate = dir_name.split('-').next().unwrap_or(dir_name);
-            
+
             // Only scan crates that are in our dependencies
-            if !dependencies.contains(&base_crate.to_string()) { continue; }
-            
+            if !dependencies.contains(&base_crate.to_string()) {
+                continue;
+            }
+
             let src_dir = crate_dir.join("src");
             if src_dir.exists() {
                 scan_directory_for_entity_wrappers(&src_dir, base_crate, &mut wrappers);
             }
         }
     }
-    
+
     // Also scan workspace members
     if let Ok(manifest_dir) = env::var("CARGO_MANIFEST_DIR") {
         if let Some(workspace_root) = PathBuf::from(&manifest_dir).parent() {
             let workspace_toml = workspace_root.join("Cargo.toml");
             if let Ok(content) = fs::read_to_string(&workspace_toml) {
                 if let Ok(manifest) = toml::from_str::<toml::Value>(&content) {
-                    if let Some(members) = manifest.get("workspace")
+                    if let Some(members) = manifest
+                        .get("workspace")
                         .and_then(|w| w.get("members"))
-                        .and_then(|m| m.as_array()) 
+                        .and_then(|m| m.as_array())
                     {
                         for member in members {
                             if let Some(member_name) = member.as_str() {
                                 let member_src = workspace_root.join(member_name).join("src");
                                 if member_src.exists() {
-                                    scan_directory_for_entity_wrappers(&member_src, member_name, &mut wrappers);
+                                    scan_directory_for_entity_wrappers(
+                                        &member_src,
+                                        member_name,
+                                        &mut wrappers,
+                                    );
                                 }
                             }
                         }
@@ -802,29 +867,40 @@ fn discover_entity_wrapper_components() -> Vec<DiscoveredEntityWrapper> {
             }
         }
     }
-    
+
     // Deduplicate by type_name - we only care about the short name for runtime lookup
     let mut seen = std::collections::HashSet::new();
     wrappers.retain(|w| seen.insert(w.type_name.clone()));
-    
-    println!("cargo:warning=  ✓ Auto-discovered {} entity wrapper type names (for runtime registration)", wrappers.len());
+
+    println!(
+        "cargo:warning=  ✓ Auto-discovered {} entity wrapper type names (for runtime registration)",
+        wrappers.len()
+    );
     for wrapper in &wrappers {
-        println!("cargo:warning=    - {} (from {})", wrapper.type_name, wrapper.full_path);
+        println!(
+            "cargo:warning=    - {} (from {})",
+            wrapper.type_name, wrapper.full_path
+        );
     }
-    
+
     wrappers
 }
 
 /// Read Cargo.lock to get list of bevy_* crate names that are actual dependencies
 fn get_bevy_dependencies_from_lock() -> Vec<String> {
     let mut deps = Vec::new();
-    
+
     // Try to find Cargo.lock in workspace root or parent manifest dir
     let lock_paths = [
-        env::var("CARGO_MANIFEST_DIR").ok().map(|p| PathBuf::from(p).parent().map(|p| p.join("Cargo.lock"))).flatten(),
-        env::var("CARGO_MANIFEST_DIR").ok().map(|p| PathBuf::from(p).join("Cargo.lock")),
+        env::var("CARGO_MANIFEST_DIR")
+            .ok()
+            .map(|p| PathBuf::from(p).parent().map(|p| p.join("Cargo.lock")))
+            .flatten(),
+        env::var("CARGO_MANIFEST_DIR")
+            .ok()
+            .map(|p| PathBuf::from(p).join("Cargo.lock")),
     ];
-    
+
     for lock_path in lock_paths.into_iter().flatten() {
         if let Ok(content) = fs::read_to_string(&lock_path) {
             // Simple parsing of Cargo.lock - look for [[package]] sections with bevy_* names
@@ -834,7 +910,7 @@ fn get_bevy_dependencies_from_lock() -> Vec<String> {
                     if let Some(start) = line.find('"') {
                         if let Some(end) = line.rfind('"') {
                             if start < end {
-                                let name = &line[start+1..end];
+                                let name = &line[start + 1..end];
                                 if !deps.contains(&name.to_string()) {
                                     deps.push(name.to_string());
                                 }
@@ -848,15 +924,19 @@ fn get_bevy_dependencies_from_lock() -> Vec<String> {
             }
         }
     }
-    
+
     deps
 }
 
 /// Scan a directory recursively for entity wrapper components
-fn scan_directory_for_entity_wrappers(dir: &Path, crate_name: &str, results: &mut Vec<DiscoveredEntityWrapper>) {
+fn scan_directory_for_entity_wrappers(
+    dir: &Path,
+    crate_name: &str,
+    results: &mut Vec<DiscoveredEntityWrapper>,
+) {
     for entry in fs::read_dir(dir).into_iter().flatten().flatten() {
         let path = entry.path();
-        
+
         if path.is_dir() {
             scan_directory_for_entity_wrappers(&path, crate_name, results);
         } else if path.extension().map_or(false, |ext| ext == "rs") {
@@ -869,30 +949,37 @@ fn scan_directory_for_entity_wrappers(dir: &Path, crate_name: &str, results: &mu
 
 /// Parse a source file for entity wrapper patterns
 /// Pattern: pub struct Foo(pub Entity) with #[derive(Component)]
-fn parse_entity_wrappers_from_source(source: &str, crate_name: &str, file_path: &Path, results: &mut Vec<DiscoveredEntityWrapper>) {
-    let Ok(file) = syn::parse_file(source) else { return; };
-    
+fn parse_entity_wrappers_from_source(
+    source: &str,
+    crate_name: &str,
+    file_path: &Path,
+    results: &mut Vec<DiscoveredEntityWrapper>,
+) {
+    let Ok(file) = syn::parse_file(source) else {
+        return;
+    };
+
     for item in file.items {
         if let syn::Item::Struct(item_struct) = item {
             // Must be public
             if !matches!(item_struct.vis, syn::Visibility::Public(_)) {
                 continue;
             }
-            
+
             // Check if it's a tuple struct with single Entity field
             if let syn::Fields::Unnamed(fields) = &item_struct.fields {
                 if fields.unnamed.len() != 1 {
                     continue;
                 }
-                
+
                 let field = &fields.unnamed[0];
-                
+
                 // Check if field type is Entity
                 let field_type_str = quote::quote!(#field).to_string();
                 if !field_type_str.contains("Entity") {
                     continue;
                 }
-                
+
                 // Check for Component derive
                 let has_component = item_struct.attrs.iter().any(|attr| {
                     if attr.path().is_ident("derive") {
@@ -902,13 +989,13 @@ fn parse_entity_wrappers_from_source(source: &str, crate_name: &str, file_path: 
                     }
                     false
                 });
-                
+
                 if !has_component {
                     continue;
                 }
-                
+
                 let type_name = item_struct.ident.to_string();
-                
+
                 // Build full path from file path
                 let module_path = build_module_path_from_file(file_path, crate_name);
                 let full_path = if module_path.is_empty() {
@@ -916,13 +1003,13 @@ fn parse_entity_wrappers_from_source(source: &str, crate_name: &str, file_path: 
                 } else {
                     format!("{}::{}::{}", crate_name, module_path, type_name)
                 };
-                
+
                 // Convert underscore crate name to bevy:: path for bevy crates
                 // Skip if path cannot be normalized (internal modules)
                 let Some(full_path) = normalize_bevy_path(&full_path) else {
                     continue;
                 };
-                
+
                 results.push(DiscoveredEntityWrapper {
                     full_path,
                     type_name,
@@ -937,72 +1024,87 @@ fn parse_entity_wrappers_from_source(source: &str, crate_name: &str, file_path: 
 /// Examples: ImageRenderTarget, etc.
 fn discover_handle_newtype_wrappers() -> Vec<DiscoveredHandleNewtype> {
     let mut wrappers = Vec::new();
-    
+
     println!("cargo:warning=[NEWTYPE_DISCOVERY] Starting Handle<T> newtype wrapper discovery...");
-    
+
     // Get cargo home
     let cargo_home = env::var("CARGO_HOME")
         .or_else(|_| env::var("HOME").map(|h| format!("{}/.cargo", h)))
         .or_else(|_| env::var("USERPROFILE").map(|h| format!("{}/.cargo", h)))
         .unwrap_or_default();
-    
+
     if cargo_home.is_empty() {
         println!("cargo:warning=  ⚠ Cannot find CARGO_HOME for newtype wrapper discovery");
         return wrappers;
     }
-    
+
     let registry_src = PathBuf::from(&cargo_home).join("registry").join("src");
-    
+
     if !registry_src.exists() {
         println!("cargo:warning=  ⚠ Registry source not found for newtype wrapper discovery");
         return wrappers;
     }
-    
+
     // Read ALL bevy_* dependencies from Cargo.lock - no filtering
     let dependencies = get_bevy_dependencies_from_lock();
-    println!("cargo:warning=[NEWTYPE_DISCOVERY] Scanning {} bevy_* dependencies", dependencies.len());
-    
+    println!(
+        "cargo:warning=[NEWTYPE_DISCOVERY] Scanning {} bevy_* dependencies",
+        dependencies.len()
+    );
+
     // Scan ALL bevy_* dependency crates for Handle newtypes
     for index_entry in fs::read_dir(&registry_src).into_iter().flatten().flatten() {
         let index_dir = index_entry.path();
-        if !index_dir.is_dir() { continue; }
-        
+        if !index_dir.is_dir() {
+            continue;
+        }
+
         for crate_entry in fs::read_dir(&index_dir).into_iter().flatten().flatten() {
             let crate_dir = crate_entry.path();
-            let dir_name = crate_dir.file_name()
-                .and_then(|n| n.to_str())
-                .unwrap_or("");
-            
+            let dir_name = crate_dir.file_name().and_then(|n| n.to_str()).unwrap_or("");
+
             // Extract base crate name (e.g., "bevy_render" from "bevy_render-0.17.2")
             let base_crate = dir_name.split('-').next().unwrap_or(dir_name);
-            
+
             // Only scan crates that are in our dependencies
-            if !dependencies.contains(&base_crate.to_string()) { continue; }
-            
+            if !dependencies.contains(&base_crate.to_string()) {
+                continue;
+            }
+
             let src_dir = crate_dir.join("src");
             if src_dir.exists() {
                 scan_directory_for_handle_newtypes(&src_dir, base_crate, &mut wrappers);
             }
         }
     }
-    
+
     // Deduplicate by type_name (keep first occurrence)
     let mut seen_names = std::collections::HashSet::new();
     wrappers.retain(|w| seen_names.insert(w.type_name.clone()));
-    
-    println!("cargo:warning=  ✓ Auto-discovered {} Handle<T> newtype wrappers", wrappers.len());
+
+    println!(
+        "cargo:warning=  ✓ Auto-discovered {} Handle<T> newtype wrappers",
+        wrappers.len()
+    );
     for wrapper in &wrappers {
-        println!("cargo:warning=    - {} (wraps Handle<{}>)", wrapper.type_name, wrapper.inner_asset_name);
+        println!(
+            "cargo:warning=    - {} (wraps Handle<{}>)",
+            wrapper.type_name, wrapper.inner_asset_name
+        );
     }
-    
+
     wrappers
 }
 
 /// Scan a directory recursively for Handle<T> newtype wrappers
-fn scan_directory_for_handle_newtypes(dir: &Path, crate_name: &str, results: &mut Vec<DiscoveredHandleNewtype>) {
+fn scan_directory_for_handle_newtypes(
+    dir: &Path,
+    crate_name: &str,
+    results: &mut Vec<DiscoveredHandleNewtype>,
+) {
     for entry in fs::read_dir(dir).into_iter().flatten().flatten() {
         let path = entry.path();
-        
+
         if path.is_dir() {
             scan_directory_for_handle_newtypes(&path, crate_name, results);
         } else if path.extension().map_or(false, |ext| ext == "rs") {
@@ -1015,32 +1117,39 @@ fn scan_directory_for_handle_newtypes(dir: &Path, crate_name: &str, results: &mu
 
 /// Parse a source file for Handle<T> newtype wrapper patterns
 /// Pattern: pub struct TypeName(pub Handle<AssetType>) with any derive macros
-fn parse_handle_newtypes_from_source(source: &str, crate_name: &str, file_path: &Path, results: &mut Vec<DiscoveredHandleNewtype>) {
-    let Ok(file) = syn::parse_file(source) else { return; };
-    
+fn parse_handle_newtypes_from_source(
+    source: &str,
+    crate_name: &str,
+    file_path: &Path,
+    results: &mut Vec<DiscoveredHandleNewtype>,
+) {
+    let Ok(file) = syn::parse_file(source) else {
+        return;
+    };
+
     for item in file.items {
         if let syn::Item::Struct(item_struct) = item {
             // Must be public
             if !matches!(item_struct.vis, syn::Visibility::Public(_)) {
                 continue;
             }
-            
+
             // Skip generic structs (they need type parameters)
             if !item_struct.generics.params.is_empty() {
                 continue;
             }
-            
+
             let type_name = item_struct.ident.to_string();
-            
+
             // Check for tuple struct pattern: TypeName(Handle<T>)
             if let syn::Fields::Unnamed(fields) = &item_struct.fields {
                 if fields.unnamed.len() != 1 {
                     continue;
                 }
-                
+
                 let field = &fields.unnamed[0];
                 let field_type_str = quote::quote!(#field).to_string();
-                
+
                 // Check if this is a Handle<T> wrapper
                 if let Some(inner_asset) = extract_handle_inner_type(&field_type_str) {
                     // Build full path
@@ -1050,12 +1159,12 @@ fn parse_handle_newtypes_from_source(source: &str, crate_name: &str, file_path: 
                     } else {
                         format!("{}::{}::{}", crate_name, module_path, type_name)
                     };
-                    
+
                     // Skip if path cannot be normalized (internal modules)
                     let Some(newtype_path) = normalize_bevy_path(&full_path) else {
                         continue;
                     };
-                    
+
                     results.push(DiscoveredHandleNewtype {
                         newtype_path,
                         type_name: type_name.clone(),
@@ -1064,16 +1173,16 @@ fn parse_handle_newtypes_from_source(source: &str, crate_name: &str, file_path: 
                     });
                 }
             }
-            
+
             // Also check for struct pattern: TypeName { handle: Handle<T> } (single field)
             if let syn::Fields::Named(fields) = &item_struct.fields {
                 if fields.named.len() != 1 {
                     continue;
                 }
-                
+
                 let field = &fields.named[0];
                 let field_type_str = quote::quote!(#field).to_string();
-                
+
                 // Check if this is a Handle<T> wrapper
                 if let Some(inner_asset) = extract_handle_inner_type(&field_type_str) {
                     // Build full path
@@ -1083,12 +1192,12 @@ fn parse_handle_newtypes_from_source(source: &str, crate_name: &str, file_path: 
                     } else {
                         format!("{}::{}::{}", crate_name, module_path, type_name)
                     };
-                    
+
                     // Skip if path cannot be normalized (internal modules)
                     let Some(newtype_path) = normalize_bevy_path(&full_path) else {
                         continue;
                     };
-                    
+
                     results.push(DiscoveredHandleNewtype {
                         newtype_path,
                         type_name: type_name.clone(),
@@ -1108,26 +1217,26 @@ fn extract_handle_inner_type(type_str: &str) -> Option<String> {
     if !type_str.contains("Handle") {
         return None;
     }
-    
+
     // Find the angle bracket content
     let start = type_str.find('<')?;
     let end = type_str.rfind('>')?;
-    
+
     if start >= end {
         return None;
     }
-    
+
     // Extract and clean the inner type
-    let inner = type_str[start+1..end].trim();
-    
+    let inner = type_str[start + 1..end].trim();
+
     // Get just the type name (last segment if it's a path)
     let type_name = inner.split("::").last().unwrap_or(inner).trim();
-    
+
     // Skip if empty or looks like a generic parameter
     if type_name.is_empty() || type_name.len() == 1 {
         return None;
     }
-    
+
     Some(type_name.to_string())
 }
 
@@ -1136,41 +1245,50 @@ fn extract_handle_inner_type(type_str: &str) -> Option<String> {
 /// Scans bevy_* crates in Cargo registry for types implementing Asset
 /// Auto-discover asset types from bevy crates and workspace members
 /// Pattern: impl Asset for Type OR #[derive(Asset)] struct Type
-/// 
+///
 /// RUNTIME-BASED DISCOVERY: This function discovers ALL asset type names.
 /// No filtering is applied - runtime TypeRegistry lookup will determine which types
 /// are actually available and usable.
 fn discover_asset_types() -> Vec<DiscoveredAssetType> {
     let mut assets = Vec::new();
-    
+
     println!("cargo:warning=[ASSET_DISCOVERY] Starting asset type discovery (no filtering)...");
-    
+
     // Read ALL bevy_* dependencies from Cargo.lock - no filtering
     let dependencies = get_bevy_dependencies_from_lock();
-    println!("cargo:warning=[ASSET_DISCOVERY] Found {} bevy_* dependencies in Cargo.lock", dependencies.len());
-    
-    // Scan ALL bevy_* crates in cargo registry  
-    if let Ok(home) = env::var("CARGO_HOME").or_else(|_| env::var("USERPROFILE").map(|p| format!("{}/.cargo", p))) {
+    println!(
+        "cargo:warning=[ASSET_DISCOVERY] Found {} bevy_* dependencies in Cargo.lock",
+        dependencies.len()
+    );
+
+    // Scan ALL bevy_* crates in cargo registry
+    if let Ok(home) =
+        env::var("CARGO_HOME").or_else(|_| env::var("USERPROFILE").map(|p| format!("{}/.cargo", p)))
+    {
         let registry_src = PathBuf::from(&home).join("registry").join("src");
-        
+
         if registry_src.exists() {
             // Find the registry index directory
             if let Ok(entries) = fs::read_dir(&registry_src) {
                 for entry in entries.flatten() {
                     let index_dir = entry.path();
-                    if !index_dir.is_dir() { continue; }
-                    
+                    if !index_dir.is_dir() {
+                        continue;
+                    }
+
                     // Scan bevy_* crates
                     if let Ok(crate_entries) = fs::read_dir(&index_dir) {
                         for crate_entry in crate_entries.flatten() {
                             let crate_name = crate_entry.file_name().to_string_lossy().to_string();
-                            
+
                             // Extract base crate name (e.g., "bevy_mesh" from "bevy_mesh-0.17.2")
                             let base_crate = crate_name.split('-').next().unwrap_or(&crate_name);
-                            
+
                             // Only scan crates that are actual dependencies
-                            if !dependencies.contains(&base_crate.to_string()) { continue; }
-                            
+                            if !dependencies.contains(&base_crate.to_string()) {
+                                continue;
+                            }
+
                             let crate_src = crate_entry.path().join("src");
                             if crate_src.exists() {
                                 scan_directory_for_asset_types(&crate_src, base_crate, &mut assets);
@@ -1181,22 +1299,27 @@ fn discover_asset_types() -> Vec<DiscoveredAssetType> {
             }
         }
     }
-    
+
     // Also scan workspace members for custom asset types
     if let Ok(manifest_dir) = env::var("CARGO_MANIFEST_DIR") {
         if let Some(workspace_root) = PathBuf::from(&manifest_dir).parent() {
             let workspace_toml = workspace_root.join("Cargo.toml");
             if let Ok(content) = fs::read_to_string(&workspace_toml) {
                 if let Ok(manifest) = toml::from_str::<toml::Value>(&content) {
-                    if let Some(members) = manifest.get("workspace")
+                    if let Some(members) = manifest
+                        .get("workspace")
                         .and_then(|w| w.get("members"))
-                        .and_then(|m| m.as_array()) 
+                        .and_then(|m| m.as_array())
                     {
                         for member in members {
                             if let Some(member_name) = member.as_str() {
                                 let member_src = workspace_root.join(member_name).join("src");
                                 if member_src.exists() {
-                                    scan_directory_for_asset_types(&member_src, member_name, &mut assets);
+                                    scan_directory_for_asset_types(
+                                        &member_src,
+                                        member_name,
+                                        &mut assets,
+                                    );
                                 }
                             }
                         }
@@ -1205,36 +1328,46 @@ fn discover_asset_types() -> Vec<DiscoveredAssetType> {
             }
         }
     }
-    
+
     // Only filter GENERIC types (contain angle brackets) - these are syntactically invalid
     assets.retain(|asset| {
         let type_name = &asset.type_name;
-        
+
         // Skip generic types (contain angle brackets in name) - can't be used in const array
         if type_name.contains('<') || type_name.contains('>') {
             return false;
         }
-        
+
         true
     });
-    
+
     // Deduplicate by type_name (keep first occurrence)
     let mut seen_names = std::collections::HashSet::new();
     assets.retain(|a| seen_names.insert(a.type_name.clone()));
-    
-    println!("cargo:warning=  ✓ Auto-discovered {} asset type names (for runtime registration)", assets.len());
+
+    println!(
+        "cargo:warning=  ✓ Auto-discovered {} asset type names (for runtime registration)",
+        assets.len()
+    );
     for asset in &assets {
-        println!("cargo:warning=    - {} (from {})", asset.type_name, asset.full_path);
+        println!(
+            "cargo:warning=    - {} (from {})",
+            asset.type_name, asset.full_path
+        );
     }
-    
+
     assets
 }
 
 /// Scan a directory recursively for asset types
-fn scan_directory_for_asset_types(dir: &Path, crate_name: &str, results: &mut Vec<DiscoveredAssetType>) {
+fn scan_directory_for_asset_types(
+    dir: &Path,
+    crate_name: &str,
+    results: &mut Vec<DiscoveredAssetType>,
+) {
     for entry in fs::read_dir(dir).into_iter().flatten().flatten() {
         let path = entry.path();
-        
+
         if path.is_dir() {
             scan_directory_for_asset_types(&path, crate_name, results);
         } else if path.extension().map_or(false, |ext| ext == "rs") {
@@ -1248,13 +1381,21 @@ fn scan_directory_for_asset_types(dir: &Path, crate_name: &str, results: &mut Ve
 /// Parse a source file for Asset implementations
 /// Pattern: impl Asset for Type OR #[derive(Asset)] struct Type
 /// Also detects Clone implementation via #[derive(Clone)] or impl Clone
-fn parse_asset_types_from_source(source: &str, crate_name: &str, file_path: &Path, results: &mut Vec<DiscoveredAssetType>) {
-    let Ok(file) = syn::parse_file(source) else { return; };
-    
+fn parse_asset_types_from_source(
+    source: &str,
+    crate_name: &str,
+    file_path: &Path,
+    results: &mut Vec<DiscoveredAssetType>,
+) {
+    let Ok(file) = syn::parse_file(source) else {
+        return;
+    };
+
     // Track types that derive Asset and whether they also derive Clone
     // Key: type name, Value: (has_asset, has_clone, is_generic)
-    let mut type_info: std::collections::HashMap<String, (bool, bool, bool)> = std::collections::HashMap::new();
-    
+    let mut type_info: std::collections::HashMap<String, (bool, bool, bool)> =
+        std::collections::HashMap::new();
+
     // First pass: find #[derive(Asset)] and #[derive(Clone)] structs
     for item in &file.items {
         if let syn::Item::Struct(item_struct) = item {
@@ -1262,18 +1403,20 @@ fn parse_asset_types_from_source(source: &str, crate_name: &str, file_path: &Pat
             if !matches!(item_struct.vis, syn::Visibility::Public(_)) {
                 continue;
             }
-            
+
             let type_name = item_struct.ident.to_string();
-            
+
             // Check if struct has generic type parameters (can't instantiate without concrete types)
             let is_generic = !item_struct.generics.params.is_empty();
-            
+
             // Check for Asset and Clone derives in all attributes
             for attr in &item_struct.attrs {
                 if attr.path().is_ident("derive") {
                     if let Ok(meta) = attr.parse_args::<proc_macro2::TokenStream>() {
                         let derive_str = meta.to_string();
-                        let entry = type_info.entry(type_name.clone()).or_insert((false, false, is_generic));
+                        let entry = type_info
+                            .entry(type_name.clone())
+                            .or_insert((false, false, is_generic));
                         if derive_str.contains("Asset") {
                             entry.0 = true;
                         }
@@ -1285,24 +1428,28 @@ fn parse_asset_types_from_source(source: &str, crate_name: &str, file_path: &Pat
             }
         }
     }
-    
+
     // Second pass: find impl Asset for Type and impl Clone for Type
     for item in &file.items {
         if let syn::Item::Impl(item_impl) = item {
             // Check if implementing Asset or Clone trait
             if let Some((_, trait_path, _)) = &item_impl.trait_ {
-                let trait_name = trait_path.segments.last()
+                let trait_name = trait_path
+                    .segments
+                    .last()
                     .map(|s| s.ident.to_string())
                     .unwrap_or_default();
-                
+
                 // Get the type being implemented
                 if let syn::Type::Path(type_path) = &*item_impl.self_ty {
                     if let Some(seg) = type_path.path.segments.last() {
                         let type_name = seg.ident.to_string();
                         // Check if impl has generic parameters (e.g., impl<B, E> Asset for ExtendedMaterial<B, E>)
                         let is_generic = !item_impl.generics.params.is_empty();
-                        let entry = type_info.entry(type_name).or_insert((false, false, is_generic));
-                        
+                        let entry = type_info
+                            .entry(type_name)
+                            .or_insert((false, false, is_generic));
+
                         if trait_name == "Asset" {
                             entry.0 = true;
                         }
@@ -1314,26 +1461,26 @@ fn parse_asset_types_from_source(source: &str, crate_name: &str, file_path: &Pat
             }
         }
     }
-    
+
     // Build full paths for discovered assets (only types that implement Asset)
     for (type_name, (has_asset, has_clone, is_generic)) in type_info {
         if !has_asset {
             continue;
         }
-        
+
         let module_path_str = build_module_path_from_file(file_path, crate_name);
         let module_path: Vec<String> = if module_path_str.is_empty() {
             Vec::new()
         } else {
             module_path_str.split("::").map(|s| s.to_string()).collect()
         };
-        
+
         let full_path = if module_path_str.is_empty() {
             format!("{}::{}", crate_name, type_name)
         } else {
             format!("{}::{}::{}", crate_name, module_path_str, type_name)
         };
-        
+
         results.push(DiscoveredAssetType {
             full_path,
             crate_name: crate_name.to_string(),
@@ -1347,10 +1494,8 @@ fn parse_asset_types_from_source(source: &str, crate_name: &str, file_path: &Pat
 
 /// Build module path from file path relative to src/
 fn build_module_path_from_file(file_path: &Path, _crate_name: &str) -> String {
-    let file_name = file_path.file_stem()
-        .and_then(|s| s.to_str())
-        .unwrap_or("");
-    
+    let file_name = file_path.file_stem().and_then(|s| s.to_str()).unwrap_or("");
+
     // For lib.rs and mod.rs, module is parent directory
     if file_name == "lib" || file_name == "mod" {
         // Get parent directory name
@@ -1363,56 +1508,65 @@ fn build_module_path_from_file(file_path: &Path, _crate_name: &str) -> String {
         }
         return String::new();
     }
-    
+
     // Otherwise module is the file name
     file_name.to_string()
 }
 
 /// Auto-discover constructors for asset types
 /// Scans for `impl TypeName` blocks with methods like new_*, from_*, etc. that return Self
-fn discover_asset_constructors(asset_types: &[DiscoveredAssetType]) -> Vec<DiscoveredAssetConstructor> {
+fn discover_asset_constructors(
+    asset_types: &[DiscoveredAssetType],
+) -> Vec<DiscoveredAssetConstructor> {
     let mut constructors = Vec::new();
-    
+
     println!("cargo:warning=[CONSTRUCTOR_DISCOVERY] Scanning for asset constructors...");
-    
+
     // Get cargo home
     let cargo_home = env::var("CARGO_HOME")
         .or_else(|_| env::var("HOME").map(|h| format!("{}/.cargo", h)))
         .or_else(|_| env::var("USERPROFILE").map(|h| format!("{}/.cargo", h)))
         .unwrap_or_default();
-    
+
     if cargo_home.is_empty() {
         return constructors;
     }
-    
+
     let registry_src = PathBuf::from(&cargo_home).join("registry").join("src");
     if !registry_src.exists() {
         return constructors;
     }
-    
+
     let dependencies = get_bevy_dependencies_from_lock();
-    
+
     // Scan bevy_* crates for constructors
     for index_entry in fs::read_dir(&registry_src).into_iter().flatten().flatten() {
         let index_dir = index_entry.path();
-        if !index_dir.is_dir() { continue; }
-        
+        if !index_dir.is_dir() {
+            continue;
+        }
+
         for crate_entry in fs::read_dir(&index_dir).into_iter().flatten().flatten() {
             let crate_dir = crate_entry.path();
-            let dir_name = crate_dir.file_name()
-                .and_then(|n| n.to_str())
-                .unwrap_or("");
-            
+            let dir_name = crate_dir.file_name().and_then(|n| n.to_str()).unwrap_or("");
+
             let base_crate = dir_name.split('-').next().unwrap_or(dir_name);
-            if !dependencies.contains(&base_crate.to_string()) { continue; }
-            
+            if !dependencies.contains(&base_crate.to_string()) {
+                continue;
+            }
+
             let src_dir = crate_dir.join("src");
             if src_dir.exists() {
-                scan_directory_for_constructors(&src_dir, base_crate, asset_types, &mut constructors);
+                scan_directory_for_constructors(
+                    &src_dir,
+                    base_crate,
+                    asset_types,
+                    &mut constructors,
+                );
             }
         }
     }
-    
+
     // Prioritize certain constructor names for RTT use cases
     // new_target_texture > new_fill > new > default
     let priority = |name: &str| -> i32 {
@@ -1424,32 +1578,44 @@ fn discover_asset_constructors(asset_types: &[DiscoveredAssetType]) -> Vec<Disco
             _ => 4,
         }
     };
-    
+
     constructors.sort_by(|a, b| priority(&a.method_name).cmp(&priority(&b.method_name)));
-    
+
     // Deduplicate by type_path (keep highest priority constructor)
     let mut seen = std::collections::HashSet::new();
     constructors.retain(|c| seen.insert(c.type_path.clone()));
-    
-    println!("cargo:warning=  ✓ Discovered {} asset constructors", constructors.len());
+
+    println!(
+        "cargo:warning=  ✓ Discovered {} asset constructors",
+        constructors.len()
+    );
     for c in &constructors {
-        let params: Vec<String> = c.params.iter().map(|p| format!("{}: {}", p.name, p.type_str)).collect();
-        println!("cargo:warning=    - {}::{}({})", c.type_name, c.method_name, params.join(", "));
+        let params: Vec<String> = c
+            .params
+            .iter()
+            .map(|p| format!("{}: {}", p.name, p.type_str))
+            .collect();
+        println!(
+            "cargo:warning=    - {}::{}({})",
+            c.type_name,
+            c.method_name,
+            params.join(", ")
+        );
     }
-    
+
     constructors
 }
 
 /// Scan directory for constructor methods
 fn scan_directory_for_constructors(
-    dir: &Path, 
-    crate_name: &str, 
+    dir: &Path,
+    crate_name: &str,
     asset_types: &[DiscoveredAssetType],
-    results: &mut Vec<DiscoveredAssetConstructor>
+    results: &mut Vec<DiscoveredAssetConstructor>,
 ) {
     for entry in fs::read_dir(dir).into_iter().flatten().flatten() {
         let path = entry.path();
-        
+
         if path.is_dir() {
             scan_directory_for_constructors(&path, crate_name, asset_types, results);
         } else if path.extension().map_or(false, |ext| ext == "rs") {
@@ -1468,48 +1634,63 @@ fn parse_constructors_from_source(
     asset_types: &[DiscoveredAssetType],
     results: &mut Vec<DiscoveredAssetConstructor>,
 ) {
-    let Ok(file) = syn::parse_file(source) else { return; };
-    
+    let Ok(file) = syn::parse_file(source) else {
+        return;
+    };
+
     for item in file.items {
         if let syn::Item::Impl(item_impl) = item {
             // Only look at inherent impls (not trait impls)
-            if item_impl.trait_.is_some() { continue; }
-            
+            if item_impl.trait_.is_some() {
+                continue;
+            }
+
             // Get the type being implemented
             let type_name = match &*item_impl.self_ty {
-                syn::Type::Path(type_path) => {
-                    type_path.path.segments.last()
-                        .map(|s| s.ident.to_string())
-                        .unwrap_or_default()
-                }
+                syn::Type::Path(type_path) => type_path
+                    .path
+                    .segments
+                    .last()
+                    .map(|s| s.ident.to_string())
+                    .unwrap_or_default(),
                 _ => continue,
             };
-            
+
             // Check if this is an asset type we care about
             let asset_type = asset_types.iter().find(|a| a.type_name == type_name);
-            if asset_type.is_none() { continue; }
+            if asset_type.is_none() {
+                continue;
+            }
             let asset_type = asset_type.unwrap();
-            
+
             // Look for constructor methods
             for impl_item in &item_impl.items {
                 if let syn::ImplItem::Fn(method) = impl_item {
                     // Must be public
-                    if !matches!(method.vis, syn::Visibility::Public(_)) { continue; }
-                    
+                    if !matches!(method.vis, syn::Visibility::Public(_)) {
+                        continue;
+                    }
+
                     let method_name = method.sig.ident.to_string();
-                    
+
                     // Check if it looks like a constructor (new*, from*, etc.)
-                    if !is_constructor_name(&method_name) { continue; }
-                    
+                    if !is_constructor_name(&method_name) {
+                        continue;
+                    }
+
                     // Check if it returns Self (or the type name)
-                    if !returns_self_or_type(&method.sig.output, &type_name) { continue; }
-                    
+                    if !returns_self_or_type(&method.sig.output, &type_name) {
+                        continue;
+                    }
+
                     // Parse parameters (skip &self, &mut self)
                     let params = parse_method_params(&method.sig);
-                    
+
                     // Must have at least one parameter
-                    if params.is_empty() { continue; }
-                    
+                    if params.is_empty() {
+                        continue;
+                    }
+
                     results.push(DiscoveredAssetConstructor {
                         type_path: asset_type.full_path.clone(),
                         type_name: type_name.clone(),
@@ -1541,7 +1722,7 @@ fn returns_self_or_type(output: &syn::ReturnType, type_name: &str) -> bool {
 /// Parse method parameters, skipping self parameters
 fn parse_method_params(sig: &syn::Signature) -> Vec<ConstructorParam> {
     let mut params = Vec::new();
-    
+
     for arg in &sig.inputs {
         match arg {
             syn::FnArg::Receiver(_) => continue, // Skip &self, &mut self
@@ -1551,18 +1732,19 @@ fn parse_method_params(sig: &syn::Signature) -> Vec<ConstructorParam> {
                     syn::Pat::Ident(ident) => ident.ident.to_string(),
                     _ => continue,
                 };
-                
+
                 // Get type as string - need to extract just the type, not the whole pattern
                 let ty = &pat_type.ty;
-                let type_str = quote::quote!(#ty).to_string()
+                let type_str = quote::quote!(#ty)
+                    .to_string()
                     .replace(" ", "")
                     .replace("&", "");
-                
+
                 params.push(ConstructorParam { name, type_str });
             }
         }
     }
-    
+
     params
 }
 
@@ -1575,72 +1757,87 @@ fn parse_method_params(sig: &syn::Signature) -> Vec<ConstructorParam> {
 /// Pattern: #[derive(SystemParam)] pub struct TypeName
 fn discover_systemparam_types() -> Vec<DiscoveredSystemParam> {
     let mut params = Vec::new();
-    
+
     println!("cargo:warning=[SYSTEMPARAM_DISCOVERY] Starting SystemParam type discovery...");
-    
+
     // Get cargo home
     let cargo_home = env::var("CARGO_HOME")
         .or_else(|_| env::var("HOME").map(|h| format!("{}/.cargo", h)))
         .or_else(|_| env::var("USERPROFILE").map(|h| format!("{}/.cargo", h)))
         .unwrap_or_default();
-    
+
     if cargo_home.is_empty() {
         println!("cargo:warning=  ⚠ Cannot find CARGO_HOME for SystemParam discovery");
         return params;
     }
-    
+
     let registry_src = PathBuf::from(&cargo_home).join("registry").join("src");
-    
+
     if !registry_src.exists() {
         println!("cargo:warning=  ⚠ Registry source not found for SystemParam discovery");
         return params;
     }
-    
+
     // Read ALL bevy_* dependencies from Cargo.lock
     let dependencies = get_bevy_dependencies_from_lock();
-    println!("cargo:warning=[SYSTEMPARAM_DISCOVERY] Scanning {} bevy_* dependencies", dependencies.len());
-    
+    println!(
+        "cargo:warning=[SYSTEMPARAM_DISCOVERY] Scanning {} bevy_* dependencies",
+        dependencies.len()
+    );
+
     // Scan bevy_* crates for SystemParam types
     for index_entry in fs::read_dir(&registry_src).into_iter().flatten().flatten() {
         let index_dir = index_entry.path();
-        if !index_dir.is_dir() { continue; }
-        
+        if !index_dir.is_dir() {
+            continue;
+        }
+
         for crate_entry in fs::read_dir(&index_dir).into_iter().flatten().flatten() {
             let crate_dir = crate_entry.path();
-            let dir_name = crate_dir.file_name()
-                .and_then(|n| n.to_str())
-                .unwrap_or("");
-            
+            let dir_name = crate_dir.file_name().and_then(|n| n.to_str()).unwrap_or("");
+
             // Extract base crate name (e.g., "bevy_picking" from "bevy_picking-0.17.2")
             let base_crate = dir_name.split('-').next().unwrap_or(dir_name);
-            
+
             // Only scan crates that are in our dependencies
-            if !dependencies.contains(&base_crate.to_string()) { continue; }
-            
+            if !dependencies.contains(&base_crate.to_string()) {
+                continue;
+            }
+
             let src_dir = crate_dir.join("src");
             if src_dir.exists() {
                 scan_directory_for_systemparams(&src_dir, base_crate, &mut params);
             }
         }
     }
-    
+
     // Deduplicate by type_name
     let mut seen = std::collections::HashSet::new();
     params.retain(|p| seen.insert(p.type_name.clone()));
-    
-    println!("cargo:warning=  ✓ Auto-discovered {} SystemParam types", params.len());
+
+    println!(
+        "cargo:warning=  ✓ Auto-discovered {} SystemParam types",
+        params.len()
+    );
     for param in &params {
-        println!("cargo:warning=    - {} (from {})", param.type_name, param.crate_name);
+        println!(
+            "cargo:warning=    - {} (from {})",
+            param.type_name, param.crate_name
+        );
     }
-    
+
     params
 }
 
 /// Scan a directory recursively for SystemParam types
-fn scan_directory_for_systemparams(dir: &Path, crate_name: &str, results: &mut Vec<DiscoveredSystemParam>) {
+fn scan_directory_for_systemparams(
+    dir: &Path,
+    crate_name: &str,
+    results: &mut Vec<DiscoveredSystemParam>,
+) {
     for entry in fs::read_dir(dir).into_iter().flatten().flatten() {
         let path = entry.path();
-        
+
         if path.is_dir() {
             scan_directory_for_systemparams(&path, crate_name, results);
         } else if path.extension().map_or(false, |ext| ext == "rs") {
@@ -1652,16 +1849,23 @@ fn scan_directory_for_systemparams(dir: &Path, crate_name: &str, results: &mut V
 }
 
 /// Parse a source file for #[derive(SystemParam)] patterns
-fn parse_systemparams_from_source(source: &str, crate_name: &str, file_path: &Path, results: &mut Vec<DiscoveredSystemParam>) {
-    let Ok(file) = syn::parse_file(source) else { return; };
-    
+fn parse_systemparams_from_source(
+    source: &str,
+    crate_name: &str,
+    file_path: &Path,
+    results: &mut Vec<DiscoveredSystemParam>,
+) {
+    let Ok(file) = syn::parse_file(source) else {
+        return;
+    };
+
     for item in file.items {
         if let syn::Item::Struct(item_struct) = item {
             // Must be public
             if !matches!(item_struct.vis, syn::Visibility::Public(_)) {
                 continue;
             }
-            
+
             // Check for #[derive(SystemParam)]
             let has_systemparam = item_struct.attrs.iter().any(|attr| {
                 if attr.path().is_ident("derive") {
@@ -1671,13 +1875,13 @@ fn parse_systemparams_from_source(source: &str, crate_name: &str, file_path: &Pa
                 }
                 false
             });
-            
+
             if !has_systemparam {
                 continue;
             }
-            
+
             let type_name = item_struct.ident.to_string();
-            
+
             // Build full path
             let module_path = build_module_path_from_file(file_path, crate_name);
             let full_path = if module_path.is_empty() {
@@ -1685,12 +1889,12 @@ fn parse_systemparams_from_source(source: &str, crate_name: &str, file_path: &Pa
             } else {
                 format!("{}::{}::{}", crate_name, module_path, type_name)
             };
-            
+
             // Normalize to bevy:: path
             let Some(full_path) = normalize_bevy_path(&full_path) else {
                 continue;
             };
-            
+
             results.push(DiscoveredSystemParam {
                 full_path,
                 type_name,
@@ -1702,57 +1906,71 @@ fn parse_systemparams_from_source(source: &str, crate_name: &str, file_path: &Pa
 
 /// Discover methods on SystemParam types
 /// Scans for `impl TypeName` blocks with public methods that take &self or &mut self
-fn discover_systemparam_methods(param_types: &[DiscoveredSystemParam]) -> Vec<DiscoveredSystemParamMethod> {
+fn discover_systemparam_methods(
+    param_types: &[DiscoveredSystemParam],
+) -> Vec<DiscoveredSystemParamMethod> {
     let mut methods = Vec::new();
-    
+
     println!("cargo:warning=[SYSTEMPARAM_DISCOVERY] Scanning for SystemParam methods...");
-    
+
     // Get cargo home
     let cargo_home = env::var("CARGO_HOME")
         .or_else(|_| env::var("HOME").map(|h| format!("{}/.cargo", h)))
         .or_else(|_| env::var("USERPROFILE").map(|h| format!("{}/.cargo", h)))
         .unwrap_or_default();
-    
+
     if cargo_home.is_empty() {
         return methods;
     }
-    
+
     let registry_src = PathBuf::from(&cargo_home).join("registry").join("src");
     if !registry_src.exists() {
         return methods;
     }
-    
+
     let dependencies = get_bevy_dependencies_from_lock();
-    
+
     // Scan for methods
     for index_entry in fs::read_dir(&registry_src).into_iter().flatten().flatten() {
         let index_dir = index_entry.path();
-        if !index_dir.is_dir() { continue; }
-        
+        if !index_dir.is_dir() {
+            continue;
+        }
+
         for crate_entry in fs::read_dir(&index_dir).into_iter().flatten().flatten() {
             let crate_dir = crate_entry.path();
-            let dir_name = crate_dir.file_name()
-                .and_then(|n| n.to_str())
-                .unwrap_or("");
-            
+            let dir_name = crate_dir.file_name().and_then(|n| n.to_str()).unwrap_or("");
+
             let base_crate = dir_name.split('-').next().unwrap_or(dir_name);
-            if !dependencies.contains(&base_crate.to_string()) { continue; }
-            
+            if !dependencies.contains(&base_crate.to_string()) {
+                continue;
+            }
+
             let src_dir = crate_dir.join("src");
             if src_dir.exists() {
                 scan_directory_for_systemparam_methods(&src_dir, param_types, &mut methods);
             }
         }
     }
-    
-    println!("cargo:warning=  ✓ Discovered {} SystemParam methods", methods.len());
+
+    println!(
+        "cargo:warning=  ✓ Discovered {} SystemParam methods",
+        methods.len()
+    );
     for method in &methods {
-        let params_str: Vec<String> = method.params.iter()
+        let params_str: Vec<String> = method
+            .params
+            .iter()
             .map(|p| format!("{}: {}", p.name, p.type_str))
             .collect();
-        println!("cargo:warning=    - {}::{}({})", method.param_type, method.method_name, params_str.join(", "));
+        println!(
+            "cargo:warning=    - {}::{}({})",
+            method.param_type,
+            method.method_name,
+            params_str.join(", ")
+        );
     }
-    
+
     methods
 }
 
@@ -1764,7 +1982,7 @@ fn scan_directory_for_systemparam_methods(
 ) {
     for entry in fs::read_dir(dir).into_iter().flatten().flatten() {
         let path = entry.path();
-        
+
         if path.is_dir() {
             scan_directory_for_systemparam_methods(&path, param_types, results);
         } else if path.extension().map_or(false, |ext| ext == "rs") {
@@ -1781,48 +1999,59 @@ fn parse_systemparam_methods_from_source(
     param_types: &[DiscoveredSystemParam],
     results: &mut Vec<DiscoveredSystemParamMethod>,
 ) {
-    let Ok(file) = syn::parse_file(source) else { return; };
-    
+    let Ok(file) = syn::parse_file(source) else {
+        return;
+    };
+
     for item in file.items {
         if let syn::Item::Impl(item_impl) = item {
             // Only inherent impls (not trait impls)
-            if item_impl.trait_.is_some() { continue; }
-            
+            if item_impl.trait_.is_some() {
+                continue;
+            }
+
             // Get type name being implemented
             let type_name = match &*item_impl.self_ty {
-                syn::Type::Path(type_path) => {
-                    type_path.path.segments.last()
-                        .map(|s| s.ident.to_string())
-                        .unwrap_or_default()
-                }
+                syn::Type::Path(type_path) => type_path
+                    .path
+                    .segments
+                    .last()
+                    .map(|s| s.ident.to_string())
+                    .unwrap_or_default(),
                 _ => continue,
             };
-            
+
             // Check if this is a SystemParam type we discovered
             if !param_types.iter().any(|p| p.type_name == type_name) {
                 continue;
             }
-            
+
             // Find public methods that take &self or &mut self
             for impl_item in &item_impl.items {
                 if let syn::ImplItem::Fn(method) = impl_item {
                     // Must be public
-                    if !matches!(method.vis, syn::Visibility::Public(_)) { continue; }
-                    
+                    if !matches!(method.vis, syn::Visibility::Public(_)) {
+                        continue;
+                    }
+
                     // Must have &self or &mut self receiver
-                    let has_self = method.sig.inputs.iter().any(|arg| {
-                        matches!(arg, syn::FnArg::Receiver(_))
-                    });
-                    if !has_self { continue; }
-                    
+                    let has_self = method
+                        .sig
+                        .inputs
+                        .iter()
+                        .any(|arg| matches!(arg, syn::FnArg::Receiver(_)));
+                    if !has_self {
+                        continue;
+                    }
+
                     let method_name = method.sig.ident.to_string();
-                    
+
                     // Parse parameters
                     let params = parse_systemparam_method_params(&method.sig);
-                    
+
                     // Get return type
                     let (return_type, returns_iterator) = parse_return_type(&method.sig.output);
-                    
+
                     results.push(DiscoveredSystemParamMethod {
                         param_type: type_name.clone(),
                         method_name,
@@ -1839,7 +2068,7 @@ fn parse_systemparam_methods_from_source(
 /// Parse method parameters for SystemParam methods
 fn parse_systemparam_method_params(sig: &syn::Signature) -> Vec<SystemParamMethodParam> {
     let mut params = Vec::new();
-    
+
     for arg in &sig.inputs {
         match arg {
             syn::FnArg::Receiver(_) => continue, // Skip &self
@@ -1848,37 +2077,42 @@ fn parse_systemparam_method_params(sig: &syn::Signature) -> Vec<SystemParamMetho
                     syn::Pat::Ident(ident) => ident.ident.to_string(),
                     _ => continue,
                 };
-                
+
                 let ty = &pat_type.ty;
-                let type_str = quote::quote!(#ty).to_string()
-                    .replace(" ", "");
-                
+                let type_str = quote::quote!(#ty).to_string().replace(" ", "");
+
                 // Check if it's a reference
                 let is_reference = type_str.starts_with("&");
-                
+
                 // Check if this type implements Reflect (discovered from source)
                 let is_reflectable = is_type_reflectable(&type_str);
-                
+
                 params.push(SystemParamMethodParam {
                     name,
-                    type_str: type_str.replace("&", "").replace("mut", "").trim().to_string(),
+                    type_str: type_str
+                        .replace("&", "")
+                        .replace("mut", "")
+                        .trim()
+                        .to_string(),
                     is_reference,
                     is_reflectable,
                 });
             }
         }
     }
-    
+
     params
 }
 
 /// Cached set of types that implement Reflect (discovered by scanning sources)
 /// This is populated by discover_reflect_types() and used by is_type_reflectable()
-static REFLECT_TYPES: std::sync::OnceLock<std::collections::HashSet<String>> = std::sync::OnceLock::new();
+static REFLECT_TYPES: std::sync::OnceLock<std::collections::HashSet<String>> =
+    std::sync::OnceLock::new();
 
 /// Cached set of types that implement Debug (discovered by scanning sources)
 /// This is populated by discover_debug_types() and used by is_type_debuggable()
-static DEBUG_TYPES: std::sync::OnceLock<std::collections::HashSet<String>> = std::sync::OnceLock::new();
+static DEBUG_TYPES: std::sync::OnceLock<std::collections::HashSet<String>> =
+    std::sync::OnceLock::new();
 
 /// Check if a type implements Debug by looking it up in the discovered set
 fn is_type_debuggable(type_str: &str) -> bool {
@@ -1889,42 +2123,51 @@ fn is_type_debuggable(type_str: &str) -> bool {
         .replace("'static", "")
         .trim()
         .to_string();
-    
+
     // Slice types like [(Entity,RayMeshHit)] - assume debuggable if they parse
     // (Entity and most Bevy types implement Debug)
     if clean.starts_with('[') && clean.ends_with(']') {
         return true;
     }
-    
+
     // Tuple types like (Entity, RayMeshHit) - assume debuggable
     if clean.starts_with('(') && clean.ends_with(')') {
         return true;
     }
-    
+
     // Primitive types always implement Debug
     let type_name_base = clean.split("::").last().unwrap_or(&clean);
     if is_primitive_type(type_name_base) {
         return true;
     }
-    
+
     // Common std types implement Debug
-    let always_debug = ["Vec", "Option", "Result", "String", "Box", "Arc", "Rc", 
-                        "Entity", "RayMeshHit", "Camera", "UiCameraConfig"];
+    let always_debug = [
+        "Vec",
+        "Option",
+        "Result",
+        "String",
+        "Box",
+        "Arc",
+        "Rc",
+        "Entity",
+        "RayMeshHit",
+        "Camera",
+        "UiCameraConfig",
+    ];
     for t in always_debug {
         if type_name_base.starts_with(t) {
             return true;
         }
     }
-    
+
     // Check the discovered Debug types
-    let debug_types = DEBUG_TYPES.get_or_init(|| {
-        discover_debug_types()
-    });
-    
+    let debug_types = DEBUG_TYPES.get_or_init(|| discover_debug_types());
+
     // Extract just the type name (handle generics)
     let type_name = clean.split('<').next().unwrap_or(&clean);
     let type_name = type_name.split("::").last().unwrap_or(type_name);
-    
+
     debug_types.contains(type_name)
 }
 
@@ -1932,48 +2175,53 @@ fn is_type_debuggable(type_str: &str) -> bool {
 /// Similar to discover_reflect_types but for Debug
 fn discover_debug_types() -> std::collections::HashSet<String> {
     let mut debug_types = std::collections::HashSet::new();
-    
+
     // Get cargo home
     let cargo_home = env::var("CARGO_HOME")
         .or_else(|_| env::var("HOME").map(|h| format!("{}/.cargo", h)))
         .or_else(|_| env::var("USERPROFILE").map(|h| format!("{}/.cargo", h)))
         .unwrap_or_default();
-    
+
     if cargo_home.is_empty() {
         return debug_types;
     }
-    
+
     let registry_src = PathBuf::from(&cargo_home).join("registry").join("src");
-    
+
     if !registry_src.exists() {
         return debug_types;
     }
-    
+
     let dependencies = get_bevy_dependencies_from_lock();
-    
+
     // Scan bevy crates for Debug implementations
     for index_entry in fs::read_dir(&registry_src).into_iter().flatten().flatten() {
         let index_dir = index_entry.path();
-        if !index_dir.is_dir() { continue; }
-        
+        if !index_dir.is_dir() {
+            continue;
+        }
+
         for crate_entry in fs::read_dir(&index_dir).into_iter().flatten().flatten() {
             let crate_dir = crate_entry.path();
-            let dir_name = crate_dir.file_name()
-                .and_then(|n| n.to_str())
-                .unwrap_or("");
-            
+            let dir_name = crate_dir.file_name().and_then(|n| n.to_str()).unwrap_or("");
+
             let base_crate = dir_name.split('-').next().unwrap_or(dir_name);
-            if !dependencies.contains(&base_crate.to_string()) { continue; }
-            
+            if !dependencies.contains(&base_crate.to_string()) {
+                continue;
+            }
+
             let src_dir = crate_dir.join("src");
             if src_dir.exists() {
                 scan_directory_for_debug_types(&src_dir, &mut debug_types);
             }
         }
     }
-    
-    println!("cargo:warning=  ✓ Discovered {} Debug types", debug_types.len());
-    
+
+    println!(
+        "cargo:warning=  ✓ Discovered {} Debug types",
+        debug_types.len()
+    );
+
     debug_types
 }
 
@@ -1981,7 +2229,7 @@ fn discover_debug_types() -> std::collections::HashSet<String> {
 fn scan_directory_for_debug_types(dir: &Path, results: &mut std::collections::HashSet<String>) {
     for entry in fs::read_dir(dir).into_iter().flatten().flatten() {
         let path = entry.path();
-        
+
         if path.is_dir() {
             scan_directory_for_debug_types(&path, results);
         } else if path.extension().map_or(false, |ext| ext == "rs") {
@@ -1994,8 +2242,10 @@ fn scan_directory_for_debug_types(dir: &Path, results: &mut std::collections::Ha
 
 /// Parse source file for #[derive(Debug)] and impl Debug patterns
 fn parse_debug_types_from_source(source: &str, results: &mut std::collections::HashSet<String>) {
-    let Ok(file) = syn::parse_file(source) else { return; };
-    
+    let Ok(file) = syn::parse_file(source) else {
+        return;
+    };
+
     for item in file.items {
         match item {
             syn::Item::Struct(item_struct) => {
@@ -2007,7 +2257,7 @@ fn parse_debug_types_from_source(source: &str, results: &mut std::collections::H
                     }
                     false
                 });
-                
+
                 if has_debug {
                     results.insert(item_struct.ident.to_string());
                 }
@@ -2021,7 +2271,7 @@ fn parse_debug_types_from_source(source: &str, results: &mut std::collections::H
                     }
                     false
                 });
-                
+
                 if has_debug {
                     results.insert(item_enum.ident.to_string());
                 }
@@ -2029,10 +2279,12 @@ fn parse_debug_types_from_source(source: &str, results: &mut std::collections::H
             syn::Item::Impl(item_impl) => {
                 // Check for impl Debug for Type
                 if let Some((_, trait_path, _)) = &item_impl.trait_ {
-                    let trait_name = trait_path.segments.last()
+                    let trait_name = trait_path
+                        .segments
+                        .last()
                         .map(|s| s.ident.to_string())
                         .unwrap_or_default();
-                    
+
                     if trait_name == "Debug" {
                         if let syn::Type::Path(type_path) = &*item_impl.self_ty {
                             if let Some(seg) = type_path.path.segments.last() {
@@ -2056,27 +2308,25 @@ fn is_type_reflectable(type_str: &str) -> bool {
         .replace("'static", "")
         .trim()
         .to_string();
-    
+
     // Types containing closures or complex generics are never reflectable
     if clean.contains("Fn(") || clean.contains("dyn ") || clean.contains("impl ") {
         return false;
     }
-    
+
     // Primitive types are always reflectable
     let type_name_base = clean.split("::").last().unwrap_or(&clean);
     if is_primitive_type(type_name_base) {
         return true;
     }
-    
+
     // Check the discovered Reflect types
-    let reflect_types = REFLECT_TYPES.get_or_init(|| {
-        discover_reflect_types()
-    });
-    
+    let reflect_types = REFLECT_TYPES.get_or_init(|| discover_reflect_types());
+
     // Extract just the type name (handle generics like Vec<T> -> Vec)
     let type_name = clean.split('<').next().unwrap_or(&clean);
     let type_name = type_name.split("::").last().unwrap_or(type_name);
-    
+
     reflect_types.contains(type_name)
 }
 
@@ -2084,51 +2334,56 @@ fn is_type_reflectable(type_str: &str) -> bool {
 /// Pattern: #[derive(Reflect)] or impl Reflect for Type
 fn discover_reflect_types() -> std::collections::HashSet<String> {
     let mut reflect_types = std::collections::HashSet::new();
-    
+
     println!("cargo:warning=[REFLECT_DISCOVERY] Scanning for Reflect types...");
-    
+
     // Get cargo home
     let cargo_home = env::var("CARGO_HOME")
         .or_else(|_| env::var("HOME").map(|h| format!("{}/.cargo", h)))
         .or_else(|_| env::var("USERPROFILE").map(|h| format!("{}/.cargo", h)))
         .unwrap_or_default();
-    
+
     if cargo_home.is_empty() {
         println!("cargo:warning=  ⚠ Cannot find CARGO_HOME for Reflect discovery");
         return reflect_types;
     }
-    
+
     let registry_src = PathBuf::from(&cargo_home).join("registry").join("src");
-    
+
     if !registry_src.exists() {
         return reflect_types;
     }
-    
+
     let dependencies = get_bevy_dependencies_from_lock();
-    
+
     // Scan bevy crates for Reflect implementations
     for index_entry in fs::read_dir(&registry_src).into_iter().flatten().flatten() {
         let index_dir = index_entry.path();
-        if !index_dir.is_dir() { continue; }
-        
+        if !index_dir.is_dir() {
+            continue;
+        }
+
         for crate_entry in fs::read_dir(&index_dir).into_iter().flatten().flatten() {
             let crate_dir = crate_entry.path();
-            let dir_name = crate_dir.file_name()
-                .and_then(|n| n.to_str())
-                .unwrap_or("");
-            
+            let dir_name = crate_dir.file_name().and_then(|n| n.to_str()).unwrap_or("");
+
             let base_crate = dir_name.split('-').next().unwrap_or(dir_name);
-            if !dependencies.contains(&base_crate.to_string()) { continue; }
-            
+            if !dependencies.contains(&base_crate.to_string()) {
+                continue;
+            }
+
             let src_dir = crate_dir.join("src");
             if src_dir.exists() {
                 scan_directory_for_reflect_types(&src_dir, &mut reflect_types);
             }
         }
     }
-    
-    println!("cargo:warning=  ✓ Discovered {} Reflect types", reflect_types.len());
-    
+
+    println!(
+        "cargo:warning=  ✓ Discovered {} Reflect types",
+        reflect_types.len()
+    );
+
     reflect_types
 }
 
@@ -2136,7 +2391,7 @@ fn discover_reflect_types() -> std::collections::HashSet<String> {
 fn scan_directory_for_reflect_types(dir: &Path, results: &mut std::collections::HashSet<String>) {
     for entry in fs::read_dir(dir).into_iter().flatten().flatten() {
         let path = entry.path();
-        
+
         if path.is_dir() {
             scan_directory_for_reflect_types(&path, results);
         } else if path.extension().map_or(false, |ext| ext == "rs") {
@@ -2149,8 +2404,10 @@ fn scan_directory_for_reflect_types(dir: &Path, results: &mut std::collections::
 
 /// Parse source file for #[derive(Reflect)] and impl Reflect patterns
 fn parse_reflect_types_from_source(source: &str, results: &mut std::collections::HashSet<String>) {
-    let Ok(file) = syn::parse_file(source) else { return; };
-    
+    let Ok(file) = syn::parse_file(source) else {
+        return;
+    };
+
     for item in file.items {
         match item {
             syn::Item::Struct(item_struct) => {
@@ -2163,7 +2420,7 @@ fn parse_reflect_types_from_source(source: &str, results: &mut std::collections:
                     }
                     false
                 });
-                
+
                 if has_reflect {
                     results.insert(item_struct.ident.to_string());
                 }
@@ -2177,7 +2434,7 @@ fn parse_reflect_types_from_source(source: &str, results: &mut std::collections:
                     }
                     false
                 });
-                
+
                 if has_reflect {
                     results.insert(item_enum.ident.to_string());
                 }
@@ -2185,10 +2442,12 @@ fn parse_reflect_types_from_source(source: &str, results: &mut std::collections:
             syn::Item::Impl(item_impl) => {
                 // Check for impl Reflect for Type
                 if let Some((_, trait_path, _)) = &item_impl.trait_ {
-                    let trait_name = trait_path.segments.last()
+                    let trait_name = trait_path
+                        .segments
+                        .last()
                         .map(|s| s.ident.to_string())
                         .unwrap_or_default();
-                    
+
                     if trait_name == "Reflect" || trait_name == "PartialReflect" {
                         if let syn::Type::Path(type_path) = &*item_impl.self_ty {
                             if let Some(seg) = type_path.path.segments.last() {
@@ -2209,14 +2468,13 @@ fn parse_return_type(output: &syn::ReturnType) -> (String, bool) {
         syn::ReturnType::Default => ("()".to_string(), false),
         syn::ReturnType::Type(_, ty) => {
             let type_str = quote::quote!(#ty).to_string().replace(" ", "");
-            let returns_iterator = type_str.contains("impl Iterator") || 
-                                   type_str.contains("impl IntoIterator") ||
-                                   type_str.contains("Iter<");
+            let returns_iterator = type_str.contains("impl Iterator")
+                || type_str.contains("impl IntoIterator")
+                || type_str.contains("Iter<");
             (type_str, returns_iterator)
         }
     }
 }
-
 
 /// Used for auto-registering handle creators and newtype wrappers
 #[derive(Debug, Clone)]
@@ -2236,16 +2494,20 @@ fn get_newtypes_from_metadata(manifest: &toml::Value) -> Vec<NewtypeSpec> {
         .and_then(|m| m.get("lua_newtypes"))
         .and_then(|ln| ln.get("wrappers"))
         .and_then(|w| w.as_array());
-    
+
     let Some(wrappers) = wrappers_array else {
         return Vec::new();
     };
-    
-    wrappers.iter()
+
+    wrappers
+        .iter()
         .filter_map(|entry| {
             let newtype = entry.get("newtype")?.as_str()?.to_string();
             let inner = entry.get("inner")?.as_str()?.to_string();
-            println!("cargo:warning=  ✓ Found newtype wrapper: {} wraps Handle<{}>", newtype, inner);
+            println!(
+                "cargo:warning=  ✓ Found newtype wrapper: {} wraps Handle<{}>",
+                newtype, inner
+            );
             Some(NewtypeSpec {
                 newtype_path: newtype,
                 inner_asset_path: inner,
@@ -2296,77 +2558,81 @@ struct BevyMessageSpec {
 /// Message types are those that use MessageWriter<T> for dispatch (e.g., PointerInput)
 fn discover_bevy_messages() -> Vec<BevyMessageSpec> {
     let mut messages = Vec::new();
-    
+
     // Find cargo home
     let cargo_home = env::var("CARGO_HOME")
         .or_else(|_| env::var("HOME").map(|h| format!("{}/.cargo", h)))
         .or_else(|_| env::var("USERPROFILE").map(|h| format!("{}/.cargo", h)))
         .unwrap_or_else(|_| String::new());
-    
+
     if cargo_home.is_empty() {
         println!("cargo:warning=  ⚠ Cannot find CARGO_HOME for message discovery");
         return messages;
     }
-    
+
     let registry_src = PathBuf::from(&cargo_home).join("registry").join("src");
-    
+
     if !registry_src.exists() {
         println!("cargo:warning=  ⚠ Registry source not found for message discovery");
         return messages;
     }
-    
+
     // Message types to discover and their locations
     // These types use MessageWriter<T> instead of EventWriter<T>
-    let message_types = [
-        ("bevy_picking", "pointer.rs", "PointerInput"),
-    ];
-    
+    let message_types = [("bevy_picking", "pointer.rs", "PointerInput")];
+
     'type_loop: for (crate_prefix, file_name, type_name) in &message_types {
         // Check if we already found this type
         if messages.iter().any(|m| m.type_name == *type_name) {
             continue;
         }
-        
+
         // Iterate through registry index directories
         for index_entry in fs::read_dir(&registry_src).into_iter().flatten().flatten() {
             let index_dir = index_entry.path();
-            if !index_dir.is_dir() { continue; }
-            
+            if !index_dir.is_dir() {
+                continue;
+            }
+
             // Look for crate directories (e.g., bevy_picking-0.3.0)
             for crate_entry in fs::read_dir(&index_dir).into_iter().flatten().flatten() {
                 let crate_dir = crate_entry.path();
-                if !crate_dir.is_dir() { continue; }
-                
-                let crate_name = crate_dir.file_name()
-                    .and_then(|n| n.to_str())
-                    .unwrap_or("");
-                
+                if !crate_dir.is_dir() {
+                    continue;
+                }
+
+                let crate_name = crate_dir.file_name().and_then(|n| n.to_str()).unwrap_or("");
+
                 // Check if this is the target crate
                 if !crate_name.starts_with(crate_prefix) {
                     continue;
                 }
-                
+
                 // Found the crate - look for the type
                 let source_file = crate_dir.join("src").join(file_name);
                 if source_file.exists() {
                     if let Ok(source) = fs::read_to_string(&source_file) {
                         // Verify the type exists in the file with Event derive
-                        if source.contains(&format!("pub struct {}", type_name)) 
-                            && source.contains("#[derive(") 
-                            && source.contains("Event") 
+                        if source.contains(&format!("pub struct {}", type_name))
+                            && source.contains("#[derive(")
+                            && source.contains("Event")
                         {
                             let module_name = file_name.trim_end_matches(".rs");
-                            let full_path = format!("{}::{}::{}", crate_prefix, module_name, type_name);
+                            let full_path =
+                                format!("{}::{}::{}", crate_prefix, module_name, type_name);
                             let bevy_path = full_path.replace("bevy_picking::", "bevy::picking::");
-                            
+
                             messages.push(BevyMessageSpec {
                                 type_name: type_name.to_string(),
                                 full_path,
                                 bevy_path,
                                 crate_name: crate_prefix.to_string(),
                             });
-                            
-                            println!("cargo:warning=    - Message: {} ({})", type_name, crate_prefix);
+
+                            println!(
+                                "cargo:warning=    - Message: {} ({})",
+                                type_name, crate_prefix
+                            );
                             continue 'type_loop; // Found it, move to next type
                         }
                     }
@@ -2374,120 +2640,133 @@ fn discover_bevy_messages() -> Vec<BevyMessageSpec> {
             }
         }
     }
-    
+
     // Deduplicate by type_name (in case of multiple crate versions)
     messages.sort_by(|a, b| a.type_name.cmp(&b.type_name));
     messages.dedup_by(|a, b| a.type_name == b.type_name);
-    
-    println!("cargo:warning=  ✓ Discovered {} Message types for Lua write_message()", messages.len());
-    
+
+    println!(
+        "cargo:warning=  ✓ Discovered {} Message types for Lua write_message()",
+        messages.len()
+    );
+
     messages
 }
-
 
 /// Discover Bevy Event types by scanning bevy_window and bevy_input crates
 fn discover_bevy_events() -> Vec<BevyEventSpec> {
     let mut events = Vec::new();
-    
+
     // Find cargo home
     let cargo_home = env::var("CARGO_HOME")
         .or_else(|_| env::var("HOME").map(|h| format!("{}/.cargo", h)))
         .or_else(|_| env::var("USERPROFILE").map(|h| format!("{}/.cargo", h)))
         .unwrap_or_else(|_| String::new());
-    
+
     if cargo_home.is_empty() {
         println!("cargo:warning=  ⚠ Cannot find CARGO_HOME for event discovery");
         return events;
     }
-    
+
     let registry_src = PathBuf::from(&cargo_home).join("registry").join("src");
-    
+
     if !registry_src.exists() {
         println!("cargo:warning=  ⚠ Registry source not found for event discovery");
         return events;
     }
-    
+
     // Crates to scan for Event derives
     let crates_to_scan = [
         ("bevy_window", vec!["event.rs", "cursor.rs"]),
         ("bevy_input", vec!["keyboard.rs", "mouse.rs"]),
-        ("bevy_picking", vec!["pointer.rs"]),  // For PointerInput
+        ("bevy_picking", vec!["pointer.rs"]), // For PointerInput
     ];
-    
+
     for (crate_prefix, files) in &crates_to_scan {
         events.extend(scan_crate_for_events(&registry_src, crate_prefix, files));
     }
-    
-    println!("cargo:warning=  ✓ Discovered {} Bevy Event types for Lua read_events()", events.len());
+
+    println!(
+        "cargo:warning=  ✓ Discovered {} Bevy Event types for Lua read_events()",
+        events.len()
+    );
     for event in &events {
-        println!("cargo:warning=    - {} ({})", event.type_name, event.full_path);
+        println!(
+            "cargo:warning=    - {} ({})",
+            event.type_name, event.full_path
+        );
     }
-    
+
     events
 }
 
 /// Scan a specific crate for Event types (types with #[derive(Event)])
-fn scan_crate_for_events(registry_src: &Path, crate_prefix: &str, files: &[&str]) -> Vec<BevyEventSpec> {
+fn scan_crate_for_events(
+    registry_src: &Path,
+    crate_prefix: &str,
+    files: &[&str],
+) -> Vec<BevyEventSpec> {
     let mut events = Vec::new();
-    
+
     // Iterate through registry index directories
     'outer: for index_entry in fs::read_dir(registry_src).into_iter().flatten().flatten() {
         let index_dir = index_entry.path();
-        if !index_dir.is_dir() { continue; }
-        
+        if !index_dir.is_dir() {
+            continue;
+        }
+
         for crate_entry in fs::read_dir(&index_dir).into_iter().flatten().flatten() {
             let crate_dir = crate_entry.path();
-            let dir_name = crate_dir.file_name()
-                .and_then(|n| n.to_str())
-                .unwrap_or("");
-            
+            let dir_name = crate_dir.file_name().and_then(|n| n.to_str()).unwrap_or("");
+
             // Match crate name with version suffix (e.g., "bevy_window-0.15.0")
             if !dir_name.starts_with(&format!("{}-", crate_prefix)) {
                 continue;
             }
-            
+
             // Found the crate, scan specified files
             let src_dir = crate_dir.join("src");
             for file_name in files {
                 let file_path = src_dir.join(file_name);
                 if file_path.exists() {
                     if let Ok(source) = fs::read_to_string(&file_path) {
-                        let file_events = parse_events_from_source(&source, crate_prefix, file_name);
+                        let file_events =
+                            parse_events_from_source(&source, crate_prefix, file_name);
                         events.extend(file_events);
                     }
                 }
             }
-            
+
             // Found the crate, stop searching (avoid duplicates from multiple versions)
             if !events.is_empty() {
                 break 'outer;
             }
         }
     }
-    
+
     events
 }
 
 /// Parse a source file for structs with #[derive(Event)]
 fn parse_events_from_source(source: &str, crate_name: &str, file_name: &str) -> Vec<BevyEventSpec> {
     let mut events = Vec::new();
-    
+
     let Ok(file) = syn::parse_file(source) else {
         return events;
     };
-    
+
     // Derive the module path from file name (e.g., "event.rs" -> "event", "cursor.rs" -> "cursor")
     let module_name = file_name.trim_end_matches(".rs");
-    
+
     for item in file.items {
         if let syn::Item::Struct(item_struct) = item {
             // Check if public
             if !matches!(item_struct.vis, syn::Visibility::Public(_)) {
                 continue;
             }
-            
+
             let struct_name = item_struct.ident.to_string();
-            
+
             // Check if it has #[derive(...Event...)]
             let has_event_derive = item_struct.attrs.iter().any(|attr| {
                 if attr.path().is_ident("derive") {
@@ -2498,7 +2777,7 @@ fn parse_events_from_source(source: &str, crate_name: &str, file_name: &str) -> 
                 }
                 false
             });
-            
+
             if has_event_derive {
                 events.push(BevyEventSpec {
                     type_name: struct_name.clone(),
@@ -2508,7 +2787,7 @@ fn parse_events_from_source(source: &str, crate_name: &str, file_name: &str) -> 
             }
         }
     }
-    
+
     events
 }
 
@@ -2516,55 +2795,61 @@ fn parse_events_from_source(source: &str, crate_name: &str, file_name: &str) -> 
 /// This scans bevy_picking for Pointer events and other crates for EntityEvent types
 fn discover_observable_events() -> Vec<ObservableEventSpec> {
     let mut events = Vec::new();
-    
+
     // Find cargo home
     let cargo_home = env::var("CARGO_HOME")
         .or_else(|_| env::var("HOME").map(|h| format!("{}/.cargo", h)))
         .or_else(|_| env::var("USERPROFILE").map(|h| format!("{}/.cargo", h)))
         .unwrap_or_else(|_| String::new());
-    
+
     if cargo_home.is_empty() {
         println!("cargo:warning=  ⚠ Cannot find CARGO_HOME for observer discovery");
         return events;
     }
-    
+
     let registry_src = PathBuf::from(&cargo_home).join("registry").join("src");
-    
+
     if !registry_src.exists() {
         println!("cargo:warning=  ⚠ Registry source not found for observer discovery");
         return events;
     }
-    
+
     // Scan bevy_picking crate for Pointer events
     events.extend(scan_bevy_picking_events(&registry_src));
-    
-    println!("cargo:warning=  ✓ Discovered {} observable events", events.len());
+
+    println!(
+        "cargo:warning=  ✓ Discovered {} observable events",
+        events.len()
+    );
     for event in &events {
-        println!("cargo:warning=    - {} (rust_type: {}, has_position: {})", event.lua_name, event.event_type, event.has_position);
+        println!(
+            "cargo:warning=    - {} (rust_type: {}, has_position: {})",
+            event.lua_name, event.event_type, event.has_position
+        );
     }
-    
+
     events
 }
 
 /// Scan bevy_picking crate for Pointer event types
 fn scan_bevy_picking_events(registry_src: &Path) -> Vec<ObservableEventSpec> {
     let mut events = Vec::new();
-    
+
     // Find bevy_picking crate directory
     'outer: for index_entry in fs::read_dir(registry_src).into_iter().flatten().flatten() {
         let index_dir = index_entry.path();
-        if !index_dir.is_dir() { continue; }
-        
+        if !index_dir.is_dir() {
+            continue;
+        }
+
         for crate_entry in fs::read_dir(&index_dir).into_iter().flatten().flatten() {
             let crate_dir = crate_entry.path();
-            let dir_name = crate_dir.file_name()
-                .and_then(|n| n.to_str())
-                .unwrap_or("");
-            
+            let dir_name = crate_dir.file_name().and_then(|n| n.to_str()).unwrap_or("");
+
             if !dir_name.starts_with("bevy_picking-") {
                 continue;
             }
-            
+
             // Found bevy_picking, scan for events
             let events_file = crate_dir.join("src").join("events.rs");
             if events_file.exists() {
@@ -2576,7 +2861,7 @@ fn scan_bevy_picking_events(registry_src: &Path) -> Vec<ObservableEventSpec> {
                     }
                 }
             }
-            
+
             // Also check src/pointer/events.rs in case of different structure
             let alt_events_file = crate_dir.join("src").join("pointer").join("events.rs");
             if alt_events_file.exists() {
@@ -2590,11 +2875,11 @@ fn scan_bevy_picking_events(registry_src: &Path) -> Vec<ObservableEventSpec> {
             }
         }
     }
-    
+
     // Deduplicate by lua suffix (the user-facing name)
     let mut seen = std::collections::HashSet::new();
     events.retain(|e| seen.insert(e.lua_suffix.clone()));
-    
+
     events
 }
 
@@ -2602,13 +2887,13 @@ fn scan_bevy_picking_events(registry_src: &Path) -> Vec<ObservableEventSpec> {
 /// This parses the actual source code to discover event types without hardcoding
 fn parse_picking_events(source: &str) -> Vec<ObservableEventSpec> {
     let mut events = Vec::new();
-    
+
     // Parse the source file with syn
     let Ok(file) = syn::parse_file(source) else {
         println!("cargo:warning=  ⚠ Could not parse bevy_picking events source");
         return events;
     };
-    
+
     // Find all public structs
     for item in file.items {
         if let syn::Item::Struct(item_struct) = item {
@@ -2616,9 +2901,9 @@ fn parse_picking_events(source: &str) -> Vec<ObservableEventSpec> {
             if !matches!(item_struct.vis, syn::Visibility::Public(_)) {
                 continue;
             }
-            
+
             let struct_name = item_struct.ident.to_string();
-            
+
             // Check if it has #[derive(...)] with Reflect
             let has_reflect = item_struct.attrs.iter().any(|attr| {
                 if attr.path().is_ident("derive") {
@@ -2628,23 +2913,24 @@ fn parse_picking_events(source: &str) -> Vec<ObservableEventSpec> {
                 }
                 false
             });
-            
+
             // Skip structs that don't have Reflect derive (not events)
             if !has_reflect {
                 continue;
             }
-            
+
             // Skip certain known non-event types
-            if struct_name == "Pointer" || struct_name == "Location" || struct_name == "PointerHits" {
+            if struct_name == "Pointer" || struct_name == "Location" || struct_name == "PointerHits"
+            {
                 continue;
             }
-            
+
             // Determine if this event has position data by checking for common position-related fields
             // Events with position typically have delta, distance, or are Move/Drag related
-            let has_position = struct_name.contains("Move") 
-                || struct_name.contains("Drag") 
+            let has_position = struct_name.contains("Move")
+                || struct_name.contains("Drag")
                 || struct_name.contains("Scroll");
-            
+
             // Create the event spec
             // bevy_picking source has Down/Up, but bevy::prelude exports Press/Release
             // So we need to map the source struct names to bevy::prelude types:
@@ -2655,7 +2941,7 @@ fn parse_picking_events(source: &str) -> Vec<ObservableEventSpec> {
                 "Up" => ("Up".to_string(), "Release".to_string()),
                 _ => (struct_name.clone(), struct_name.clone()),
             };
-            
+
             events.push(ObservableEventSpec {
                 lua_name: format!("Pointer<{}>", lua_suffix),
                 lua_suffix: lua_suffix.to_lowercase(),
@@ -2664,9 +2950,12 @@ fn parse_picking_events(source: &str) -> Vec<ObservableEventSpec> {
             });
         }
     }
-    
-    println!("cargo:warning=  ✓ Dynamically discovered {} events from source", events.len());
-    
+
+    println!(
+        "cargo:warning=  ✓ Dynamically discovered {} events from source",
+        events.len()
+    );
+
     events
 }
 
@@ -2704,7 +2993,7 @@ fn generate_observer_handlers(events: &[ObservableEventSpec]) -> proc_macro2::To
             }
         }
     }).collect();
-    
+
     quote::quote! {
         #(#handlers)*
     }
@@ -2712,16 +3001,19 @@ fn generate_observer_handlers(events: &[ObservableEventSpec]) -> proc_macro2::To
 
 /// Generate the match arms for attach_observer_by_name function
 fn generate_observer_match_arms(events: &[ObservableEventSpec]) -> proc_macro2::TokenStream {
-    let arms: Vec<proc_macro2::TokenStream> = events.iter().map(|event| {
-        let lua_name = &event.lua_name;
-        let fn_name = format!("on_pointer_{}_lua", event.lua_suffix);
-        let fn_ident: syn::Ident = syn::parse_str(&fn_name).unwrap();
-        
-        quote::quote! {
-            #lua_name => { commands.entity(entity).observe(#fn_ident); }
-        }
-    }).collect();
-    
+    let arms: Vec<proc_macro2::TokenStream> = events
+        .iter()
+        .map(|event| {
+            let lua_name = &event.lua_name;
+            let fn_name = format!("on_pointer_{}_lua", event.lua_suffix);
+            let fn_ident: syn::Ident = syn::parse_str(&fn_name).unwrap();
+
+            quote::quote! {
+                #lua_name => { commands.entity(entity).observe(#fn_ident); }
+            }
+        })
+        .collect();
+
     quote::quote! {
         #(#arms)*
     }
@@ -2736,17 +3028,17 @@ fn generate_entity_component_binding(full_path: &str) -> Result<proc_macro2::Tok
     if parts.len() < 2 {
         return Err(format!("Invalid type path: {}", full_path));
     }
-    
+
     let component_name = *parts.last().unwrap();
     let component_name_literal = component_name;
     let full_path_ident: syn::Path = syn::parse_str(full_path)
         .map_err(|e| format!("Failed to parse type path '{}': {}", full_path, e))?;
-    
+
     // Generate call with constructor - tuple structs act as functions: TypeName(entity)
     let tokens = quote! {
         registry.register_entity_component::<#full_path_ident, _>(#component_name_literal, #full_path_ident);
     };
-    
+
     Ok(tokens)
 }
 
@@ -2754,21 +3046,21 @@ fn generate_entity_component_binding(full_path: &str) -> Result<proc_macro2::Tok
 fn generate_bindings_for_type(spec: &TypeSpec) -> Result<proc_macro2::TokenStream, String> {
     // Find source file
     let source_path = find_source_file(spec)?;
-    
+
     // Parse source
-    let source_code = fs::read_to_string(&source_path)
-        .map_err(|e| format!("Failed to read source: {}", e))?;
-    
-    let syntax_tree: File = syn::parse_file(&source_code)
-        .map_err(|e| format!("Failed to parse source: {}", e))?;
-    
+    let source_code =
+        fs::read_to_string(&source_path).map_err(|e| format!("Failed to read source: {}", e))?;
+
+    let syntax_tree: File =
+        syn::parse_file(&source_code).map_err(|e| format!("Failed to parse source: {}", e))?;
+
     // Extract methods
     let methods = extract_methods_for_type(&syntax_tree, &spec.type_name)?;
-    
+
     if methods.is_empty() {
         return Err("No public methods found".to_string());
     }
-    
+
     // Generate binding code
     generate_registration_code(spec, &methods)
 }
@@ -2779,50 +3071,46 @@ fn find_source_file(spec: &TypeSpec) -> Result<PathBuf, String> {
         .or_else(|_| env::var("HOME").map(|h| format!("{}/.cargo", h)))
         .or_else(|_| env::var("USERPROFILE").map(|h| format!("{}/.cargo", h)))
         .map_err(|_| "Cannot find CARGO_HOME")?;
-    
-    let registry_src = PathBuf::from(cargo_home)
-        .join("registry")
-        .join("src");
-    
+
+    let registry_src = PathBuf::from(cargo_home).join("registry").join("src");
+
     if !registry_src.exists() {
-        return Err(format!("Registry source directory not found: {:?}", registry_src));
+        return Err(format!(
+            "Registry source directory not found: {:?}",
+            registry_src
+        ));
     }
-    
+
     // Find the crate directory
-    for entry in fs::read_dir(&registry_src)
-        .map_err(|e| format!("Cannot read registry: {}", e))? 
-    {
+    for entry in fs::read_dir(&registry_src).map_err(|e| format!("Cannot read registry: {}", e))? {
         let entry = entry.map_err(|e| format!("Cannot read entry: {}", e))?;
         let index_dir = entry.path();
-        
+
         if !index_dir.is_dir() {
             continue;
         }
-        
-        for crate_entry in fs::read_dir(&index_dir)
-            .map_err(|e| format!("Cannot read index dir: {}", e))? 
+
+        for crate_entry in
+            fs::read_dir(&index_dir).map_err(|e| format!("Cannot read index dir: {}", e))?
         {
             let crate_entry = crate_entry.map_err(|e| format!("Cannot read crate entry: {}", e))?;
             let crate_dir = crate_entry.path();
-            
+
             if !crate_dir.is_dir() {
                 continue;
             }
-            
+
             // Try both original name and hyphenated version
             // bevy_image stays as bevy_image-, but wgpu_types becomes wgpu-types-
             let crate_name_original = &spec.crate_name;
             let crate_name_hyphenated = spec.crate_name.replace('_', "-");
-            
-            let dir_name = crate_dir.file_name()
-                .and_then(|n| n.to_str())
-                .unwrap_or("");
-            
+
+            let dir_name = crate_dir.file_name().and_then(|n| n.to_str()).unwrap_or("");
+
             let matches = dir_name.starts_with(&format!("{}-", crate_name_original))
                 || dir_name.starts_with(&format!("{}-", crate_name_hyphenated));
-            
-            if matches
-            {
+
+            if matches {
                 let src_dir = crate_dir.join("src");
                 if src_dir.exists() {
                     let file_path = find_module_file(&src_dir, &spec.module_path)?;
@@ -2833,7 +3121,7 @@ fn find_source_file(spec: &TypeSpec) -> Result<PathBuf, String> {
             }
         }
     }
-    
+
     Err(format!("Source not found for {}", spec.crate_name))
 }
 
@@ -2841,18 +3129,18 @@ fn find_module_file(src_dir: &Path, module_path: &[String]) -> Result<PathBuf, S
     if module_path.is_empty() {
         return Ok(src_dir.join("lib.rs"));
     }
-    
+
     let mut current_path = src_dir.to_path_buf();
-    
+
     for (i, module) in module_path.iter().enumerate() {
         let is_last = i == module_path.len() - 1;
-        
+
         // Try module.rs
         let module_file = current_path.join(format!("{}.rs", module));
         if module_file.exists() && is_last {
             return Ok(module_file);
         }
-        
+
         // Try module/mod.rs
         let mod_dir = current_path.join(module);
         let mod_file = mod_dir.join("mod.rs");
@@ -2863,10 +3151,10 @@ fn find_module_file(src_dir: &Path, module_path: &[String]) -> Result<PathBuf, S
             current_path = mod_dir;
             continue;
         }
-        
+
         return Err(format!("Module {} not found", module));
     }
-    
+
     Ok(current_path.join("mod.rs"))
 }
 
@@ -2883,26 +3171,33 @@ struct MethodInfo {
 
 #[allow(dead_code)]
 
-fn extract_associated_function(syntax_tree: &File, type_name: &str, function_name: &str) -> Result<MethodInfo, String> {
+fn extract_associated_function(
+    syntax_tree: &File,
+    type_name: &str,
+    function_name: &str,
+) -> Result<MethodInfo, String> {
     for item in &syntax_tree.items {
         if let Item::Impl(impl_block) = item {
             if !is_impl_for_type(impl_block, type_name) {
                 continue;
             }
-            
+
             for impl_item in &impl_block.items {
                 if let ImplItem::Fn(method) = impl_item {
                     if method.sig.ident.to_string() != function_name {
                         continue;
                     }
-                    
+
                     // Check if it's public
                     if !matches!(method.vis, Visibility::Public(_)) {
                         continue;
                     }
-                    
+
                     // Extract arguments (skip self parameter if present)
-                    let args: Vec<_> = method.sig.inputs.iter()
+                    let args: Vec<_> = method
+                        .sig
+                        .inputs
+                        .iter()
                         .filter_map(|arg| {
                             if let FnArg::Typed(pat_type) = arg {
                                 if let syn::Pat::Ident(pat_ident) = &*pat_type.pat {
@@ -2914,15 +3209,15 @@ fn extract_associated_function(syntax_tree: &File, type_name: &str, function_nam
                             None
                         })
                         .collect();
-                    
+
                     let return_type = match &method.sig.output {
                         ReturnType::Type(_, ty) => Some(quote::quote!(#ty).to_string()),
                         _ => None,
                     };
-                    
+
                     return Ok(MethodInfo {
                         name: function_name.to_string(),
-                        is_mut: false,  // Constructors don't have &mut self
+                        is_mut: false, // Constructors don't have &mut self
                         args,
                         return_type,
                     });
@@ -2930,28 +3225,34 @@ fn extract_associated_function(syntax_tree: &File, type_name: &str, function_nam
             }
         }
     }
-    
-    Err(format!("Function '{}' not found for type '{}'", function_name, type_name))
+
+    Err(format!(
+        "Function '{}' not found for type '{}'",
+        function_name, type_name
+    ))
 }
 
-fn extract_methods_for_type(syntax_tree: &File, type_name: &str) -> Result<Vec<MethodInfo>, String> {
+fn extract_methods_for_type(
+    syntax_tree: &File,
+    type_name: &str,
+) -> Result<Vec<MethodInfo>, String> {
     let mut methods = Vec::new();
-    
+
     for item in &syntax_tree.items {
         if let Item::Impl(impl_block) = item {
             if !is_impl_for_type(impl_block, type_name) {
                 continue;
             }
-            
+
             for impl_item in &impl_block.items {
                 if let ImplItem::Fn(method) = impl_item {
                     if !matches!(method.vis, Visibility::Public(_)) {
                         continue;
                     }
-                    
+
                     let mut has_self = false;
                     let mut is_mut = false;
-                    
+
                     for arg in &method.sig.inputs {
                         if let FnArg::Receiver(receiver) = arg {
                             has_self = true;
@@ -2959,12 +3260,15 @@ fn extract_methods_for_type(syntax_tree: &File, type_name: &str) -> Result<Vec<M
                             break;
                         }
                     }
-                    
+
                     if !has_self {
                         continue;
                     }
-                    
-                    let args: Vec<_> = method.sig.inputs.iter()
+
+                    let args: Vec<_> = method
+                        .sig
+                        .inputs
+                        .iter()
                         .filter_map(|arg| {
                             if let FnArg::Typed(pat_type) = arg {
                                 if let syn::Pat::Ident(pat_ident) = &*pat_type.pat {
@@ -2976,12 +3280,12 @@ fn extract_methods_for_type(syntax_tree: &File, type_name: &str) -> Result<Vec<M
                             None
                         })
                         .collect();
-                    
+
                     let return_type = match &method.sig.output {
                         ReturnType::Type(_, ty) => Some(quote!(#ty).to_string()),
                         _ => None,
                     };
-                    
+
                     methods.push(MethodInfo {
                         name: method.sig.ident.to_string(),
                         is_mut,
@@ -2992,7 +3296,7 @@ fn extract_methods_for_type(syntax_tree: &File, type_name: &str) -> Result<Vec<M
             }
         }
     }
-    
+
     Ok(methods)
 }
 
@@ -3008,13 +3312,16 @@ fn is_impl_for_type(impl_block: &ItemImpl, type_name: &str) -> bool {
 
 #[allow(dead_code)]
 
-fn generate_constructor_binding(spec: &ConstructorSpec, method_info: &MethodInfo) -> Result<proc_macro2::TokenStream, String> {
+fn generate_constructor_binding(
+    spec: &ConstructorSpec,
+    method_info: &MethodInfo,
+) -> Result<proc_macro2::TokenStream, String> {
     let type_path = syn::parse_str::<syn::Path>(&spec.type_spec.full_path)
         .map_err(|e| format!("Invalid type path: {}", e))?;
     let function_name = &spec.function_name;
     let function_ident = syn::Ident::new(function_name, proc_macro2::Span::call_site());
     let lua_function_name = format!("create_{}", spec.type_spec.type_name.to_lowercase());
-    
+
     // Generate based on argument count
     let binding = match method_info.args.len() {
         0 => {
@@ -3046,24 +3353,27 @@ fn generate_constructor_binding(spec: &ConstructorSpec, method_info: &MethodInfo
             }
         }
     };
-    
+
     Ok(binding)
 }
 
-fn generate_bindings_for_constructor(spec: &ConstructorSpec) -> Result<proc_macro2::TokenStream, String> {
+fn generate_bindings_for_constructor(
+    spec: &ConstructorSpec,
+) -> Result<proc_macro2::TokenStream, String> {
     // Find source file
     let source_path = find_source_file(&spec.type_spec)?;
-    
+
     // Parse source
-    let source_code = fs::read_to_string(&source_path)
-        .map_err(|e| format!("Failed to read source: {}", e))?;
-    
-    let syntax_tree: File = syn::parse_file(&source_code)
-        .map_err(|e| format!("Failed to parse source: {}", e))?;
-    
+    let source_code =
+        fs::read_to_string(&source_path).map_err(|e| format!("Failed to read source: {}", e))?;
+
+    let syntax_tree: File =
+        syn::parse_file(&source_code).map_err(|e| format!("Failed to parse source: {}", e))?;
+
     // Extract the associated function
-    let method_info = extract_associated_function(&syntax_tree, &spec.type_spec.type_name, &spec.function_name)?;
-    
+    let method_info =
+        extract_associated_function(&syntax_tree, &spec.type_spec.type_name, &spec.function_name)?;
+
     // Generate binding code
     generate_constructor_binding(spec, &method_info)
 }
@@ -3075,12 +3385,13 @@ fn generate_registration_code(
     let type_path = syn::parse_str::<syn::Path>(&spec.full_path)
         .map_err(|e| format!("Invalid type path: {}", e))?;
     let type_name_str = &spec.type_name;
-    
-    let method_registrations: Vec<_> = methods.iter()
+
+    let method_registrations: Vec<_> = methods
+        .iter()
         .map(|method| {
             let method_name = &method.name;
             let method_ident = syn::Ident::new(method_name, proc_macro2::Span::call_site());
-            
+
             // Generate based on argument count - using mlua's automatic type conversion
             match method.args.len() {
                 0 => {
@@ -3115,7 +3426,7 @@ fn generate_registration_code(
             }
         })
         .collect();
-    
+
     Ok(quote! {
         registry.register_resource::<#type_path>(#type_name_str, |methods| {
             #(#method_registrations)*
@@ -3124,83 +3435,113 @@ fn generate_registration_code(
 }
 
 fn write_bindings_to_parent_crate(
-    method_bindings: Vec<proc_macro2::TokenStream>, 
+    method_bindings: Vec<proc_macro2::TokenStream>,
     constructor_bindings: Vec<proc_macro2::TokenStream>,
-    entity_wrapper_names: Vec<String>,  // Type names for runtime TypeRegistry lookup
-    asset_type_names: Vec<String>,      // Asset type names for runtime TypeRegistry lookup
-    discovered_assets: Vec<DiscoveredAssetType>,  // Full asset info for cloner generation
-    discovered_constructors: Vec<DiscoveredAssetConstructor>,  // Auto-discovered constructors for opaque types
+    entity_wrapper_names: Vec<String>, // Type names for runtime TypeRegistry lookup
+    asset_type_names: Vec<String>,     // Asset type names for runtime TypeRegistry lookup
+    discovered_assets: Vec<DiscoveredAssetType>, // Full asset info for cloner generation
+    discovered_constructors: Vec<DiscoveredAssetConstructor>, // Auto-discovered constructors for opaque types
     discovered_bitflags: Vec<DiscoveredBitflags>,
     newtypes: Vec<NewtypeSpec>,
-    discovered_systemparams: Vec<DiscoveredSystemParam>,  // Auto-discovered SystemParam types
-    discovered_systemparam_methods: Vec<DiscoveredSystemParamMethod>,  // Methods on SystemParam types
-    parent_src_dir: &Path
+    discovered_systemparams: Vec<DiscoveredSystemParam>, // Auto-discovered SystemParam types
+    discovered_systemparam_methods: Vec<DiscoveredSystemParamMethod>, // Methods on SystemParam types
+    parent_src_dir: &Path,
 ) {
-
     let generated_file = parent_src_dir.join("auto_resource_bindings.rs");
-    
+
     // Generate bitflags registration code from discovered bitflags
-    let bitflags_registrations: Vec<_> = discovered_bitflags.iter().map(|bf| {
-        let name = &bf.name;
-        // For each flag, generate a tuple of (name, value)
-        // The value is determined by flag position (bit index)
-        let flag_tuples: Vec<_> = bf.flags.iter().enumerate().map(|(idx, flag_name)| {
-            let bit_value = 1u32 << idx;
-            quote::quote! { (#flag_name, #bit_value) }
-        }).collect();
-        
-        println!("cargo:warning=  ✓ Generating bitflags registration for {} with {} flags", name, bf.flags.len());
-        
-        quote::quote! {
-            // Auto-discovered #name bitflags
-            registry.register(#name, &[
-                #(#flag_tuples),*
-            ]);
-        }
-    }).collect();
-    
+    let bitflags_registrations: Vec<_> = discovered_bitflags
+        .iter()
+        .map(|bf| {
+            let name = &bf.name;
+            // For each flag, generate a tuple of (name, value)
+            // The value is determined by flag position (bit index)
+            let flag_tuples: Vec<_> = bf
+                .flags
+                .iter()
+                .enumerate()
+                .map(|(idx, flag_name)| {
+                    let bit_value = 1u32 << idx;
+                    quote::quote! { (#flag_name, #bit_value) }
+                })
+                .collect();
+
+            println!(
+                "cargo:warning=  ✓ Generating bitflags registration for {} with {} flags",
+                name,
+                bf.flags.len()
+            );
+
+            quote::quote! {
+                // Auto-discovered #name bitflags
+                registry.register(#name, &[
+                    #(#flag_tuples),*
+                ]);
+            }
+        })
+        .collect();
+
     // Generate asset type name literals for runtime registration const array
     // No compile-time handle setters, asset adders, or handle creators needed
     // All asset type registration happens at runtime via TypeRegistry lookup
-    let asset_type_name_literals: Vec<_> = asset_type_names.iter()
+    let asset_type_name_literals: Vec<_> = asset_type_names
+        .iter()
         .map(|name| quote::quote! { #name })
         .collect();
-    
-    println!("cargo:warning=  ✓ Generating {} asset type names for runtime registration", asset_type_names.len());
-    
+
+    println!(
+        "cargo:warning=  ✓ Generating {} asset type names for runtime registration",
+        asset_type_names.len()
+    );
+
     // Generate cloner registrations ONLY for asset types that implement Clone
     // This is detected at compile time by parsing #[derive(Clone)] or impl Clone
-    let cloner_registrations: Vec<_> = discovered_assets.iter().filter_map(|asset| {
-        // Only generate cloner for types that implement Clone
-        if !asset.has_clone {
-            return None;
-        }
-        
-        // Skip generic types - can't instantiate without concrete type parameters
-        if asset.is_generic {
-            println!("cargo:warning=    - Skipping generic type {} (requires type parameters)", asset.type_name);
-            return None;
-        }
-        
-        // Also skip if full_path contains angle brackets (backup filter)
-        if asset.full_path.contains('<') || asset.type_name.contains('<') {
-            println!("cargo:warning=    - Skipping generic type {} (has angle brackets)", asset.type_name);
-            return None;
-        }
-        
-        let normalized_path = normalize_bevy_path(&asset.full_path)?;
-        let type_path: syn::Path = syn::parse_str(&normalized_path).ok()?;
-        
-        println!("cargo:warning=    - Registering cloner for {} (full_path: {})", asset.type_name, asset.full_path);
-        
-        Some(quote::quote! {
-            bevy_lua_ecs::register_cloner_if_clone::<#type_path>(&mut cloners);
+    let cloner_registrations: Vec<_> = discovered_assets
+        .iter()
+        .filter_map(|asset| {
+            // Only generate cloner for types that implement Clone
+            if !asset.has_clone {
+                return None;
+            }
+
+            // Skip generic types - can't instantiate without concrete type parameters
+            if asset.is_generic {
+                println!(
+                    "cargo:warning=    - Skipping generic type {} (requires type parameters)",
+                    asset.type_name
+                );
+                return None;
+            }
+
+            // Also skip if full_path contains angle brackets (backup filter)
+            if asset.full_path.contains('<') || asset.type_name.contains('<') {
+                println!(
+                    "cargo:warning=    - Skipping generic type {} (has angle brackets)",
+                    asset.type_name
+                );
+                return None;
+            }
+
+            let normalized_path = normalize_bevy_path(&asset.full_path)?;
+            let type_path: syn::Path = syn::parse_str(&normalized_path).ok()?;
+
+            println!(
+                "cargo:warning=    - Registering cloner for {} (full_path: {})",
+                asset.type_name, asset.full_path
+            );
+
+            Some(quote::quote! {
+                bevy_lua_ecs::register_cloner_if_clone::<#type_path>(&mut cloners);
+            })
         })
-    }).collect();
-    
+        .collect();
+
     let clone_count = cloner_registrations.len();
     let total_count = discovered_assets.len();
-    println!("cargo:warning=  ✓ Generated {} cloner registrations (out of {} total assets)", clone_count, total_count);
+    println!(
+        "cargo:warning=  ✓ Generated {} cloner registrations (out of {} total assets)",
+        clone_count, total_count
+    );
 
     // Generate asset constructor registrations for discovered constructors
     // These allow opaque types like Image to be created from Lua using their actual constructors
@@ -3313,54 +3654,66 @@ fn write_bindings_to_parent_crate(
             });
         })
     }).collect();
-    
-    println!("cargo:warning=  ✓ Generated {} constructor registrations", constructor_registrations.len());
 
+    println!(
+        "cargo:warning=  ✓ Generated {} constructor registrations",
+        constructor_registrations.len()
+    );
 
     // Generate RUNTIME-BASED newtype wrapper names for TypeRegistry lookup
     // No compile-time type paths needed - runtime will discover via reflection
-    let newtype_wrapper_tuples: Vec<_> = newtypes.iter()
+    let newtype_wrapper_tuples: Vec<_> = newtypes
+        .iter()
         .filter_map(|nt| {
             // Filter out newtypes wrapping complex types (tuples, Arc, Mutex, etc.)
             let inner = &nt.inner_asset_path;
-            if inner.contains("(") || inner.contains(")") || 
-               inner.contains("Arc") || inner.contains("Mutex") ||
-               inner.contains("Vec") || inner.len() <= 1 {
+            if inner.contains("(")
+                || inner.contains(")")
+                || inner.contains("Arc")
+                || inner.contains("Mutex")
+                || inner.contains("Vec")
+                || inner.len() <= 1
+            {
                 return None;
             }
-            
+
             // Extract just the newtype name from the path
             let newtype_name = nt.newtype_path.split("::").last()?;
-            
-            println!("cargo:warning=  ✓ Newtype wrapper: {} wraps Handle<{}>", newtype_name, inner);
-            
+
+            println!(
+                "cargo:warning=  ✓ Newtype wrapper: {} wraps Handle<{}>",
+                newtype_name, inner
+            );
+
             Some(quote::quote! { (#newtype_name, #inner) })
         })
         .collect();
-    
-    println!("cargo:warning=  ✓ Generated {} newtype wrapper names for runtime lookup", newtype_wrapper_tuples.len());
-    
-    
+
+    println!(
+        "cargo:warning=  ✓ Generated {} newtype wrapper names for runtime lookup",
+        newtype_wrapper_tuples.len()
+    );
+
     // Discover observable events and generate observer handlers
     let observable_events = discover_observable_events();
     let observer_handlers = generate_observer_handlers(&observable_events);
     let observer_match_arms = generate_observer_match_arms(&observable_events);
-    
+
     // Discover Bevy Event types for Lua read_events()
     let bevy_events = discover_bevy_events();
-    
+
     // Discover Bevy Message types for Lua write_message() (uses MessageWriter<T>)
     let bevy_messages = discover_bevy_messages();
-    
+
     // Deprecated/removed types to skip
     let deprecated_types = ["ReceivedCharacter", "Ime"];
-    
+
     // Generate event registration code AND event dispatch match arms (for both read AND write)
     // We use bevy:: re-export paths because internal crates (bevy_window) aren't accessible
     // Instead of reflection, we generate dispatch_read_events and dispatch_write_events functions with match arms
-    let mut event_match_arms = Vec::new();      // For reading events
+    let mut event_match_arms = Vec::new(); // For reading events
     let mut event_write_match_arms = Vec::new(); // For writing events
-    
+
     // Generate message write match arms from discovered message types
     let message_write_match_arms: Vec<_> = bevy_messages.iter().filter_map(|msg| {
         let short_name = &msg.type_name;
@@ -3460,22 +3813,31 @@ fn write_bindings_to_parent_crate(
             }
         })
     }).collect();
-    
-    println!("cargo:warning=  ✓ Generated {} message dispatch match arms", message_write_match_arms.len());
-    
+
+    println!(
+        "cargo:warning=  ✓ Generated {} message dispatch match arms",
+        message_write_match_arms.len()
+    );
+
     // Generate message type registrations (for TypeRegistry)
-    let message_registrations: Vec<_> = bevy_messages.iter().filter_map(|msg| {
-        let bevy_path_str = &msg.bevy_path;
-        let type_path: syn::Path = syn::parse_str(bevy_path_str).ok()?;
-        
-        Some(quote::quote! {
-            app.register_type::<#type_path>();
-            bevy::log::debug!("[REGISTER_MESSAGES] Adding message type: {}", #bevy_path_str);
+    let message_registrations: Vec<_> = bevy_messages
+        .iter()
+        .filter_map(|msg| {
+            let bevy_path_str = &msg.bevy_path;
+            let type_path: syn::Path = syn::parse_str(bevy_path_str).ok()?;
+
+            Some(quote::quote! {
+                app.register_type::<#type_path>();
+                bevy::log::debug!("[REGISTER_MESSAGES] Adding message type: {}", #bevy_path_str);
+            })
         })
-    }).collect();
-    
-    println!("cargo:warning=  ✓ Generated {} message type registrations", message_registrations.len());
-    
+        .collect();
+
+    println!(
+        "cargo:warning=  ✓ Generated {} message type registrations",
+        message_registrations.len()
+    );
+
     let event_registrations: Vec<_> = bevy_events.iter().filter_map(|event| {
         // Skip deprecated types
         if deprecated_types.contains(&event.type_name.as_str()) {
@@ -3576,26 +3938,35 @@ fn write_bindings_to_parent_crate(
             app.register_type::<#type_path>();
         })
     }).collect();
-    println!("cargo:warning=  ✓ Generated {} event dispatch match arms", event_match_arms.len());
-    
+    println!(
+        "cargo:warning=  ✓ Generated {} event dispatch match arms",
+        event_match_arms.len()
+    );
+
     // Convert entity wrapper names to quote literals for const array
-    let entity_wrapper_name_literals: Vec<_> = entity_wrapper_names.iter()
+    let entity_wrapper_name_literals: Vec<_> = entity_wrapper_names
+        .iter()
         .map(|name| quote::quote! { #name })
         .collect();
-    
+
     // Generate SystemParam type name literals for const array
-    let systemparam_type_name_literals: Vec<_> = discovered_systemparams.iter()
+    let systemparam_type_name_literals: Vec<_> = discovered_systemparams
+        .iter()
         .map(|p| {
             let name = &p.type_name;
             let full_path = &p.full_path;
             quote::quote! { (#name, #full_path) }
         })
         .collect();
-    
-    println!("cargo:warning=  ✓ Generated {} SystemParam type names for runtime lookup", systemparam_type_name_literals.len());
-    
+
+    println!(
+        "cargo:warning=  ✓ Generated {} SystemParam type names for runtime lookup",
+        systemparam_type_name_literals.len()
+    );
+
     // Generate SystemParam method tuples: (param_type, method_name, return_type, is_iterator)
-    let systemparam_method_literals: Vec<_> = discovered_systemparam_methods.iter()
+    let systemparam_method_literals: Vec<_> = discovered_systemparam_methods
+        .iter()
         .filter(|m| {
             // Only include methods where all params are likely reflectable
             m.params.iter().all(|p| p.is_reflectable)
@@ -3608,9 +3979,12 @@ fn write_bindings_to_parent_crate(
             quote::quote! { (#param_type, #method_name, #return_type, #returns_iterator) }
         })
         .collect();
-    
-    println!("cargo:warning=  ✓ Generated {} SystemParam method entries for runtime lookup", systemparam_method_literals.len());
-    
+
+    println!(
+        "cargo:warning=  ✓ Generated {} SystemParam method entries for runtime lookup",
+        systemparam_method_literals.len()
+    );
+
     // Generate dispatch match arms for SystemParam methods
     // Note: We no longer filter on is_reflectable since we use runtime TypeRegistry
     // Methods with non-registered params will fail at runtime with a clear error
@@ -3822,23 +4196,26 @@ fn write_bindings_to_parent_crate(
             })
         })
         .collect();
-    
-    println!("cargo:warning=  ✓ Generated {} SystemParam dispatch arms", systemparam_dispatch_arms.len());
-    
+
+    println!(
+        "cargo:warning=  ✓ Generated {} SystemParam dispatch arms",
+        systemparam_dispatch_arms.len()
+    );
+
     let full_code = quote! {
 
         // Auto-generated Lua resource and component method bindings
         // Generated by bevy-lua-ecs build script
-        
+
         pub fn register_auto_resource_bindings(registry: &bevy_lua_ecs::LuaResourceRegistry) {
             #(#method_bindings)*
         }
-        
+
         /// Auto-discovered entity wrapper type names (for runtime TypeRegistry lookup)
         /// These are type names discovered by scanning bevy_* crates for:
         /// `pub struct TypeName(pub Entity)` with `#[derive(Component)]`
         pub const DISCOVERED_ENTITY_WRAPPERS: &[&str] = &[#(#entity_wrapper_name_literals),*];
-        
+
         /// Register entity wrapper components at runtime using TypeRegistry
         /// This looks up each discovered type name in the registry and registers
         /// a handler if it's a valid entity wrapper component
@@ -3852,24 +4229,24 @@ fn write_bindings_to_parent_crate(
                 DISCOVERED_ENTITY_WRAPPERS,
             );
         }
-        
+
         pub fn register_auto_constructors(lua: &mlua::Lua) -> Result<(), mlua::Error> {
             #(#constructor_bindings)*
             Ok(())
         }
-        
+
         /// Register all discovered bitflags types with the BitflagsRegistry
         /// Call this in your app's Startup systems to enable generic bitflags handling
         /// Generated from types discovered during asset constructor parsing
         pub fn register_auto_bitflags(registry: &bevy_lua_ecs::BitflagsRegistry) {
             #(#bitflags_registrations)*
         }
-        
+
         /// Auto-discovered asset type names (for runtime TypeRegistry lookup)
         /// These are type names discovered by scanning bevy_* crates for:
         /// `impl Asset for TypeName` or `#[derive(Asset)] struct TypeName`
         pub const DISCOVERED_ASSET_TYPES: &[&str] = &[#(#asset_type_name_literals),*];
-        
+
         /// Register asset types at runtime using TypeRegistry
         /// This looks up each discovered type name in the registry and registers
         /// handlers for valid Asset types (handle setters, asset adders, etc.)
@@ -3883,12 +4260,12 @@ fn write_bindings_to_parent_crate(
                 DISCOVERED_ASSET_TYPES,
             );
         }
-        
+
         /// Auto-discovered Handle<T> newtype wrappers
         /// Format: (newtype_name, inner_asset_name) - runtime will resolve via TypeRegistry
         /// Examples: ("ImageRenderTarget", "Image"), ("Mesh3d", "Mesh")
         pub const DISCOVERED_NEWTYPE_WRAPPERS: &[(&str, &str)] = &[#(#newtype_wrapper_tuples),*];
-        
+
         /// Register newtype wrappers at runtime using TypeRegistry discovery
         /// Enables wrapping Handle<T> in newtypes like ImageRenderTarget
         pub fn register_auto_newtype_wrappers(
@@ -3901,21 +4278,21 @@ fn write_bindings_to_parent_crate(
                 bevy::log::debug!("[NEWTYPE_WRAPPERS]   - {} wraps Handle<{}>", newtype_name, inner_name);
             }
         }
-        
-        
+
+
         // ========================================
         // Auto-discovered SystemParam Types
         // ========================================
-        
+
         /// Auto-discovered SystemParam type names and their full paths
         /// Format: (type_name, full_path) - for runtime lookup
         /// Examples: ("MeshRayCast", "bevy::picking::mesh_picking::ray_cast::MeshRayCast")
         pub const DISCOVERED_SYSTEMPARAMS: &[(&str, &str)] = &[#(#systemparam_type_name_literals),*];
-        
+
         /// Auto-discovered SystemParam methods that use Reflect-compatible parameters
         /// Format: (param_type, method_name, return_type, returns_iterator)
         pub const DISCOVERED_SYSTEMPARAM_METHODS: &[(&str, &str, &str, bool)] = &[#(#systemparam_method_literals),*];
-        
+
         /// Dispatch a SystemParam method call from Lua
         /// This uses SystemState to access SystemParams from World
         /// Currently supports no-arg methods; parameterized methods need reflection-based arg parsing
@@ -3933,7 +4310,7 @@ fn write_bindings_to_parent_crate(
                 )))
             }
         }
-        
+
         /// Dispatch read_events call for a specific event type
         /// Returns a Lua table of events converted via reflection
         pub fn dispatch_read_events(
@@ -3942,7 +4319,7 @@ fn write_bindings_to_parent_crate(
             event_type: &str,
         ) -> mlua::Result<mlua::Value> {
             let type_registry = world.resource::<bevy::ecs::reflect::AppTypeRegistry>().clone();
-            
+
             match event_type {
                 #(#event_match_arms),*
                 _ => Err(mlua::Error::RuntimeError(format!(
@@ -3950,7 +4327,7 @@ fn write_bindings_to_parent_crate(
                 )))
             }
         }
-        
+
         /// Dispatch write_events call for a specific event type
         /// Constructs the event from a Lua table using reflection and sends via EventWriter
         pub fn dispatch_write_events(
@@ -3966,7 +4343,7 @@ fn write_bindings_to_parent_crate(
                 ))
             }
         }
-        
+
         /// Dispatch write_message call for a specific message type
         /// Uses MessageWriter<T> and lua_table_to_dynamic for reflection-based construction
         pub fn dispatch_write_message(
@@ -3986,7 +4363,7 @@ fn write_bindings_to_parent_crate(
         // ========================================
         // Auto-generated Lua Observer Handlers
         // ========================================
-        
+
         /// Dispatch a Lua observer callback for an entity
         fn dispatch_lua_observer(
             lua_ctx: &bevy_lua_ecs::LuaScriptContext,
@@ -3997,7 +4374,7 @@ fn write_bindings_to_parent_crate(
             position: Option<bevy::math::Vec2>,
         ) {
             let callbacks = observer_registry.callbacks().lock().unwrap();
-            
+
             if let Some(observers) = callbacks.get(&entity) {
                 for (ev_type, callback_key) in observers {
                     if ev_type == event_type {
@@ -4008,13 +4385,13 @@ fn write_bindings_to_parent_crate(
                                 lua_components: std::collections::HashMap::new(),
                                 update_queue: update_queue.clone(),
                             };
-                            
+
                             let event_table = lua_ctx.lua.create_table().unwrap();
                             if let Some(pos) = position {
                                 let _ = event_table.set("x", pos.x);
                                 let _ = event_table.set("y", pos.y);
                             }
-                            
+
                             if let Err(e) = callback.call::<()>((entity_snapshot, event_table)) {
                                 bevy::log::error!("[LUA_OBSERVER] Error calling {} callback: {}", event_type, e);
                             }
@@ -4023,10 +4400,10 @@ fn write_bindings_to_parent_crate(
                 }
             }
         }
-        
+
         // Auto-generated observer handler functions
         #observer_handlers
-        
+
         /// Attach a Lua observer to an entity by event type name
         /// This function is generated with match arms for all discovered observable events
         pub fn attach_observer_by_name(
@@ -4039,63 +4416,63 @@ fn write_bindings_to_parent_crate(
                 _ => bevy::log::warn!("[LUA_OBSERVER] Unknown observer type: {}", event_type),
             }
         }
-        
+
         // ========================================
         // Auto-generated LuaBindingsPlugin
         // ========================================
-        
+
         /// Plugin that wraps LuaSpawnPlugin and automatically registers all auto-generated bindings.
         /// Use this instead of LuaSpawnPlugin directly to get automatic bitflags, component bindings,
         /// handle setters, and asset adders registration.
         pub struct LuaBindingsPlugin;
-        
+
         impl bevy::prelude::Plugin for LuaBindingsPlugin {
             fn build(&self, app: &mut bevy::prelude::App) {
                 // Add the core LuaSpawnPlugin
                 app.add_plugins(bevy_lua_ecs::LuaSpawnPlugin);
-                
+
                 // Register the observer attacher - this connects the generated
                 // attach_observer_by_name function to the library's observer system
                 bevy_lua_ecs::set_observer_attacher(attach_observer_by_name);
-                
+
                 // Register the SystemParam method dispatcher - this connects the generated
                 // dispatch_systemparam_method function to the library's call_systemparam_method
                 bevy_lua_ecs::set_systemparam_dispatcher(dispatch_systemparam_method);
-                
+
                 // Register the event reader dispatcher - this connects the generated
                 // dispatch_read_events function to the library's read_events
                 bevy_lua_ecs::set_event_dispatcher(dispatch_read_events);
-                
+
                 // Register the event writer dispatcher - this connects the generated
                 // dispatch_write_events function to the library's send_event
                 bevy_lua_ecs::set_event_write_dispatcher(dispatch_write_events);
-                
+
                 // Register the message writer dispatcher - this connects the generated
                 // dispatch_write_message function to the library's write_message
                 bevy_lua_ecs::set_message_write_dispatcher(dispatch_write_message);
-                
+
                 // Register Bevy Event types for Lua read_events()
                 // This registers Events<T> for auto-discovered event types
                 register_bevy_events(app);
-                
+
                 // Initialize BitflagsRegistry
                 app.init_resource::<bevy_lua_ecs::BitflagsRegistry>();
-                
+
                 // Add registration systems
                 app.add_systems(bevy::prelude::Startup, setup_bitflags);
                 app.add_systems(bevy::prelude::Startup, log_registered_events);
                 app.add_systems(bevy::prelude::PostStartup, register_asset_constructors);
-                
+
                 // Add Lua message dispatch system (handles world:write_message in Lua scripts)
                 app.add_systems(bevy::prelude::Update, bevy_lua_ecs::dispatch_lua_messages);
             }
         }
-        
+
         /// Debug system to log all registered Events<T> types in the TypeRegistry
         fn log_registered_events(type_registry: bevy::prelude::Res<bevy::ecs::reflect::AppTypeRegistry>) {
             let registry = type_registry.read();
             bevy::log::info!("[DEBUG_EVENTS] === Scanning TypeRegistry for Events<*> types ===");
-            
+
             let mut found_count = 0;
             for registration in registry.iter() {
                 let type_path = registration.type_info().type_path();
@@ -4104,26 +4481,26 @@ fn write_bindings_to_parent_crate(
                     found_count += 1;
                 }
             }
-            
+
             bevy::log::info!("[DEBUG_EVENTS] Total Events<*> types found: {}", found_count);
         }
-        
+
         /// Register auto-discovered Bevy Event and Message types for Lua events/messages
         fn register_bevy_events(app: &mut bevy::prelude::App) {
             #(#event_registrations)*
-            
+
             // Register message types (e.g., PointerInput for MessageWriter)
             #(#message_registrations)*
-            
+
             bevy::log::debug!("Auto-discovered Bevy Events and Messages registered for Lua");
         }
-        
+
         /// System to register auto-generated bitflags types
         fn setup_bitflags(registry: bevy::prelude::Res<bevy_lua_ecs::BitflagsRegistry>) {
             register_auto_bitflags(&registry);
             bevy::log::debug!("Auto-generated bitflags registered");
         }
-        
+
         /// System to register auto-generated asset constructors, handle setters, and component bindings
         fn register_asset_constructors(
             asset_registry: bevy::prelude::Res<bevy_lua_ecs::AssetRegistry>,
@@ -4133,73 +4510,76 @@ fn write_bindings_to_parent_crate(
             // Register entity wrapper components using runtime TypeRegistry lookup
             // This looks up discovered type names and registers handlers for valid entity wrappers
             register_entity_wrappers_from_registry(&mut component_registry, &type_registry);
-            
+
             // Register asset types using runtime TypeRegistry lookup
             // This discovers and registers handle setters, asset adders, and handle creators
             // for all asset types found in the TypeRegistry based on discovered type names
             register_asset_types_from_registry(&asset_registry, &type_registry);
-            
+
             // Register newtype wrappers (still compile-time based)
             register_auto_newtype_wrappers(
                 &asset_registry.newtype_wrappers,
             );
-            
+
             // Register asset cloners for types that implement Clone
             // Only types detected via #[derive(Clone)] or impl Clone at compile time get cloners
             register_asset_cloners(&asset_registry);
-            
+
             // Register auto-discovered asset constructors (for opaque types like Image)
             register_asset_constructor_bindings(&asset_registry);
-            
+
             bevy::log::debug!("Auto-generated asset constructors, component bindings, and newtype wrappers registered");
         }
-        
+
         /// Register asset cloners for types that implement Clone
         /// This is auto-generated based on compile-time detection of Clone derives/impls
         fn register_asset_cloners(asset_registry: &bevy_lua_ecs::AssetRegistry) {
             let mut cloners = asset_registry.asset_cloners_by_typeid.lock().unwrap();
-            
+
             // Auto-generated cloner registrations (only for types with Clone at compile time)
             #(#cloner_registrations)*
-            
+
             bevy::log::debug!("[ASSET_CLONER] Registered {} asset cloners (types with Clone impl)", cloners.len());
         }
-        
+
         /// Register asset constructors for opaque types that need explicit constructors
         /// This is auto-generated based on discovered constructor methods
         fn register_asset_constructor_bindings(asset_registry: &bevy_lua_ecs::AssetRegistry) {
             // Auto-generated constructor registrations for opaque types
             #(#constructor_registrations)*
-            
+
             bevy::log::debug!("[ASSET_CONSTRUCTOR] Registered auto-discovered asset constructors for opaque types");
         }
     };
-    
+
     fs::write(&generated_file, full_code.to_string())
         .expect("Failed to write auto_resource_bindings.rs");
-    
+
     println!("cargo:warning=✓ Wrote bindings to {:?}", generated_file);
 }
 
 fn write_empty_bindings_with_events(event_types: Vec<String>) {
     let out_dir = PathBuf::from(env::var("OUT_DIR").unwrap());
     let generated_file = out_dir.join("auto_bindings.rs");
-    
+
     // Generate event registration code
-    let event_registrations: Vec<_> = event_types.iter().map(|event_type| {
-        // Replace bevy_lua_ecs:: with crate:: for internal types
-        let adjusted_type = event_type.replace("bevy_lua_ecs::", "crate::");
-        let type_path = syn::parse_str::<syn::Path>(&adjusted_type).unwrap();
-        quote::quote! {
-            app.register_type::<#type_path>();
-            #[allow(deprecated)]
-            app.register_type::<bevy::prelude::Events<#type_path>>();
-        }
-    }).collect();
-    
+    let event_registrations: Vec<_> = event_types
+        .iter()
+        .map(|event_type| {
+            // Replace bevy_lua_ecs:: with crate:: for internal types
+            let adjusted_type = event_type.replace("bevy_lua_ecs::", "crate::");
+            let type_path = syn::parse_str::<syn::Path>(&adjusted_type).unwrap();
+            quote::quote! {
+                app.register_type::<#type_path>();
+                #[allow(deprecated)]
+                app.register_type::<bevy::prelude::Events<#type_path>>();
+            }
+        })
+        .collect();
+
     // These were for a match-based approach, unused now
     // Using dispatch_stmts with named EventWriters instead
-    
+
     // Build dispatch statements with proper variable names
     // NOTE: serde_json::from_value requires Deserialize, which Bevy events don't implement.
     // For now, we generate a logging-only dispatch. Full implementation needs reflection.
@@ -4220,20 +4600,23 @@ fn write_empty_bindings_with_events(event_types: Vec<String>) {
             }
         }
     }).collect();
-    
+
     // Build EventWriter params with unique names
-    let _writer_params_named: Vec<_> = event_types.iter().map(|event_type| {
-        let adjusted_type = event_type.replace("bevy_lua_ecs::", "crate::");
-        let type_path = syn::parse_str::<syn::Path>(&adjusted_type).unwrap();
-        let writer_ident = syn::Ident::new(
-            &adjusted_type.replace("::", "_").to_lowercase(),
-            proc_macro2::Span::call_site()
-        );
-        quote::quote! {
-            mut #writer_ident: bevy::prelude::EventWriter<#type_path>
-        }
-    }).collect();
-    
+    let _writer_params_named: Vec<_> = event_types
+        .iter()
+        .map(|event_type| {
+            let adjusted_type = event_type.replace("bevy_lua_ecs::", "crate::");
+            let type_path = syn::parse_str::<syn::Path>(&adjusted_type).unwrap();
+            let writer_ident = syn::Ident::new(
+                &adjusted_type.replace("::", "_").to_lowercase(),
+                proc_macro2::Span::call_site(),
+            );
+            quote::quote! {
+                mut #writer_ident: bevy::prelude::EventWriter<#type_path>
+            }
+        })
+        .collect();
+
     // Discover message types and generate match arms for MessageWriter<T> dispatch
     let bevy_messages = discover_bevy_messages();
     let message_write_match_arms: Vec<_> = bevy_messages.iter().filter_map(|msg| {
@@ -4266,32 +4649,35 @@ fn write_empty_bindings_with_events(event_types: Vec<String>) {
             }
         })
     }).collect();
-    
+
     // Generate message type registrations (for TypeRegistry)
-    let message_registrations: Vec<_> = bevy_messages.iter().filter_map(|msg| {
-        let bevy_path_str = &msg.bevy_path;
-        let type_path: syn::Path = syn::parse_str(bevy_path_str).ok()?;
-        
-        Some(quote::quote! {
-            app.register_type::<#type_path>();
-            bevy::log::debug!("[REGISTER_MESSAGES] Adding message type: {}", #bevy_path_str);
+    let message_registrations: Vec<_> = bevy_messages
+        .iter()
+        .filter_map(|msg| {
+            let bevy_path_str = &msg.bevy_path;
+            let type_path: syn::Path = syn::parse_str(bevy_path_str).ok()?;
+
+            Some(quote::quote! {
+                app.register_type::<#type_path>();
+                bevy::log::debug!("[REGISTER_MESSAGES] Adding message type: {}", #bevy_path_str);
+            })
         })
-    }).collect();
-    
+        .collect();
+
     let full_code = quote! {
         /// Auto-generated Lua resource bindings
         pub fn register_auto_bindings(_registry: &crate::resource_lua_trait::LuaResourceRegistry) {
             // No resource bindings generated
         }
-        
+
         /// Auto-generated event and message type registrations
         pub fn register_auto_events(app: &mut bevy::prelude::App) {
             #(#event_registrations)*
-            
+
             // Register message types for reflection (e.g., PointerInput)
             #(#message_registrations)*
         }
-        
+
         /// Auto-generated event dispatch system
         /// This system drains PendingLuaEvents and logs them.
         /// TODO: Implement reflection-based event construction and dispatch.
@@ -4303,7 +4689,7 @@ fn write_empty_bindings_with_events(event_types: Vec<String>) {
                 bevy::log::debug!("[LUA_EVENT] Received event '{}': {:?}", type_name, data);
             }
         }
-        
+
         /// Auto-generated message dispatch system
         /// This system drains PendingLuaMessages and dispatches them via MessageWriter.
         /// Uses the same reflection pattern as event dispatch.
@@ -4313,17 +4699,17 @@ fn write_empty_bindings_with_events(event_types: Vec<String>) {
             // Get pending messages
             let pending = world.resource::<crate::event_sender::PendingLuaMessages>().clone();
             let messages = pending.drain_messages();
-            
+
             if messages.is_empty() {
                 return;
             }
-            
+
             // Get Lua context for reflection
             let lua_ctx = world.resource::<crate::LuaScriptContext>().clone();
-            
+
             for (type_name, data) in messages {
                 bevy::log::debug!("[LUA_MESSAGE] Processing message '{}': {:?}", type_name, data);
-                
+
                 // Convert JSON to Lua table for reflection
                 match json_to_lua_table(&lua_ctx.lua, &data) {
                     Ok(lua_table) => {
@@ -4338,7 +4724,7 @@ fn write_empty_bindings_with_events(event_types: Vec<String>) {
                 }
             }
         }
-        
+
         /// Convert serde_json::Value to mlua::Table
         fn json_to_lua_table(lua: &mlua::Lua, value: &serde_json::Value) -> mlua::Result<mlua::Table> {
             fn json_to_lua_value(lua: &mlua::Lua, value: &serde_json::Value) -> mlua::Result<mlua::Value> {
@@ -4371,7 +4757,7 @@ fn write_empty_bindings_with_events(event_types: Vec<String>) {
                     }
                 }
             }
-            
+
             if let serde_json::Value::Object(_) = value {
                 if let mlua::Value::Table(t) = json_to_lua_value(lua, value)? {
                     return Ok(t);
@@ -4379,7 +4765,7 @@ fn write_empty_bindings_with_events(event_types: Vec<String>) {
             }
             Err(mlua::Error::RuntimeError("Expected JSON object".into()))
         }
-        
+
         /// Dispatch write_message call for a specific message type
         /// Uses MessageWriter<T> and lua_table_to_dynamic for reflection-based construction
         pub fn dispatch_write_message(
@@ -4395,7 +4781,7 @@ fn write_empty_bindings_with_events(event_types: Vec<String>) {
                 ))
             }
         }
-        
+
         /// Dispatch a SystemParam method call from Lua (stub when no parent manifest)
         /// The full implementation is generated when building from a parent crate with lua_resources
         pub fn dispatch_systemparam_method(
@@ -4411,9 +4797,8 @@ fn write_empty_bindings_with_events(event_types: Vec<String>) {
             )))
         }
     };
-    
-    fs::write(generated_file, full_code.to_string())
-        .expect("Failed to write auto_bindings.rs");
+
+    fs::write(generated_file, full_code.to_string()).expect("Failed to write auto_bindings.rs");
 }
 
 // =============================================================================
@@ -4427,7 +4812,7 @@ enum TypeDefinition {
     /// Primitive type (u32, f32, i32, bool, String, etc.)
     Primitive { name: String },
     /// Struct with fields
-    Struct { 
+    Struct {
         name: String,
         full_path: String,
         fields: Vec<FieldDef>,
@@ -4457,13 +4842,13 @@ type ImportMap = std::collections::HashMap<String, String>;
 #[allow(dead_code)]
 fn parse_use_statements(syntax_tree: &File) -> ImportMap {
     let mut imports = ImportMap::new();
-    
+
     for item in &syntax_tree.items {
         if let Item::Use(use_item) = item {
             collect_use_paths(&use_item.tree, String::new(), &mut imports);
         }
     }
-    
+
     imports
 }
 
@@ -4515,19 +4900,19 @@ fn get_known_bevy_type_path(short_name: &str) -> Option<&'static str> {
         "TextureDimension" => Some("wgpu_types::TextureDimension"),
         "TextureFormat" => Some("wgpu_types::TextureFormat"),
         "TextureUsages" => Some("wgpu_types::TextureUsages"),
-        
+
         // Bevy render asset types
         "RenderAssetUsages" => Some("bevy_render::render_asset::RenderAssetUsages"),
-        
+
         // Math types
         "Vec2" => Some("glam::f32::vec2::Vec2"),
         "Vec3" => Some("glam::f32::vec3::Vec3"),
         "Vec4" => Some("glam::f32::vec4::Vec4"),
         "Quat" => Some("glam::f32::quat::Quat"),
-        
+
         // Color
         "Color" => Some("bevy_color::color::Color"),
-        
+
         _ => None,
     }
 }
@@ -4539,12 +4924,12 @@ fn resolve_type_path(short_name: &str, imports: &ImportMap) -> String {
     if let Some(full_path) = imports.get(short_name) {
         return full_path.clone();
     }
-    
+
     // Then check known Bevy types
     if let Some(known_path) = get_known_bevy_type_path(short_name) {
         return known_path.to_string();
     }
-    
+
     // Return as-is if not found
     short_name.to_string()
 }
@@ -4559,9 +4944,21 @@ fn get_known_type_definition(type_name: &str) -> Option<TypeDefinition> {
             name: "Extent3d".to_string(),
             full_path: "bevy::render::render_resource::Extent3d".to_string(),
             fields: vec![
-                FieldDef { name: "width".to_string(), type_str: "u32".to_string(), type_def: None },
-                FieldDef { name: "height".to_string(), type_str: "u32".to_string(), type_def: None },
-                FieldDef { name: "depth_or_array_layers".to_string(), type_str: "u32".to_string(), type_def: None },
+                FieldDef {
+                    name: "width".to_string(),
+                    type_str: "u32".to_string(),
+                    type_def: None,
+                },
+                FieldDef {
+                    name: "height".to_string(),
+                    type_str: "u32".to_string(),
+                    type_def: None,
+                },
+                FieldDef {
+                    name: "depth_or_array_layers".to_string(),
+                    type_str: "u32".to_string(),
+                    type_def: None,
+                },
             ],
         }),
         "TextureDimension" => Some(TypeDefinition::Enum {
@@ -4573,34 +4970,56 @@ fn get_known_type_definition(type_name: &str) -> Option<TypeDefinition> {
             name: "TextureFormat".to_string(),
             full_path: "bevy::render::render_resource::TextureFormat".to_string(),
             variants: vec![
-                "R8Unorm".to_string(), "R8Snorm".to_string(), "R8Uint".to_string(), "R8Sint".to_string(),
-                "R16Uint".to_string(), "R16Sint".to_string(), "R16Float".to_string(),
-                "Rg8Unorm".to_string(), "Rg8Snorm".to_string(), "Rg8Uint".to_string(), "Rg8Sint".to_string(),
-                "R32Uint".to_string(), "R32Sint".to_string(), "R32Float".to_string(),
-                "Rg16Uint".to_string(), "Rg16Sint".to_string(), "Rg16Float".to_string(),
-                "Rgba8Unorm".to_string(), "Rgba8UnormSrgb".to_string(), "Rgba8Snorm".to_string(),
-                "Rgba8Uint".to_string(), "Rgba8Sint".to_string(),
-                "Bgra8Unorm".to_string(), "Bgra8UnormSrgb".to_string(),
-                "Rgba16Uint".to_string(), "Rgba16Sint".to_string(), "Rgba16Float".to_string(),
-                "Rgba32Uint".to_string(), "Rgba32Sint".to_string(), "Rgba32Float".to_string(),
-                "Depth32Float".to_string(), "Depth24Plus".to_string(), "Depth24PlusStencil8".to_string(),
+                "R8Unorm".to_string(),
+                "R8Snorm".to_string(),
+                "R8Uint".to_string(),
+                "R8Sint".to_string(),
+                "R16Uint".to_string(),
+                "R16Sint".to_string(),
+                "R16Float".to_string(),
+                "Rg8Unorm".to_string(),
+                "Rg8Snorm".to_string(),
+                "Rg8Uint".to_string(),
+                "Rg8Sint".to_string(),
+                "R32Uint".to_string(),
+                "R32Sint".to_string(),
+                "R32Float".to_string(),
+                "Rg16Uint".to_string(),
+                "Rg16Sint".to_string(),
+                "Rg16Float".to_string(),
+                "Rgba8Unorm".to_string(),
+                "Rgba8UnormSrgb".to_string(),
+                "Rgba8Snorm".to_string(),
+                "Rgba8Uint".to_string(),
+                "Rgba8Sint".to_string(),
+                "Bgra8Unorm".to_string(),
+                "Bgra8UnormSrgb".to_string(),
+                "Rgba16Uint".to_string(),
+                "Rgba16Sint".to_string(),
+                "Rgba16Float".to_string(),
+                "Rgba32Uint".to_string(),
+                "Rgba32Sint".to_string(),
+                "Rgba32Float".to_string(),
+                "Depth32Float".to_string(),
+                "Depth24Plus".to_string(),
+                "Depth24PlusStencil8".to_string(),
             ],
         }),
         "TextureUsages" => Some(TypeDefinition::Bitflags {
             name: "TextureUsages".to_string(),
             full_path: "bevy::render::render_resource::TextureUsages".to_string(),
             flags: vec![
-                "COPY_SRC".to_string(), "COPY_DST".to_string(), 
-                "TEXTURE_BINDING".to_string(), "STORAGE_BINDING".to_string(), 
+                "COPY_SRC".to_string(),
+                "COPY_DST".to_string(),
+                "TEXTURE_BINDING".to_string(),
+                "STORAGE_BINDING".to_string(),
                 "RENDER_ATTACHMENT".to_string(),
             ],
         }),
         "RenderAssetUsages" => Some(TypeDefinition::Bitflags {
             name: "RenderAssetUsages".to_string(),
             full_path: "bevy::asset::RenderAssetUsages".to_string(),
-            flags: vec![
-                "MAIN_WORLD".to_string(), "RENDER_WORLD".to_string(),
-            ],
+            flags: vec!["MAIN_WORLD".to_string(), "RENDER_WORLD".to_string()],
         }),
         _ => None,
     }
@@ -4608,60 +5027,82 @@ fn get_known_type_definition(type_name: &str) -> Option<TypeDefinition> {
 
 /// Normalize Bevy crate paths to use bevy:: re-exports accessible from user crates
 /// Returns None if the path cannot be safely normalized (internal modules, etc.)
-/// 
+///
 /// e.g., bevy_image::image::Image -> bevy::prelude::Image
 ///       bevy_mesh::mesh::Mesh -> bevy::prelude::Mesh
-/// 
+///
 /// Types from internal modules (::forward::, ::prepare::, ::extract::, etc.) are rejected.
 fn normalize_bevy_path(path: &str) -> Option<String> {
     // Reject non-core bevy crates (not part of bevy umbrella)
     let non_core_crates = [
-        "bevy_ecs_tilemap", "bevy_egui", "bevy_rapier2d", "bevy_rapier3d",
-        "bevy_xpbd", "bevy_hanabi", "bevy_kira_audio",
+        "bevy_ecs_tilemap",
+        "bevy_egui",
+        "bevy_rapier2d",
+        "bevy_rapier3d",
+        "bevy_xpbd",
+        "bevy_hanabi",
+        "bevy_kira_audio",
     ];
     for crate_name in &non_core_crates {
         if path.starts_with(&format!("{}::", crate_name)) {
             return None;
         }
     }
-    
-    // Reject paths from internal-looking modules  
+
+    // Reject paths from internal-looking modules
     let internal_patterns = [
-        "::forward::", "::prepare::", "::extract::", "::render::", 
-        "::internal::", "::private::", "::asset::", "::skinning::",
-        "::compensation_curve::", "::gpu_", "_systems::", "::tilemap",
-        "::wireframe", "::pitch::", "::audio_output", "::gizmos::",
-        "::storage::", "::buffer::", "::line_gizmo::",
-        "ColorMaterial", "TextureAtlas", // These types don't exist at simple paths
-        "LineGizmo", "AnimationGraph", "Shader", // Private or inaccessible types
+        "::forward::",
+        "::prepare::",
+        "::extract::",
+        "::render::",
+        "::internal::",
+        "::private::",
+        "::asset::",
+        "::skinning::",
+        "::compensation_curve::",
+        "::gpu_",
+        "_systems::",
+        "::tilemap",
+        "::wireframe",
+        "::pitch::",
+        "::audio_output",
+        "::gizmos::",
+        "::storage::",
+        "::buffer::",
+        "::line_gizmo::",
+        "ColorMaterial",
+        "TextureAtlas", // These types don't exist at simple paths
+        "LineGizmo",
+        "AnimationGraph",
+        "Shader", // Private or inaccessible types
     ];
     for pattern in &internal_patterns {
         if path.contains(pattern) {
             return None;
         }
     }
-    
+
     // wgpu_types::X -> bevy::render::render_resource::X
     if path.starts_with("wgpu_types::") {
         let type_name = path.strip_prefix("wgpu_types::")?;
         return Some(format!("bevy::render::render_resource::{}", type_name));
     }
-    
+
     // Special case: Mesh is re-exported in bevy::prelude
     if path == "bevy_mesh::mesh::Mesh" || path == "bevy_mesh::Mesh" {
         return Some("bevy::prelude::Mesh".to_string());
     }
-    
+
     // Special case: StandardMaterial is re-exported in bevy::prelude
     if path == "bevy_pbr::pbr_material::StandardMaterial" || path == "bevy_pbr::StandardMaterial" {
         return Some("bevy::prelude::StandardMaterial".to_string());
     }
-    
+
     // Special case: Image is re-exported in bevy::prelude
     if path == "bevy_image::image::Image" || path == "bevy_image::Image" {
         return Some("bevy::prelude::Image".to_string());
     }
-    
+
     // bevy_ui types -> bevy::ui
     if path.contains("UiTargetCamera") {
         return Some("bevy::ui::UiTargetCamera".to_string());
@@ -4671,12 +5112,12 @@ fn normalize_bevy_path(path: &str) -> Option<String> {
             return Some(format!("bevy::ui::{}", type_name));
         }
     }
-    
+
     // TextureAtlasLayout -> bevy::prelude
     if path.contains("TextureAtlasLayout") {
         return Some("bevy::prelude::TextureAtlasLayout".to_string());
     }
-    
+
     // bevy_sprite types -> bevy::sprite (only simple paths)
     if path.starts_with("bevy_sprite::") {
         if let Some(type_name) = path.split("::").last() {
@@ -4686,7 +5127,7 @@ fn normalize_bevy_path(path: &str) -> Option<String> {
         }
         return None; // Reject complex paths
     }
-    
+
     // bevy_text types -> bevy::text (only simple paths)
     if path.starts_with("bevy_text::") {
         if let Some(type_name) = path.split("::").last() {
@@ -4696,7 +5137,7 @@ fn normalize_bevy_path(path: &str) -> Option<String> {
         }
         return None;
     }
-    
+
     // For other bevy_* crates, be conservative - only allow simple direct paths
     if path.starts_with("bevy_") {
         let parts: Vec<&str> = path.split("::").collect();
@@ -4709,7 +5150,7 @@ fn normalize_bevy_path(path: &str) -> Option<String> {
         // Paths with more segments are likely internal, reject them
         return None;
     }
-    
+
     // Non-bevy crate paths (custom crates) pass through unchanged
     Some(path.to_string())
 }
@@ -4742,48 +5183,67 @@ fn discover_type_recursive(
     if let Some(def) = discovered.get(type_path) {
         return Ok(def.clone());
     }
-    
+
     // Check for primitives first
     if is_primitive_type(type_path) {
-        let def = TypeDefinition::Primitive { name: type_path.to_string() };
+        let def = TypeDefinition::Primitive {
+            name: type_path.to_string(),
+        };
         discovered.insert(type_path.to_string(), def.clone());
         return Ok(def);
     }
-    
+
     // Check for reference types
     if type_path.starts_with("&") {
         let inner = type_path.trim_start_matches("&").trim();
-        let def = TypeDefinition::Reference { inner: inner.to_string() };
+        let def = TypeDefinition::Reference {
+            inner: inner.to_string(),
+        };
         discovered.insert(type_path.to_string(), def.clone());
         return Ok(def);
     }
-    
+
     // Parse the type spec
     let type_spec = parse_type_spec(type_path)
         .ok_or_else(|| format!("Could not parse type path: {}", type_path))?;
-    
+
     // Find and parse the source file
     let source_path = find_source_file(&type_spec)?;
-    let source_code = fs::read_to_string(&source_path)
-        .map_err(|e| format!("Failed to read source: {}", e))?;
-    
-    let syntax_tree: File = syn::parse_file(&source_code)
-        .map_err(|e| format!("Failed to parse source: {}", e))?;
-    
+    let source_code =
+        fs::read_to_string(&source_path).map_err(|e| format!("Failed to read source: {}", e))?;
+
+    let syntax_tree: File =
+        syn::parse_file(&source_code).map_err(|e| format!("Failed to parse source: {}", e))?;
+
     // Find the type definition in the syntax tree
     let type_def = find_type_definition(&syntax_tree, &type_spec.type_name, type_path)?;
-    
+
     discovered.insert(type_path.to_string(), type_def.clone());
-    
+
     Ok(type_def)
 }
 
 /// Check if a type is a primitive
 fn is_primitive_type(type_str: &str) -> bool {
-    matches!(type_str, 
-        "u8" | "u16" | "u32" | "u64" | "u128" | "usize" |
-        "i8" | "i16" | "i32" | "i64" | "i128" | "isize" |
-        "f32" | "f64" | "bool" | "String" | "str" | "()"
+    matches!(
+        type_str,
+        "u8" | "u16"
+            | "u32"
+            | "u64"
+            | "u128"
+            | "usize"
+            | "i8"
+            | "i16"
+            | "i32"
+            | "i64"
+            | "i128"
+            | "isize"
+            | "f32"
+            | "f64"
+            | "bool"
+            | "String"
+            | "str"
+            | "()"
     )
 }
 
@@ -4811,21 +5271,23 @@ fn find_type_definition(
             _ => {}
         }
     }
-    
+
     Err(format!("Type {} not found in source file", type_name))
 }
 
 /// Parse a struct definition
 #[allow(dead_code)]
-fn parse_struct_definition(item_struct: &syn::ItemStruct, full_path: &str) -> Result<TypeDefinition, String> {
+fn parse_struct_definition(
+    item_struct: &syn::ItemStruct,
+    full_path: &str,
+) -> Result<TypeDefinition, String> {
     let mut fields = Vec::new();
-    
+
     if let syn::Fields::Named(named_fields) = &item_struct.fields {
         for field in &named_fields.named {
             if let Some(name) = &field.ident {
-                let type_str = quote::quote!(#field.ty).to_string()
-                    .replace(" ", "");
-                
+                let type_str = quote::quote!(#field.ty).to_string().replace(" ", "");
+
                 fields.push(FieldDef {
                     name: name.to_string(),
                     type_str,
@@ -4834,7 +5296,7 @@ fn parse_struct_definition(item_struct: &syn::ItemStruct, full_path: &str) -> Re
             }
         }
     }
-    
+
     Ok(TypeDefinition::Struct {
         name: item_struct.ident.to_string(),
         full_path: full_path.to_string(),
@@ -4844,30 +5306,36 @@ fn parse_struct_definition(item_struct: &syn::ItemStruct, full_path: &str) -> Re
 
 /// Parse an enum definition - only collects unit variants (no fields)
 #[allow(dead_code)]
-fn parse_enum_definition(item_enum: &syn::ItemEnum, full_path: &str) -> Result<TypeDefinition, String> {
+fn parse_enum_definition(
+    item_enum: &syn::ItemEnum,
+    full_path: &str,
+) -> Result<TypeDefinition, String> {
     let mut variants = Vec::new();
-    
+
     // Variants that are in wgpu-types but have different names or don't exist in Bevy
     let wgpu_bevy_incompatible: std::collections::HashSet<&str> = [
         "Rg11b10Float",  // wgpu uses this, Bevy uses Rg11b10Ufloat
         "Rgb10a2Uint",   // May not exist in all Bevy versions
         "Rg11b10Ufloat", // Bevy name, not in wgpu source
-    ].iter().copied().collect();
-    
+    ]
+    .iter()
+    .copied()
+    .collect();
+
     for variant in &item_enum.variants {
         // Only collect unit variants (no fields) - skip tuple/struct variants
         if matches!(variant.fields, syn::Fields::Unit) {
             let variant_name = variant.ident.to_string();
-            
+
             // Skip variants known to have wgpu/Bevy incompatibilities
             if wgpu_bevy_incompatible.contains(variant_name.as_str()) {
                 continue;
             }
-            
+
             variants.push(variant_name);
         }
     }
-    
+
     Ok(TypeDefinition::Enum {
         name: item_enum.ident.to_string(),
         full_path: full_path.to_string(),
@@ -4887,15 +5355,15 @@ fn try_parse_bitflags_macro(
     if macro_name != "bitflags" {
         return None;
     }
-    
+
     // Parse the macro content to find the type and flags
     let tokens_str = item_macro.mac.tokens.to_string();
-    
+
     // Simple heuristic: check if this macro defines our type
     if !tokens_str.contains(type_name) {
         return None;
     }
-    
+
     // Extract flag names (const NAME = ...)
     let mut flags = Vec::new();
     for line in tokens_str.lines() {
@@ -4907,17 +5375,18 @@ fn try_parse_bitflags_macro(
                 .next()
             {
                 let flag_name = name.trim();
-                if !flag_name.is_empty() && flag_name.chars().all(|c| c.is_uppercase() || c == '_') {
+                if !flag_name.is_empty() && flag_name.chars().all(|c| c.is_uppercase() || c == '_')
+                {
                     flags.push(flag_name.to_string());
                 }
             }
         }
     }
-    
+
     if flags.is_empty() {
         return None;
     }
-    
+
     Some(TypeDefinition::Bitflags {
         name: type_name.to_string(),
         full_path: full_path.to_string(),
@@ -4936,14 +5405,13 @@ fn parse_constructor_signature(
         if let Item::Impl(item_impl) = item {
             // Check if this is an impl for our type
             if let syn::Type::Path(type_path) = &*item_impl.self_ty {
-                let impl_type_name = type_path.path.segments.last()
-                    .map(|s| s.ident.to_string());
-                
+                let impl_type_name = type_path.path.segments.last().map(|s| s.ident.to_string());
+
                 if impl_type_name.as_deref() != Some(type_name) {
                     continue;
                 }
             }
-            
+
             // Look for the function
             for impl_item in &item_impl.items {
                 if let ImplItem::Fn(impl_fn) = impl_item {
@@ -4954,7 +5422,7 @@ fn parse_constructor_signature(
             }
         }
     }
-    
+
     Err(format!("Constructor {}::{} not found", type_name, fn_name))
 }
 
@@ -4962,19 +5430,18 @@ fn parse_constructor_signature(
 #[allow(dead_code)]
 fn extract_fn_params(sig: &syn::Signature) -> Result<Vec<ParamDef>, String> {
     let mut params = Vec::new();
-    
+
     for arg in &sig.inputs {
         if let FnArg::Typed(pat_type) = arg {
             let name = match &*pat_type.pat {
                 syn::Pat::Ident(pat_ident) => pat_ident.ident.to_string(),
                 _ => "_".to_string(),
             };
-            
+
             // Extract the type properly
             let ty = &*pat_type.ty;
-            let type_str = quote::quote!(#ty).to_string()
-                .replace(" ", "");
-            
+            let type_str = quote::quote!(#ty).to_string().replace(" ", "");
+
             params.push(ParamDef {
                 name,
                 type_str,
@@ -4982,7 +5449,7 @@ fn extract_fn_params(sig: &syn::Signature) -> Result<Vec<ParamDef>, String> {
             });
         }
     }
-    
+
     Ok(params)
 }
 
@@ -4996,36 +5463,35 @@ struct DiscoveredBitflags {
 
 /// Discover all constructors for a type by parsing its impl blocks
 /// Returns a list of function names that are likely constructors (return Self or the type)
-fn discover_constructors_for_type(
-    syntax_tree: &File,
-    type_name: &str,
-) -> Vec<String> {
+fn discover_constructors_for_type(syntax_tree: &File, type_name: &str) -> Vec<String> {
     let mut constructors = Vec::new();
-    
+
     for item in &syntax_tree.items {
         if let Item::Impl(impl_block) = item {
             // Check if this impl is for our type
             if !is_impl_for_type(impl_block, type_name) {
                 continue;
             }
-            
+
             for impl_item in &impl_block.items {
                 if let ImplItem::Fn(method) = impl_item {
                     // Check if public
                     if !matches!(method.vis, Visibility::Public(_)) {
                         continue;
                     }
-                    
+
                     let fn_name = method.sig.ident.to_string();
-                    
+
                     // Skip methods that take &self or &mut self (not constructors)
-                    let has_self_receiver = method.sig.inputs.iter().any(|arg| {
-                        matches!(arg, FnArg::Receiver(_))
-                    });
+                    let has_self_receiver = method
+                        .sig
+                        .inputs
+                        .iter()
+                        .any(|arg| matches!(arg, FnArg::Receiver(_)));
                     if has_self_receiver {
                         continue;
                     }
-                    
+
                     // Check if return type indicates a constructor
                     // Look for Self, TypeName, Result<Self>, Option<Self>, etc.
                     let is_constructor = match &method.sig.output {
@@ -5042,16 +5508,19 @@ fn discover_constructors_for_type(
                             fn_name == "create"
                         }
                     };
-                    
+
                     if is_constructor {
-                        println!("cargo:warning=    ✓ Discovered constructor: {}::{}", type_name, fn_name);
+                        println!(
+                            "cargo:warning=    ✓ Discovered constructor: {}::{}",
+                            type_name, fn_name
+                        );
                         constructors.push(fn_name);
                     }
                 }
             }
         }
     }
-    
+
     constructors
 }
 
@@ -5064,48 +5533,66 @@ fn generate_asset_constructor_binding(
 ) -> Result<(proc_macro2::TokenStream, Vec<DiscoveredBitflags>), String> {
     // Find source file
     let source_path = find_source_file(&spec.type_spec)?;
-    let source_code = fs::read_to_string(&source_path)
-        .map_err(|e| format!("Failed to read source: {}", e))?;
-    
-    let syntax_tree: File = syn::parse_file(&source_code)
-        .map_err(|e| format!("Failed to parse source: {}", e))?;
-    
+    let source_code =
+        fs::read_to_string(&source_path).map_err(|e| format!("Failed to read source: {}", e))?;
+
+    let syntax_tree: File =
+        syn::parse_file(&source_code).map_err(|e| format!("Failed to parse source: {}", e))?;
+
     // Parse constructor signature
-    let params = parse_constructor_signature(&syntax_tree, &spec.type_spec.type_name, &spec.function_name)?;
-    
-    println!("cargo:warning=  Found {} parameters for {}::{}", 
-        params.len(), spec.type_spec.type_name, spec.function_name);
-    
+    let params =
+        parse_constructor_signature(&syntax_tree, &spec.type_spec.type_name, &spec.function_name)?;
+
+    println!(
+        "cargo:warning=  Found {} parameters for {}::{}",
+        params.len(),
+        spec.type_spec.type_name,
+        spec.function_name
+    );
+
     for param in &params {
         println!("cargo:warning=    - {}: {}", param.name, param.type_str);
     }
-    
+
     // Discover all parameter types recursively
     let mut discovered_types = std::collections::HashMap::new();
     for param in &params {
         if let Err(e) = try_discover_param_type(&param.type_str, &mut discovered_types) {
-            println!("cargo:warning=    ⚠ Could not discover type {}: {}", param.type_str, e);
+            println!(
+                "cargo:warning=    ⚠ Could not discover type {}: {}",
+                param.type_str, e
+            );
         }
     }
-    
-    println!("cargo:warning=  Discovered {} types total", discovered_types.len());
-    
+
+    println!(
+        "cargo:warning=  Discovered {} types total",
+        discovered_types.len()
+    );
+
     // Generate conversion functions for each discovered type
     // Pass global_generated_names to avoid duplicates across multiple constructors
     let type_converters = generate_type_converters(&discovered_types, global_generated_names);
-    
+
     // Generate the main constructor function
     let fn_name_ident = syn::Ident::new(
-        &format!("create_{}_from_lua", spec.type_spec.type_name.to_lowercase()),
-        proc_macro2::Span::call_site()
+        &format!(
+            "create_{}_from_lua",
+            spec.type_spec.type_name.to_lowercase()
+        ),
+        proc_macro2::Span::call_site(),
     );
-    
+
     // Normalize crate paths to use bevy re-exports
-    let normalized_path = normalize_bevy_path(&spec.type_path)
-        .ok_or_else(|| format!("Cannot normalize path: {} (internal module)", spec.type_path))?;
-    let type_path: syn::Path = syn::parse_str(&normalized_path)
-        .map_err(|e| format!("Invalid type path: {}", e))?;
-    
+    let normalized_path = normalize_bevy_path(&spec.type_path).ok_or_else(|| {
+        format!(
+            "Cannot normalize path: {} (internal module)",
+            spec.type_path
+        )
+    })?;
+    let type_path: syn::Path =
+        syn::parse_str(&normalized_path).map_err(|e| format!("Invalid type path: {}", e))?;
+
     // Build parameter extraction code
     let param_extractions: Vec<_> = params.iter().map(|p| {
         let name = syn::Ident::new(&p.name, proc_macro2::Span::call_site());
@@ -5177,20 +5664,21 @@ fn generate_asset_constructor_binding(
             }
         }
     }).collect();
-    
-    let param_names: Vec<_> = params.iter().map(|p| {
-        syn::Ident::new(&p.name, proc_macro2::Span::call_site())
-    }).collect();
-    
+
+    let param_names: Vec<_> = params
+        .iter()
+        .map(|p| syn::Ident::new(&p.name, proc_macro2::Span::call_site()))
+        .collect();
+
     let constructor_fn = syn::Ident::new(&spec.function_name, proc_macro2::Span::call_site());
-    
+
     // Post-construction bitflags handling (like texture_descriptor.usage) is now done
     // via runtime reflection in asset_loading.rs - no type-specific code here!
-    
+
     // For Image assets, we also need to handle texture_usages which sets
     // image.texture_descriptor.usage (wgpu type, not Reflect-enabled)
     let is_image = spec.type_spec.type_name == "Image";
-    
+
     let post_construction = if is_image {
         quote::quote! {
             // Apply texture_usages if provided (sets texture_descriptor.usage)
@@ -5213,26 +5701,32 @@ fn generate_asset_constructor_binding(
     } else {
         quote::quote! {}
     };
-    
+
     let tokens = quote::quote! {
         #type_converters
-        
+
         /// Auto-generated Lua binding for #type_path::#constructor_fn
         pub fn #fn_name_ident(
             table: &mlua::prelude::LuaTable,
         ) -> mlua::prelude::LuaResult<#type_path> {
             #(#param_extractions)*
-            
+
             let mut result = #type_path::#constructor_fn(#(#param_names),*);
             #post_construction
             Ok(result)
         }
     };
-    
+
     // Extract discovered bitflags for auto-registration
-    let bitflags: Vec<DiscoveredBitflags> = discovered_types.iter()
+    let bitflags: Vec<DiscoveredBitflags> = discovered_types
+        .iter()
         .filter_map(|(name, def)| {
-            if let TypeDefinition::Bitflags { name: n, full_path, flags } = def {
+            if let TypeDefinition::Bitflags {
+                name: n,
+                full_path,
+                flags,
+            } = def
+            {
                 Some(DiscoveredBitflags {
                     name: n.clone(),
                     _full_path: full_path.clone(),
@@ -5243,7 +5737,7 @@ fn generate_asset_constructor_binding(
             }
         })
         .collect();
-    
+
     Ok((tokens, bitflags))
 }
 
@@ -5257,24 +5751,30 @@ fn try_discover_param_type(
     if is_primitive_type(type_str) || type_str.starts_with("&") {
         return Ok(());
     }
-    
+
     // Already discovered?
     if discovered.contains_key(type_str) {
         return Ok(());
     }
-    
+
     // Resolve short name to full path using known types (this just provides the path, not definition)
     let resolved_path = if let Some(known_path) = get_known_bevy_type_path(type_str) {
-        println!("cargo:warning=    → Resolved {} to {}", type_str, known_path);
+        println!(
+            "cargo:warning=    → Resolved {} to {}",
+            type_str, known_path
+        );
         known_path.to_string()
     } else {
         type_str.to_string()
     };
-    
+
     // Try to discover the type from source FIRST
     match discover_type_recursive(&resolved_path, discovered) {
         Ok(def) => {
-            println!("cargo:warning=    ✓ Auto-discovered {} from source", type_str);
+            println!(
+                "cargo:warning=    ✓ Auto-discovered {} from source",
+                type_str
+            );
             // Store under original short name for param extraction code generation
             if type_str != resolved_path {
                 discovered.insert(type_str.to_string(), def);
@@ -5282,20 +5782,34 @@ fn try_discover_param_type(
             return Ok(());
         }
         Err(e) => {
-            println!("cargo:warning=    ⚠ Source discovery failed for {}: {}", type_str, e);
+            println!(
+                "cargo:warning=    ⚠ Source discovery failed for {}: {}",
+                type_str, e
+            );
         }
     }
-    
+
     // Fall back to hardcoded type definitions (for complex types that can't be auto-discovered)
     if let Some(known_def) = get_known_type_definition(type_str) {
-        println!("cargo:warning=    ✓ Using hardcoded fallback definition for {}", type_str);
+        println!(
+            "cargo:warning=    ✓ Using hardcoded fallback definition for {}",
+            type_str
+        );
         discovered.insert(type_str.to_string(), known_def);
         return Ok(());
     }
-    
+
     // Add as Unknown type to allow partial code generation
-    println!("cargo:warning=    ⚠ Type {} could not be discovered or hardcoded", type_str);
-    discovered.insert(type_str.to_string(), TypeDefinition::Unknown { name: type_str.to_string() });
+    println!(
+        "cargo:warning=    ⚠ Type {} could not be discovered or hardcoded",
+        type_str
+    );
+    discovered.insert(
+        type_str.to_string(),
+        TypeDefinition::Unknown {
+            name: type_str.to_string(),
+        },
+    );
     Ok(())
 }
 
@@ -5306,39 +5820,46 @@ fn generate_type_converters(
     generated_names: &mut std::collections::HashSet<String>,
 ) -> proc_macro2::TokenStream {
     let mut converters: Vec<proc_macro2::TokenStream> = Vec::new();
-    
+
     for (_type_path, type_def) in discovered {
         match type_def {
-            TypeDefinition::Struct { name, fields, full_path } => {
+            TypeDefinition::Struct {
+                name,
+                fields,
+                full_path,
+            } => {
                 // Skip if already generated
                 let fn_name_str = format!("lua_to_{}", name.to_lowercase());
                 if generated_names.contains(&fn_name_str) {
                     continue;
                 }
                 generated_names.insert(fn_name_str.clone());
-                
+
                 let fn_name = syn::Ident::new(&fn_name_str, proc_macro2::Span::call_site());
-                
+
                 // Normalize path for user crate access
                 let Some(normalized_path) = normalize_bevy_path(full_path) else {
                     continue;
                 };
-                
+
                 // Parse the normalized path as a type
                 let type_path_syn: syn::Path = match syn::parse_str(&normalized_path) {
                     Ok(p) => p,
                     Err(_) => continue,
                 };
-                
+
                 // Generate field extractions
-                let field_extracts: Vec<_> = fields.iter().map(|f| {
-                    let field_name = syn::Ident::new(&f.name, proc_macro2::Span::call_site());
-                    let field_str = &f.name;
-                    quote::quote! {
-                        #field_name: table.get(#field_str).unwrap_or_default()
-                    }
-                }).collect();
-                
+                let field_extracts: Vec<_> = fields
+                    .iter()
+                    .map(|f| {
+                        let field_name = syn::Ident::new(&f.name, proc_macro2::Span::call_site());
+                        let field_str = &f.name;
+                        quote::quote! {
+                            #field_name: table.get(#field_str).unwrap_or_default()
+                        }
+                    })
+                    .collect();
+
                 let converter = quote::quote! {
                     /// Convert a Lua table to #type_path_syn
                     fn #fn_name(table: &mlua::prelude::LuaTable) -> mlua::prelude::LuaResult<#type_path_syn> {
@@ -5347,46 +5868,57 @@ fn generate_type_converters(
                         })
                     }
                 };
-                
+
                 converters.push(converter);
-                println!("cargo:warning=    ✓ Generated converter for Struct {}", name);
+                println!(
+                    "cargo:warning=    ✓ Generated converter for Struct {}",
+                    name
+                );
             }
-            TypeDefinition::Enum { name, variants, full_path } => {
+            TypeDefinition::Enum {
+                name,
+                variants,
+                full_path,
+            } => {
                 // Skip if already generated
                 let fn_name_str = format!("lua_to_{}", name.to_lowercase());
                 if generated_names.contains(&fn_name_str) {
                     continue;
                 }
                 generated_names.insert(fn_name_str.clone());
-                
+
                 let fn_name = syn::Ident::new(&fn_name_str, proc_macro2::Span::call_site());
-                
+
                 // Normalize path for user crate access
                 let Some(normalized_path) = normalize_bevy_path(full_path) else {
                     continue;
                 };
-                
+
                 // Parse the normalized path as a type
                 let type_path_syn: syn::Path = match syn::parse_str(&normalized_path) {
                     Ok(p) => p,
                     Err(_) => continue,
                 };
-                
+
                 // Filter out variants that have data (struct variants like Astc { ... })
                 // These can't be constructed from a simple string
-                let simple_variants: Vec<_> = variants.iter()
+                let simple_variants: Vec<_> = variants
+                    .iter()
                     .filter(|v| !v.contains('(') && !v.contains('{'))
                     .collect();
-                
+
                 // Generate variant matches for simple (unit) variants only
-                let variant_matches: Vec<_> = simple_variants.iter().map(|v| {
-                    let v_str = v.as_str();
-                    let v_ident = syn::Ident::new(v, proc_macro2::Span::call_site());
-                    quote::quote! {
-                        #v_str => Ok(#type_path_syn::#v_ident)
-                    }
-                }).collect();
-                
+                let variant_matches: Vec<_> = simple_variants
+                    .iter()
+                    .map(|v| {
+                        let v_str = v.as_str();
+                        let v_ident = syn::Ident::new(v, proc_macro2::Span::call_site());
+                        quote::quote! {
+                            #v_str => Ok(#type_path_syn::#v_ident)
+                        }
+                    })
+                    .collect();
+
                 let converter = quote::quote! {
                     /// Convert a Lua string to #type_path_syn enum
                     fn #fn_name(value: &str) -> mlua::prelude::LuaResult<#type_path_syn> {
@@ -5398,40 +5930,51 @@ fn generate_type_converters(
                         }
                     }
                 };
-                
+
                 converters.push(converter);
-                println!("cargo:warning=    ✓ Generated converter for Enum {} ({} variants)", name, simple_variants.len());
+                println!(
+                    "cargo:warning=    ✓ Generated converter for Enum {} ({} variants)",
+                    name,
+                    simple_variants.len()
+                );
             }
-            TypeDefinition::Bitflags { name, flags, full_path } => {
+            TypeDefinition::Bitflags {
+                name,
+                flags,
+                full_path,
+            } => {
                 // Skip if already generated
                 let fn_name_str = format!("lua_to_{}", name.to_lowercase());
                 if generated_names.contains(&fn_name_str) {
                     continue;
                 }
                 generated_names.insert(fn_name_str.clone());
-                
+
                 let fn_name = syn::Ident::new(&fn_name_str, proc_macro2::Span::call_site());
-                
+
                 // Normalize path for user crate access
                 let Some(normalized_path) = normalize_bevy_path(full_path) else {
                     continue;
                 };
-                
+
                 // Parse the normalized path as a type
                 let type_path_syn: syn::Path = match syn::parse_str(&normalized_path) {
                     Ok(p) => p,
                     Err(_) => continue,
                 };
-                
+
                 // Generate flag matches
-                let flag_matches: Vec<_> = flags.iter().map(|f| {
-                    let f_str = f.as_str();
-                    let f_ident = syn::Ident::new(f, proc_macro2::Span::call_site());
-                    quote::quote! {
-                        #f_str => result |= #type_path_syn::#f_ident
-                    }
-                }).collect();
-                
+                let flag_matches: Vec<_> = flags
+                    .iter()
+                    .map(|f| {
+                        let f_str = f.as_str();
+                        let f_ident = syn::Ident::new(f, proc_macro2::Span::call_site());
+                        quote::quote! {
+                            #f_str => result |= #type_path_syn::#f_ident
+                        }
+                    })
+                    .collect();
+
                 let converter = quote::quote! {
                     /// Convert a Lua pipe-separated string to #type_path_syn bitflags
                     fn #fn_name(value: &str) -> #type_path_syn {
@@ -5446,17 +5989,18 @@ fn generate_type_converters(
                         result
                     }
                 };
-                
+
                 converters.push(converter);
-                println!("cargo:warning=    ✓ Generated converter for Bitflags {}", name);
+                println!(
+                    "cargo:warning=    ✓ Generated converter for Bitflags {}",
+                    name
+                );
             }
             _ => {}
         }
     }
-    
+
     quote::quote! {
         #(#converters)*
     }
 }
-
-

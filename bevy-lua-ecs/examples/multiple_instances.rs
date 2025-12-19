@@ -1,7 +1,6 @@
 /// Multiple Instances Example
 /// Demonstrates loading the same script multiple times with independent tracking
 /// Run with: cargo run --example multiple_instances
-
 use bevy::prelude::*;
 use bevy_lua_ecs::*;
 
@@ -60,7 +59,7 @@ print("=== Script Instance Initialized ===")
             }
         }
     }
-    
+
     info!("All 3 instances loaded! Each has independent entities.");
     info!("Instance 1: 3 entities at radius 100");
     info!("Instance 2: 3 entities at radius 200");

@@ -1,6 +1,6 @@
 use bevy::prelude::*;
-use std::sync::{Arc, Mutex};
 use std::collections::HashSet;
+use std::sync::{Arc, Mutex};
 
 /// Queue for despawning entities from Lua
 #[derive(Resource, Clone)]
@@ -33,21 +33,24 @@ pub fn process_despawn_queue(
     let mut queue = despawn_queue.queue.lock().unwrap();
     let entities_to_despawn: Vec<Entity> = queue.drain().collect();
     drop(queue);
-    
+
     if entities_to_despawn.is_empty() {
         return;
     }
-    
+
     // Clear any pending component updates for these entities
     let removed_keys = component_update_queue.clear_for_entities(&entities_to_despawn);
-    
+
     // Clean up Lua registry values
     for key in removed_keys {
         if let Err(e) = lua_ctx.lua.remove_registry_value(key) {
-            warn!("Failed to remove registry value for despawned entity: {}", e);
+            warn!(
+                "Failed to remove registry value for despawned entity: {}",
+                e
+            );
         }
     }
-    
+
     // Despawn the entities
     for entity in entities_to_despawn {
         commands.entity(entity).despawn();

@@ -1,6 +1,6 @@
 use bevy::prelude::*;
 #[cfg(feature = "auto-reflection")]
-use bevy::reflect::{TypeInfo, TypeRegistry, StructInfo, Reflect};
+use bevy::reflect::{Reflect, StructInfo, TypeInfo, TypeRegistry};
 use mlua::prelude::*;
 use std::collections::HashMap;
 
@@ -23,40 +23,46 @@ impl BundleRegistry {
         F: Fn(&LuaValue, &mut EntityCommands) -> LuaResult<()> + Send + Sync + 'static,
     {
         let name = name.into();
-        self.bundles.insert(name.clone(), BundleDefinition {
-            name,
-            spawn_fn: Box::new(spawn_fn),
-        });
+        self.bundles.insert(
+            name.clone(),
+            BundleDefinition {
+                name,
+                spawn_fn: Box::new(spawn_fn),
+            },
+        );
     }
-    
+
     /// Get a bundle definition by name
     pub fn get(&self, name: &str) -> Option<&BundleDefinition> {
         self.bundles.get(name)
     }
-    
+
     /// Create registry from TypeRegistry using reflection (auto-reflection feature)
     #[cfg(feature = "auto-reflection")]
     pub fn from_type_registry(type_registry: &AppTypeRegistry) -> Self {
         let mut registry = Self::default();
         let type_registry = type_registry.read();
-        
+
         for registration in type_registry.iter() {
             let type_info = registration.type_info();
-            
+
             // Only process struct types
             if let TypeInfo::Struct(struct_info) = type_info {
                 let type_name = struct_info.type_path_table().short_path();
-                
+
                 // Clone what we need before moving into closure
                 let struct_info_clone = struct_info.clone();
                 let type_path = registration.type_path().to_string();
-                
-                registry.register(type_name, move |data: &LuaValue, entity: &mut EntityCommands| {
-                    spawn_from_reflection(data, entity, &struct_info_clone, &type_path)
-                });
+
+                registry.register(
+                    type_name,
+                    move |data: &LuaValue, entity: &mut EntityCommands| {
+                        spawn_from_reflection(data, entity, &struct_info_clone, &type_path)
+                    },
+                );
             }
         }
-        
+
         registry
     }
 }
@@ -70,18 +76,18 @@ fn spawn_from_reflection(
     type_path: &str,
 ) -> LuaResult<()> {
     debug!("Spawning {} via reflection", type_path);
-    
+
     // For now, we'll use a simplified approach
     // Full implementation would use DynamicStruct and FromReflect
-    
+
     // This is a placeholder - actual implementation would:
     // 1. Create DynamicStruct from struct_info
     // 2. Populate fields from Lua table
     // 3. Use FromReflect to convert to concrete type
     // 4. Insert into entity
-    
+
     Err(LuaError::RuntimeError(
-        "Full reflection not yet implemented - use manual LuaSpawnable".to_string()
+        "Full reflection not yet implemented - use manual LuaSpawnable".to_string(),
     ))
 }
 
@@ -100,7 +106,7 @@ macro_rules! register_lua_bundles {
                     .split("::")
                     .last()
                     .unwrap_or(std::any::type_name::<$bundle>());
-                
+
                 $registry.register(bundle_name, |data: &mlua::Table, entity: &mut bevy::ecs::system::EntityCommands| {
                     <$bundle as $crate::reflection::LuaSpawnable>::from_lua(data, entity)
                 });
@@ -139,19 +145,15 @@ pub fn lua_table_to_reflect(
                     let z: f32 = table.get("z").unwrap_or(0.0);
                     Ok(Box::new(Vec3::new(x, y, z)))
                 }
-                _ => {
-                    Err(LuaError::RuntimeError(format!(
-                        "Unsupported struct type for reflection: {}",
-                        struct_info.type_path()
-                    )))
-                }
+                _ => Err(LuaError::RuntimeError(format!(
+                    "Unsupported struct type for reflection: {}",
+                    struct_info.type_path()
+                ))),
             }
         }
-        _ => {
-            Err(LuaError::RuntimeError(format!(
-                "Unsupported type info for field {}: {:?}",
-                field_name, type_info
-            )))
-        }
+        _ => Err(LuaError::RuntimeError(format!(
+            "Unsupported type info for field {}: {:?}",
+            field_name, type_info
+        ))),
     }
 }
