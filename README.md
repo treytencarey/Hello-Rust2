@@ -17,61 +17,91 @@ Hello is a collection of optional game plugins with full Lua bindings support. F
 
 ```
 Hello/
-├── bevy-lua-ecs/          # Core Lua-ECS integration library
-│   ├── src/               # Generic reflection-based infrastructure
-│   └── examples/          # Lua scripting examples
-└── Hello/                 # Game framework with optional plugins
+├── bevy-lua-ecs/              # Core Lua-ECS integration library
+│   ├── src/                   # Generic reflection-based infrastructure
+│   └── examples/              # Lua scripting examples
+└── Hello/                     # Game framework with optional plugins
     ├── src/
-    │   ├── main.rs        # Main application entry
-    │   └── rapier.rs      # Physics plugin (optional)
-    ├── examples/
-    │   └── physics.rs     # Physics demonstration
-    └── assets/scripts/    # Lua game scripts
-        ├── main.lua       # Default game script
-        └── physics.lua    # Physics example script
+    │   ├── main.rs            # CLI demo runner
+    │   ├── lib.rs             # Library exports
+    │   └── plugins/           # Plugin modules
+    │       ├── core.rs        # HelloCorePlugin (required)
+    │       ├── physics.rs     # HelloPhysicsPlugin
+    │       ├── networking.rs  # HelloNetworkingPlugin
+    │       └── tiled.rs       # HelloTiledPlugin
+    └── assets/scripts/        # Lua game scripts
+        ├── main.lua           # Default client script
+        └── server/main.lua    # Server mode script
 ```
 
 ## Quick Start
 
-### Run the Default Game
+### CLI Demo Runner
 
 ```powershell
-cargo run -p hello
+# Show help
+cargo run -- --help
+
+# List available demos
+cargo run -- --list
+
+# Run a specific demo
+cargo run -- --demo physics
+cargo run -- --demo tilemap
+cargo run -- --demo ui_3d
+
+# Run a custom script
+cargo run -- --script scripts/examples/my_script.lua
 ```
 
-This runs `Hello/assets/scripts/main.lua` with no optional plugins enabled.
-
-### Run with Physics
+### Network Modes
 
 ```powershell
-cargo run -p hello --example physics
+# Start as server only (serves assets, no game UI)
+cargo run -- --network server
+
+# Start as client only (connects to server for assets)
+cargo run -- --network client --server-addr 192.168.1.100 --port 5000
+
+# Start as full peer (both server and client - default)
+cargo run -- --network both
+
+# Run networking demo
+cargo run -- --demo networking
 ```
 
-Demonstrates Rapier physics integration - all physics entities and behaviors defined in `Hello/assets/scripts/physics.lua`.
+**Script Paths by Mode:**
+- **Server**: Runs `scripts/server/main.lua`
+- **Client/Both**: Runs `scripts/main.lua`
 
 ## Features
 
 ### Default Features
 
-- `physics` - Rapier 2D physics integration (enabled by default)
+All plugins are enabled by default via `all-plugins`:
+
+```toml
+[features]
+default = ["all-plugins"]
+all-plugins = ["physics", "tiled", "networking"]
+```
 
 ### Available Plugins
 
 #### Physics (Rapier 2D)
+- 2D physics simulation with rigid bodies, colliders, and joints
+- Run: `cargo run -- --demo physics`
 
-The physics plugin demonstrates the architecture pattern:
+#### Tiled Maps
+- Load and render Tiled map editor (.tmx) files
+- Run: `cargo run -- --demo tilemap`
 
-**Rust Side** (`src/rapier.rs`):
-- Self-contained plugin that handles all setup
-- Registers physics engine and debug rendering
-- Registers non-Reflect components (like `Collider`) for Lua
-- Only compiled when `physics` feature is enabled
-
-**Lua Side** (`assets/scripts/physics.lua`):
-- Spawns physics entities (ground, boxes, balls)
-- Uses Rapier components (`RigidBody`, `Collider`, `Velocity`, etc.)
-- Implements physics monitoring systems
-- Zero Rust game logic required
+#### Networking (Asset Peer)
+- On-demand asset downloading from server
+- Hot reload when server files change
+- Three modes: `server`, `client`, `both` (peer)
+- Broadcast loop prevention for peer mode
+- Run: `cargo run -- --network both`
 
 ## Adding New Plugins
 
