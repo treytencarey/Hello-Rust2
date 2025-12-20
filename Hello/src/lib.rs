@@ -1,6 +1,12 @@
-// Hello library exports for examples
+// Hello library exports for examples and main binary
 //
-// This file exports modules that need to be accessible from examples
+// This file exports modules that need to be accessible
+
+// Plugin groups - always available
+pub mod plugins;
+
+// Auto-generated Lua bindings - always required for LuaBindingsPlugin
+pub mod auto_resource_bindings;
 
 #[cfg(feature = "physics")]
 pub mod rapier;
@@ -18,10 +24,8 @@ pub mod network_asset_client;
 pub mod asset_server_delivery;
 
 #[cfg(feature = "networking")]
-pub mod auto_resource_bindings;
-
-#[cfg(feature = "networking")]
 pub mod network_asset_integration;
 
 #[cfg(feature = "networking")]
 pub mod subscription_registry;
+

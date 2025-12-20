@@ -42,11 +42,18 @@ constructors = [
 TextureUsages = ["COPY_SRC", "COPY_DST", "TEXTURE_BINDING", "STORAGE_BINDING", "RENDER_ATTACHMENT"]
 
 [features]
-default = ["physics", "tiled", "networking", "bevy_mod_xr"]
+# Unified default for demos - maximizes build cache reuse
+default = ["all-plugins"]
+all-plugins = ["physics", "tiled", "networking"]
+
+# Core feature modules
 physics = ["dep:bevy_rapier2d"]
 physics3d = ["dep:bevy_rapier3d"]
 tiled = ["dep:bevy_ecs_tiled"]
 networking = ["dep:bevy_replicon", "dep:bevy_replicon_renet", "dep:bevy_renet", "dep:renet", "dep:serde", "dep:mlua", "dep:notify"]
+
+# Optional heavy features (trigger rebuild when used)
+bevy_mod_xr = ["dep:bevy_mod_xr"]
 replicon_server = ["bevy_replicon/server"]
 replicon_client = ["bevy_replicon/client"]
 lightyear_net = [
@@ -70,7 +77,6 @@ lightyear_net = [
 ]
 bevy_rapier2d = ["dep:bevy_rapier2d"]
 renet_netcode = []
-bevy_mod_xr = ["dep:bevy_mod_xr"]
 
 [dependencies]
 bevy = { workspace = true, features = ["default"] }

@@ -1,82 +1,141 @@
-use bevy::prelude::*;
-use bevy_lua_ecs::*;
-use std::fs;
+//! Hello - Bevy + Lua game framework
+//! 
+//! Run with: cargo run -- --help
+//! 
+//! Examples:
+//!   cargo run -- --demo physics
+//!   cargo run -- --script scripts/examples/custom.lua
+//!   cargo run -- --list
 
-// Re-export modules from the library (lib.rs declares them)
+use bevy::prelude::*;
+use clap::Parser;
+
+// Import from library crate
+use hello::plugins::{HelloCorePlugin, InitialScript};
+
 #[cfg(feature = "physics")]
-use hello::rapier;
+use hello::plugins::HelloPhysicsPlugin;
+
+#[cfg(feature = "networking")]
+use hello::plugins::HelloNetworkingPlugin;
 
 #[cfg(feature = "tiled")]
-use hello::tiled;
+use hello::plugins::HelloTiledPlugin;
 
-#[cfg(feature = "networking")]
-use hello::network_asset_integration;
+#[derive(Parser)]
+#[command(name = "hello", about = "Bevy + Lua game framework")]
+struct Args {
+    /// Demo to run (physics, tilemap, ui_3d, rtt, networking)
+    #[arg(short, long, value_name = "NAME")]
+    demo: Option<String>,
+    
+    /// Run a specific script directly (path relative to assets/)
+    #[arg(short, long, value_name = "PATH")]
+    script: Option<String>,
+    
+    /// List available demos
+    #[arg(long)]
+    list: bool,
+    
+    /// Don't spawn the default 2D camera
+    #[arg(long)]
+    no_camera: bool,
+}
 
-#[cfg(feature = "networking")]
-use hello::auto_resource_bindings;
+/// Demo definitions: (name, script_path, description, required_feature)
+const DEMOS: &[(&str, &str, &str, Option<&str>)] = &[
+    ("physics", "scripts/examples/physics.lua", "2D physics with Rapier", Some("physics")),
+    ("tilemap", "scripts/examples/tilemap.lua", "Tiled map loading", Some("tiled")),
+    ("ui_3d", "scripts/examples/ui_3d_plane.lua", "UI rendered to 3D plane", None),
+    ("rtt", "scripts/examples/render_ui_to_texture.lua", "Render UI to texture", None),
+    ("networking", "scripts/examples/network_client_test.lua", "Network asset client", Some("networking")),
+    ("button", "scripts/examples/button.lua", "Simple button example", None),
+    ("basic", "scripts/spawn_text.lua", "Basic text spawning", None),
+];
 
 fn main() {
+    let args = Args::parse();
+    
+    // Handle --list
+    if args.list {
+        println!("Available demos:\n");
+        for (name, _script, desc, feature) in DEMOS {
+            let available = match feature {
+                None => true,
+                Some("physics") => cfg!(feature = "physics"),
+                Some("tiled") => cfg!(feature = "tiled"),
+                Some("networking") => cfg!(feature = "networking"),
+                _ => false,
+            };
+            let status = if available { "✓" } else { "✗" };
+            println!("  {} {:12} - {}", status, name, desc);
+        }
+        println!("\nRun with: cargo run -- --demo <NAME>");
+        return;
+    }
+    
+    // Show help if no args
+    if args.demo.is_none() && args.script.is_none() {
+        println!("Hello - Bevy + Lua game framework\n");
+        println!("Usage:");
+        println!("  cargo run -- --demo <NAME>     Run a demo");
+        println!("  cargo run -- --script <PATH>   Run a specific script");
+        println!("  cargo run -- --list            List available demos");
+        println!("\nRun 'cargo run -- --help' for more options.");
+        return;
+    }
+    
     let mut app = App::new();
     
-    // Add Bevy's default plugins
+    // Add Bevy default plugins
     app.add_plugins(DefaultPlugins);
     
-    // Add Rapier physics plugins if the physics feature is enabled
-    #[cfg(feature = "physics")]
-    app.add_plugins(rapier::RapierIntegrationPlugin);
+    // Add core plugin
+    app.add_plugins(HelloCorePlugin {
+        spawn_camera_2d: !args.no_camera,
+    });
     
-    // Add Tiled map plugin if the tiled feature is enabled
-    #[cfg(feature = "tiled")]
-    app.add_plugins(tiled::TiledIntegrationPlugin);
+    // Determine which script to run
+    let script_path = if let Some(ref script) = args.script {
+        Some(script.clone())
+    } else if let Some(ref demo_name) = args.demo {
+        // Find the demo
+        DEMOS.iter()
+            .find(|(name, _, _, _)| *name == demo_name.as_str())
+            .map(|(_, script, _, _)| script.to_string())
+    } else {
+        None
+    };
     
-    // Add Lua plugin (auto-initializes all resources and systems)
-    app.add_plugins(LuaSpawnPlugin);
-    
-    // Add network asset downloading plugin (if networking enabled)
-    #[cfg(feature = "networking")]
-    app.add_plugins(network_asset_integration::NetworkAssetPlugin);
-    
-    // Register auto-generated resource method bindings (networking)
-    #[cfg(feature = "networking")]
-    app.add_systems(PreStartup, register_networking_bindings);
-    
-    app.add_systems(Startup, setup)
-        .add_systems(PostStartup, load_and_run_script)
-        .run();
-}
-
-#[cfg(feature = "networking")]
-fn register_networking_bindings(registry: Res<LuaResourceRegistry>) {
-    auto_resource_bindings::register_auto_resource_bindings(&registry);
-}
-
-fn setup(mut commands: Commands) {
-    commands.spawn(Camera2d);
-    info!("✓ Camera spawned");
-}
-
-fn load_and_run_script(
-    lua_ctx: Res<LuaScriptContext>,
-    script_instance: Res<ScriptInstance>,
-    script_registry: Res<ScriptRegistry>,
-) {
-    let script_path = std::path::PathBuf::from("assets/scripts/examples/network_client_test.lua");
-    match fs::read_to_string(&script_path) {
-        Ok(script_content) => {
-            info!("✓ Loaded script: {:?}", script_path);
-            if let Err(e) = lua_ctx.execute_script(
-                &script_content, 
-                "network_client_test.lua",
-                script_path,
-                &script_instance,
-                &script_registry,
-            ) {
-                error!("Failed to execute script: {}", e);
+    // Add feature-specific plugins based on demo
+    if let Some(ref demo_name) = args.demo {
+        match demo_name.as_str() {
+            "physics" => {
+                #[cfg(feature = "physics")]
+                app.add_plugins(HelloPhysicsPlugin);
+                #[cfg(not(feature = "physics"))]
+                error!("Physics demo requires 'physics' feature");
             }
-        }
-        Err(e) => {
-            error!("Failed to load script {:?}: {}", script_path, e);
+            "tilemap" => {
+                #[cfg(feature = "tiled")]
+                app.add_plugins(HelloTiledPlugin);
+                #[cfg(not(feature = "tiled"))]
+                error!("Tilemap demo requires 'tiled' feature");
+            }
+            "networking" => {
+                #[cfg(feature = "networking")]
+                app.add_plugins(HelloNetworkingPlugin);
+                #[cfg(not(feature = "networking"))]
+                error!("Networking demo requires 'networking' feature");
+            }
+            _ => {}
         }
     }
+    
+    // Set initial script if we have one
+    if let Some(path) = script_path {
+        app.insert_resource(InitialScript(path));
+    }
+    
+    app.run();
 }
-

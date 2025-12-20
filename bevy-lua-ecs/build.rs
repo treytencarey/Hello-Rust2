@@ -4555,6 +4555,20 @@ fn write_bindings_to_parent_crate(
     fs::write(&generated_file, full_code.to_string())
         .expect("Failed to write auto_resource_bindings.rs");
 
+    // Run rustfmt on the generated file for readability
+    if let Ok(status) = std::process::Command::new("rustfmt")
+        .arg(&generated_file)
+        .status()
+    {
+        if status.success() {
+            println!("cargo:warning=✓ Formatted bindings with rustfmt");
+        } else {
+            println!("cargo:warning=⚠ rustfmt exited with non-zero status");
+        }
+    } else {
+        println!("cargo:warning=⚠ rustfmt not found, skipping formatting");
+    }
+
     println!("cargo:warning=✓ Wrote bindings to {:?}", generated_file);
 }
 
