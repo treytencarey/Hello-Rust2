@@ -1514,6 +1514,12 @@ fn cleanup_script_instance(instance_id: u64, world: &World, recursive: bool) {
             .remove_callbacks_for_instance(instance_id);
     }
 
+    // 5b. Clear asset dependencies for this instance
+    // This prevents stale references when reloading scripts that use assets
+    if let Some(lua_ctx) = world.get_resource::<LuaScriptContext>() {
+        lua_ctx.script_cache.clear_asset_dependencies(instance_id);
+    }
+
     // 6. Unsubscribe from file sync for this instance
     // NOTE: Commenting out automatic unsubscribe - subscriptions should persist for hot reload
     // even after the script finishes executing. The subscription is for the file path, not the instance.

@@ -569,3 +569,120 @@ local _orig_require = __RUST_REQUIRE__
 ```
 
 Without this, hot reload would capture the wrapper function, causing infinite recursion.
+
+---
+
+## Reload Debouncing
+
+When binary assets (images, etc.) are updated, dependent scripts reload. However, on Windows, file watchers often send multiple events for a single save. To prevent duplicate reloads:
+
+### Server-Side: File Watcher Deduplication
+
+`FileWatcherResource::poll_changes()` uses a `HashSet` to deduplicate events:
+
+```rust
+pub fn poll_changes(&self) -> Vec<String> {
+    let mut changes_set: HashSet<String> = HashSet::new();
+    // ... process events, insert into set ...
+    changes_set.into_iter().collect()
+}
+```
+
+### Client-Side: ReloadDebounce Resource
+
+`ReloadDebounce` tracks recently reloaded scripts to skip duplicates within 500ms:
+
+```rust
+#[derive(Resource, Default)]
+pub struct ReloadDebounce {
+    recent_reloads: HashMap<String, Instant>,
+}
+
+impl ReloadDebounce {
+    fn should_skip(&self, path: &str) -> bool {
+        // Returns true if reloaded within last 500ms
+    }
+    fn mark_reloaded(&mut self, path: &str);
+}
+```
+
+Used in `receive_asset_updates()` before triggering reload for binary asset dependents.
+
+---
+
+## Binary Asset Hot Reload
+
+When a binary asset (image, etc.) is updated on the server, dependent Lua scripts can automatically reload.
+
+### How It Works
+
+1. **Lua script registers dependency** via `load_asset()` with `reload=true`:
+   ```lua
+   local img = load_asset("images/sprite.png", {network = true, reload = true})
+   ```
+
+2. **`ScriptCache.add_asset_dependency()`** tracks: asset path → (script path, instance_id)
+
+3. **Server pushes update** when image file changes
+
+4. **`receive_asset_updates()`** on client:
+   - Writes new image to disk
+   - Calls `get_dependent_scripts(asset_path)`
+   - Triggers `LuaFileChangeEvent` for each unique dependent script
+
+5. **`auto_reload_changed_scripts()`** re-executes the script
+
+### Asset Dependency Cleanup
+
+When a script is cleaned up (reload or stop), `cleanup_script_instance()` calls:
+```rust
+lua_ctx.script_cache.clear_asset_dependencies(instance_id);
+```
+
+This prevents stale dependencies from triggering phantom reloads.
+
+---
+
+## Integration Tests
+
+The network asset system includes comprehensive integration tests in `tests/integration/network_asset_tests.rs`.
+
+### Running Tests
+
+```bash
+# Build examples first
+cargo build --features networking --example asset_server --example asset_client
+
+# Run all integration tests (serially to avoid port conflicts)
+cargo test --features networking --test network_asset_tests -- --ignored --test-threads=1 --nocapture
+```
+
+### Test Cases
+
+| Test | Verifies |
+|------|----------|
+| `test_fixtures_exist` | All fixture files present |
+| `test_script_loading_chain` | All 4 scripts load through dependency chain |
+| `test_script_update_propagation` | Modified script triggers hot reload on client |
+| `test_image_asset_reload` | Image update triggers dependent script reload |
+| `test_subscription_persistence` | Asset dependency tracking is working |
+| `test_empty_client_downloads_all` | Empty client downloads all scripts + assets |
+| `test_synced_client_no_reloads` | Up-to-date client has no spurious reloads |
+| `test_outdated_file_selective_reload` | Outdated file replaced with server version |
+
+### Test Infrastructure
+
+- **TestContext**: Manages server/client process lifecycle
+- **ProcessOutput**: Non-blocking output capture with pattern matching
+- **RUST_LOG filtering**: Debug logs enabled for specific modules only:
+  ```
+  hello::network_asset_integration=debug,
+  bevy_lua_ecs::asset_loading=debug,
+  bevy_lua_ecs::script_cache=debug
+  ```
+
+### Fixture Location
+
+Test fixtures are in `tests/integration/fixtures/`:
+- `server_assets/` - Server-side assets
+- `client_assets/` - Cleared for each test to simulate fresh client

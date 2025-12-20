@@ -2307,6 +2307,21 @@ pub fn add_asset_loading_to_lua(
                 let handle: Handle<Image> = asset_server_clone.load(&path);
                 let id = asset_registry_clone.register_image(handle);
 
+                // Track asset dependency for hot reload (when reload=true)
+                // This enables reloading the script when the asset updates
+                if should_reload {
+                    if let Ok(script_path) = lua_ctx.globals().get::<String>("__SCRIPT_NAME__") {
+                        let current_instance_id: u64 = lua_ctx.globals().get::<u64>("__INSTANCE_ID__").unwrap_or(0);
+                        debug!("📷 [LOAD_ASSET] Registering dependency: asset '{}' -> script '{}' (instance {})", 
+                            path, script_path, current_instance_id);
+                        script_cache_clone.add_asset_dependency(path.clone(), script_path, current_instance_id);
+                    } else {
+                        warn!("📷 [LOAD_ASSET] Cannot register dependency for '{}' - __SCRIPT_NAME__ not set", path);
+                    }
+                } else {
+                    debug!("📷 [LOAD_ASSET] Not registering dependency for '{}' - reload=false", path);
+                }
+
                 // If network=true AND reload=true, queue background server check
                 if network_enabled && should_reload {
                     let has_loader: bool = lua_ctx

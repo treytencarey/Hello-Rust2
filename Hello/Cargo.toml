@@ -143,3 +143,8 @@ required-features = ["networking"]
 name = "asset_client"
 path = "examples/asset_client.rs"
 required-features = ["networking"]
+
+[[test]]
+name = "network_asset_tests"
+path = "tests/integration/network_asset_tests.rs"
+required-features = ["networking"]

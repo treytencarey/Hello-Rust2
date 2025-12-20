@@ -43,6 +43,9 @@ pub struct ScriptCache {
     /// Pending unsubscription events: (instance_id, empty_paths) pairs
     /// Populated by cleanup_script_instance, consumed by networking layer
     pending_unsubscriptions: Arc<Mutex<Vec<(u64, Vec<String>)>>>,
+    /// Asset dependencies: asset_path -> set of (script_path, instance_id)
+    /// Tracks which scripts depend on which assets for reload when assets change
+    asset_dependencies: Arc<Mutex<HashMap<String, HashSet<(String, u64)>>>>,
 }
 
 impl Default for ScriptCache {
@@ -68,6 +71,7 @@ impl ScriptCache {
             active_subscriptions: Arc::new(Mutex::new(HashMap::new())),
             should_subscribe_on_complete: Arc::new(Mutex::new(HashMap::new())),
             pending_unsubscriptions: Arc::new(Mutex::new(Vec::new())),
+            asset_dependencies: Arc::new(Mutex::new(HashMap::new())),
         }
     }
 
@@ -729,6 +733,58 @@ impl ScriptCache {
     /// Take all pending unsubscription events (consumed by networking layer)
     pub fn take_pending_unsubscriptions(&self) -> Vec<(u64, Vec<String>)> {
         std::mem::take(&mut *self.pending_unsubscriptions.lock().unwrap())
+    }
+
+    // ========== Asset Dependency Tracking Methods ==========
+
+    /// Track that a script instance depends on an asset (for reload when asset changes)
+    /// Called when load_asset is used with reload=true
+    pub fn add_asset_dependency(&self, asset_path: String, script_path: String, instance_id: u64) {
+        let normalized_asset = normalize_path(&asset_path);
+        let normalized_script = normalize_path(&script_path);
+        debug!(
+            "📷 [ASSET_DEP] Script '{}' (instance {}) depends on asset '{}'",
+            normalized_script, instance_id, normalized_asset
+        );
+        self.asset_dependencies
+            .lock()
+            .unwrap()
+            .entry(normalized_asset)
+            .or_insert_with(HashSet::new)
+            .insert((normalized_script, instance_id));
+    }
+
+    /// Get all scripts that depend on a given asset path
+    /// Returns list of (script_path, instance_id) tuples
+    pub fn get_dependent_scripts(&self, asset_path: &str) -> Vec<(String, u64)> {
+        let normalized_path = normalize_path(asset_path);
+        self.asset_dependencies
+            .lock()
+            .unwrap()
+            .get(&normalized_path)
+            .cloned()
+            .unwrap_or_default()
+            .into_iter()
+            .collect()
+    }
+
+    /// Clear all asset dependencies for a specific script instance
+    /// Called during cleanup_script_instance
+    pub fn clear_asset_dependencies(&self, instance_id: u64) {
+        let mut deps = self.asset_dependencies.lock().unwrap();
+        
+        // Remove this instance from all asset dependency sets
+        for (_asset_path, dependents) in deps.iter_mut() {
+            dependents.retain(|(_, id)| *id != instance_id);
+        }
+        
+        // Clean up empty entries
+        deps.retain(|_, dependents| !dependents.is_empty());
+        
+        debug!(
+            "📷 [ASSET_DEP] Cleared asset dependencies for instance {}",
+            instance_id
+        );
     }
 }
 
