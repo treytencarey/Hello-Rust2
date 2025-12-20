@@ -13,7 +13,8 @@ fn main() {
     println!("cargo:rerun-if-changed=build.rs");
     println!("cargo:rerun-if-changed=Cargo.toml");
     println!("cargo:rerun-if-changed=../Hello/Cargo.toml");
-    println!("cargo:rerun-if-changed=../Hello/Cargo.lock");
+    // Cargo.lock is at workspace root, not in Hello/
+    println!("cargo:rerun-if-changed=../Cargo.lock");
 
     let pkg_name = env::var("CARGO_PKG_NAME").unwrap_or_default();
     println!("cargo:warning=Build script: PKG={}", pkg_name);
@@ -652,14 +653,9 @@ fn compute_cargo_lock_hash() -> String {
         }
     }
 
-    // No Cargo.lock found, use timestamp to invalidate frequently
-    format!(
-        "no-lock-{}",
-        std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .map(|d| d.as_secs())
-            .unwrap_or(0)
-    )
+    // No Cargo.lock found, use static fallback to prevent constant rebuilds
+    // The cache will still be invalidated if Cargo.lock appears later
+    "no-lock".to_string()
 }
 
 /// Try to load SystemParam cache from disk
@@ -4552,24 +4548,36 @@ fn write_bindings_to_parent_crate(
         }
     };
 
-    fs::write(&generated_file, full_code.to_string())
-        .expect("Failed to write auto_resource_bindings.rs");
+    let new_content = full_code.to_string();
+    
+    // Only write if content has changed to avoid triggering unnecessary rebuilds
+    let should_write = match fs::read_to_string(&generated_file) {
+        Ok(existing_content) => existing_content != new_content,
+        Err(_) => true, // File doesn't exist, write it
+    };
+    
+    if should_write {
+        fs::write(&generated_file, &new_content)
+            .expect("Failed to write auto_resource_bindings.rs");
 
-    // Run rustfmt on the generated file for readability
-    if let Ok(status) = std::process::Command::new("rustfmt")
-        .arg(&generated_file)
-        .status()
-    {
-        if status.success() {
-            println!("cargo:warning=✓ Formatted bindings with rustfmt");
+        // Run rustfmt on the generated file for readability
+        if let Ok(status) = std::process::Command::new("rustfmt")
+            .arg(&generated_file)
+            .status()
+        {
+            if status.success() {
+                println!("cargo:warning=✓ Formatted bindings with rustfmt");
+            } else {
+                println!("cargo:warning=⚠ rustfmt exited with non-zero status");
+            }
         } else {
-            println!("cargo:warning=⚠ rustfmt exited with non-zero status");
+            println!("cargo:warning=⚠ rustfmt not found, skipping formatting");
         }
-    } else {
-        println!("cargo:warning=⚠ rustfmt not found, skipping formatting");
-    }
 
-    println!("cargo:warning=✓ Wrote bindings to {:?}", generated_file);
+        println!("cargo:warning=✓ Wrote bindings to {:?}", generated_file);
+    } else {
+        println!("cargo:warning=✓ Bindings unchanged, skipping write to {:?}", generated_file);
+    }
 }
 
 fn write_empty_bindings_with_events(event_types: Vec<String>) {
