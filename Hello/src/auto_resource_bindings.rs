@@ -75,9 +75,9 @@ pub const DISCOVERED_ASSET_TYPES: &[&str] = &[
     "LineGizmo",
     "GizmoAsset",
     "GltfNode",
+    "GltfMesh",
     "Gltf",
     "GltfPrimitive",
-    "GltfMesh",
     "GltfSkin",
     "Image",
     "TextureAtlasLayout",
@@ -1754,8 +1754,8 @@ fn register_asset_cloners(asset_registry: &bevy_lua_ecs::AssetRegistry) {
     bevy_lua_ecs::register_cloner_if_clone::<bevy::audio::AudioSource>(&mut cloners);
     bevy_lua_ecs::register_cloner_if_clone::<bevy::gizmos::GizmoAsset>(&mut cloners);
     bevy_lua_ecs::register_cloner_if_clone::<bevy::gltf::GltfNode>(&mut cloners);
-    bevy_lua_ecs::register_cloner_if_clone::<bevy::gltf::GltfPrimitive>(&mut cloners);
     bevy_lua_ecs::register_cloner_if_clone::<bevy::gltf::GltfMesh>(&mut cloners);
+    bevy_lua_ecs::register_cloner_if_clone::<bevy::gltf::GltfPrimitive>(&mut cloners);
     bevy_lua_ecs::register_cloner_if_clone::<bevy::gltf::GltfSkin>(&mut cloners);
     bevy_lua_ecs::register_cloner_if_clone::<bevy::prelude::Image>(&mut cloners);
     bevy_lua_ecs::register_cloner_if_clone::<bevy::prelude::Mesh>(&mut cloners);

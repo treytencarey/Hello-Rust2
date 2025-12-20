@@ -396,6 +396,7 @@ pub fn broadcast_file_updates(
     server: Option<ResMut<RenetServer>>,
     subscription_registry: Option<Res<AssetSubscriptionRegistry>>,
     mut file_watcher: Option<ResMut<FileWatcherResource>>,
+    received_files: Option<Res<crate::plugins::NetworkReceivedFiles>>,
 ) {
     let Some(mut server) = server else { return };
     let Some(registry) = subscription_registry else { return };
@@ -405,6 +406,15 @@ pub fn broadcast_file_updates(
     let changed_paths = watcher.poll_changes();
     
     for path in changed_paths {
+        // In peer mode, skip files that were recently received from network
+        // This prevents the broadcast loop: server→client→save→watcher→broadcast→server
+        if let Some(ref received) = received_files {
+            if received.was_received_recently(&path, std::time::Duration::from_secs(2)) {
+                debug!("⏭️ [BROADCAST] Skipping '{}' - recently received from network (loop prevention)", path);
+                continue;
+            }
+        }
+        
         // Get subscribers for this path
         let subscribers = registry.get_subscribers(&path);
         

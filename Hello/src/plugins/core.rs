@@ -6,7 +6,7 @@ use bevy_lua_ecs::{LuaScriptContext, ScriptInstance, ScriptRegistry};
 
 /// Resource to specify which script to run on startup
 #[derive(Resource, Clone)]
-pub struct InitialScript(pub String);
+pub struct MainScript(pub String);
 
 /// Core Hello plugin - always required
 /// Wraps LuaBindingsPlugin (which includes LuaSpawnPlugin)
@@ -30,7 +30,7 @@ impl Plugin for HelloCorePlugin {
             app.add_systems(Startup, spawn_camera_2d);
         }
         
-        app.add_systems(PostStartup, run_initial_script.run_if(resource_exists::<InitialScript>));
+        app.add_systems(PostStartup, run_initial_script.run_if(resource_exists::<MainScript>));
     }
 }
 
@@ -40,7 +40,7 @@ fn spawn_camera_2d(mut commands: Commands) {
 }
 
 fn run_initial_script(
-    script: Res<InitialScript>,
+    script: Res<MainScript>,
     lua_ctx: Res<LuaScriptContext>,
     script_instance: Res<ScriptInstance>,
     script_registry: Res<ScriptRegistry>,

@@ -579,6 +579,7 @@ pub fn receive_asset_updates(
     pending_updates: Option<Res<crate::network_asset_client::PendingAssetUpdates>>,
     mut file_events: bevy::prelude::MessageWriter<bevy_lua_ecs::lua_file_watcher::LuaFileChangeEvent>,
     mut debounce: ResMut<ReloadDebounce>,
+    mut received_files: Option<ResMut<crate::plugins::NetworkReceivedFiles>>,
 ) {
     let Some(ref lua_ctx) = lua_ctx else { return };
     let Some(ref pending_updates) = pending_updates else { return };
@@ -613,6 +614,12 @@ pub fn receive_asset_updates(
             if let Err(e) = std::fs::write(&asset_path, &decrypted) {
                 error!("❌ [CLIENT] Failed to write updated file '{}': {}", notification.path, e);
                 continue;
+            }
+            
+            // Mark file as received from network to prevent broadcast loops in peer mode
+            if let Some(ref mut received) = received_files {
+                received.mark_received(&notification.path);
+                debug!("📋 [PEER] Marked '{}' as received from network (broadcast loop prevention)", notification.path);
             }
             
             debug!("✅ [CLIENT] Updated file: '{}' ({} bytes)", notification.path, decrypted.len());
