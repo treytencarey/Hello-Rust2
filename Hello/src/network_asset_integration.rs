@@ -51,6 +51,9 @@ impl Plugin for NetworkAssetPlugin {
             crate::asset_server_delivery::handle_asset_requests_global,
         ).chain());
         
+        // Initialize reload debounce resource
+        app.init_resource::<ReloadDebounce>();
+        
         app.add_systems(Update, (
             // 6. Broadcast file updates to subscribed clients (server-side)
             crate::asset_server_delivery::broadcast_file_updates,
@@ -62,6 +65,8 @@ impl Plugin for NetworkAssetPlugin {
             crate::asset_server_delivery::check_request_timeouts,
             // 10. Resume waiting coroutines when downloads complete
             resume_pending_coroutines,
+            // 11. Clean up expired debounce entries
+            cleanup_reload_debounce,
         ).chain().after(crate::asset_server_delivery::handle_asset_requests_global));
     }
 }
@@ -71,6 +76,49 @@ impl Plugin for NetworkAssetPlugin {
     fn build(&self, _app: &mut App) {
         // No-op when networking is disabled
     }
+}
+
+/// Resource to debounce rapid reload events
+/// Prevents the same script from reloading multiple times in quick succession
+#[cfg(feature = "networking")]
+#[derive(Resource, Default)]
+pub struct ReloadDebounce {
+    /// Map of script path -> last reload timestamp
+    recent_reloads: std::collections::HashMap<String, std::time::Instant>,
+}
+
+#[cfg(feature = "networking")]
+impl ReloadDebounce {
+    /// Check if a reload should be skipped (already reloaded recently)
+    /// Returns true if should skip, false if should proceed
+    pub fn should_skip(&self, path: &str) -> bool {
+        if let Some(last_reload) = self.recent_reloads.get(path) {
+            // Skip if reloaded within last 500ms
+            if last_reload.elapsed() < std::time::Duration::from_millis(500) {
+                debug!("⏭️ [DEBOUNCE] Skipping duplicate reload for '{}' (reloaded {:?} ago)", 
+                    path, last_reload.elapsed());
+                return true;
+            }
+        }
+        false
+    }
+    
+    /// Mark a path as recently reloaded
+    pub fn mark_reloaded(&mut self, path: &str) {
+        self.recent_reloads.insert(path.to_string(), std::time::Instant::now());
+    }
+    
+    /// Clean up expired entries (older than 1 second)
+    pub fn cleanup(&mut self) {
+        let cutoff = std::time::Duration::from_secs(1);
+        self.recent_reloads.retain(|_, instant| instant.elapsed() < cutoff);
+    }
+}
+
+/// System to clean up expired reload debounce entries
+#[cfg(feature = "networking")]
+fn cleanup_reload_debounce(mut debounce: ResMut<ReloadDebounce>) {
+    debounce.cleanup();
 }
 
 /// System to enable network downloads in Lua by setting a global flag
@@ -530,6 +578,7 @@ pub fn receive_asset_updates(
     lua_ctx: Option<Res<LuaScriptContext>>,
     pending_updates: Option<Res<crate::network_asset_client::PendingAssetUpdates>>,
     mut file_events: bevy::prelude::MessageWriter<bevy_lua_ecs::lua_file_watcher::LuaFileChangeEvent>,
+    mut debounce: ResMut<ReloadDebounce>,
 ) {
     let Some(ref lua_ctx) = lua_ctx else { return };
     let Some(ref pending_updates) = pending_updates else { return };
@@ -578,6 +627,38 @@ pub fn receive_asset_updates(
                 });
                 
                 debug!("🔄 [CLIENT] Triggered hot reload for '{}'", notification.path);
+            } else {
+                // Binary asset (image, etc.) - check for dependent scripts that should reload
+                let dependent_scripts = lua_ctx.script_cache.get_dependent_scripts(&notification.path);
+                
+                if !dependent_scripts.is_empty() {
+                    debug!("📷 [CLIENT] Asset '{}' updated, triggering reload for {} dependent script(s)", 
+                        notification.path, dependent_scripts.len());
+                    
+                    // Trigger reload for each dependent script
+                    // We collect unique script paths since multiple instances may use same script
+                    let mut unique_scripts: std::collections::HashSet<String> = std::collections::HashSet::new();
+                    for (script_path, _instance_id) in dependent_scripts {
+                        unique_scripts.insert(script_path);
+                    }
+                    
+                    for script_path in unique_scripts {
+                        // Check debounce - skip if reloaded recently
+                        if debounce.should_skip(&script_path) {
+                            continue;
+                        }
+                        
+                        // Mark as reloaded before triggering
+                        debounce.mark_reloaded(&script_path);
+                        
+                        debug!("🔄 [CLIENT] Triggering reload for script '{}' (depends on '{}')", script_path, notification.path);
+                        file_events.write(bevy_lua_ecs::lua_file_watcher::LuaFileChangeEvent {
+                            path: std::path::PathBuf::from(format!("assets/{}", script_path)),
+                        });
+                    }
+                } else {
+                    debug!("📷 [CLIENT] Binary asset '{}' updated, no dependent scripts registered", notification.path);
+                }
             }
         } else {
             // Multi-chunk file - would need assembly logic

@@ -101,8 +101,10 @@ impl FileWatcherResource {
     }
     
     /// Poll for file change events, returns list of changed paths (relative to assets/)
+    /// Deduplicates events to prevent multiple triggers for a single file save
     pub fn poll_changes(&self) -> Vec<String> {
-        let mut changes = Vec::new();
+        // Use HashSet to deduplicate - Windows often sends multiple events per file save
+        let mut changes_set: HashSet<String> = HashSet::new();
         
         // Get the canonical path to assets/ directory for prefix stripping
         let assets_prefix = std::path::Path::new("assets")
@@ -128,8 +130,10 @@ impl FileWatcherResource {
                                 
                                 if let Some(relative) = relative_result {
                                     let relative_str = to_forward_slash(relative);
-                                    debug!("📁 [FILE WATCHER] File changed: {}", relative_str);
-                                    changes.push(relative_str);
+                                    // Insert into set (automatically deduplicates)
+                                    if changes_set.insert(relative_str.clone()) {
+                                        debug!("📁 [FILE WATCHER] File changed: {}", relative_str);
+                                    }
                                 } else {
                                     warn!("📁 [FILE WATCHER] Could not strip assets prefix from: {:?}", path);
                                 }
@@ -143,7 +147,8 @@ impl FileWatcherResource {
             }
         }
         
-        changes
+        // Convert set to vec
+        changes_set.into_iter().collect()
     }
 }
 

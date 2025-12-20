@@ -2,17 +2,18 @@ use bevy::prelude::*;
 use bevy_lua_ecs::*;
 use std::fs;
 
+// Re-export modules from the library (lib.rs declares them)
 #[cfg(feature = "physics")]
-mod rapier;
+use hello::rapier;
 
 #[cfg(feature = "tiled")]
-mod tiled;
+use hello::tiled;
 
 #[cfg(feature = "networking")]
-pub mod networking;
+use hello::network_asset_integration;
 
 #[cfg(feature = "networking")]
-mod auto_resource_bindings;
+use hello::auto_resource_bindings;
 
 fn main() {
     let mut app = App::new();
@@ -30,6 +31,10 @@ fn main() {
     
     // Add Lua plugin (auto-initializes all resources and systems)
     app.add_plugins(LuaSpawnPlugin);
+    
+    // Add network asset downloading plugin (if networking enabled)
+    #[cfg(feature = "networking")]
+    app.add_plugins(network_asset_integration::NetworkAssetPlugin);
     
     // Register auto-generated resource method bindings (networking)
     #[cfg(feature = "networking")]
@@ -55,13 +60,13 @@ fn load_and_run_script(
     script_instance: Res<ScriptInstance>,
     script_registry: Res<ScriptRegistry>,
 ) {
-    let script_path = std::path::PathBuf::from("assets/scripts/require_sync_example.lua");
+    let script_path = std::path::PathBuf::from("assets/scripts/examples/network_client_test.lua");
     match fs::read_to_string(&script_path) {
         Ok(script_content) => {
             info!("✓ Loaded script: {:?}", script_path);
             if let Err(e) = lua_ctx.execute_script(
                 &script_content, 
-                "require_sync_example.lua",
+                "network_client_test.lua",
                 script_path,
                 &script_instance,
                 &script_registry,
