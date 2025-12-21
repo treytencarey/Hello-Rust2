@@ -68,7 +68,7 @@ function animation_system(world)
         }
         
         -- Update the sprite color!
-        entity:set("Sprite", { color = animated_color })
+        entity:set({ Sprite = { color = animated_color } })
     end
     
     -- Print status occasionally

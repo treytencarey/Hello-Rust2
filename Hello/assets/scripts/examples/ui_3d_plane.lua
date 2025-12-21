@@ -133,7 +133,7 @@ register_system("Update", function(world)
             local new_color = (click_count % 2 == 0) and 
                 { r = 0.2, g = 0.6, b = 0.8, a = 1.0 } or
                 { r = 0.8, g = 0.3, b = 0.3, a = 1.0 }
-            btn:set("BackgroundColor", { _0 = new_color })
+            btn:set({ BackgroundColor = { _0 = new_color } })
         end
     end
 end)

@@ -7,7 +7,7 @@
 //! ```lua
 //! spawn({ Button = {} })
 //!     :observe("Pointer<Over>", function(entity, event)
-//!         entity:set("BackgroundColor", { color = { r = 1.0, g = 0.0, b = 0.0, a = 1.0 } })
+//!         entity:set({ BackgroundColor = { color = { r = 1.0, g = 0.0, b = 0.0, a = 1.0 } } })
 //!     end)
 //! ```
 //!

@@ -169,6 +169,80 @@ impl ComponentRegistry {
         self.handlers.insert(short_name.to_string(), handler);
         debug!("✓ Registered entity component handler: {}", short_name);
     }
+
+    /// Register a handle wrapper component (newtype around Handle<T>)
+    /// These components have pattern: pub struct ComponentName(pub Handle<T>);
+    /// Lua table should have format: { id = asset_id } or just the asset_id directly
+    ///
+    /// Uses AssetRegistry to get asset path, then loads typed Handle<T> at spawn time.
+    ///
+    /// # Example
+    /// ```ignore
+    /// registry.register_handle_component::<SceneRoot, Scene>("SceneRoot", SceneRoot);
+    /// ```
+    pub fn register_handle_component<C, T, F>(&mut self, short_name: &str, constructor: F)
+    where
+        C: Component,
+        T: bevy::asset::Asset,
+        F: Fn(bevy::prelude::Handle<T>) -> C + Send + Sync + 'static,
+    {
+        let component_name = short_name.to_string();
+        let asset_registry = self.asset_registry.clone();
+        // Wrap constructor in Arc before closure to avoid Clone requirement on F
+        let constructor_arc = std::sync::Arc::new(constructor);
+
+        let handler: ComponentHandler = Box::new(
+            move |data: &LuaValue, entity_commands: &mut EntityCommands| {
+                // Get asset ID from Lua - can be { id = N }, { _0 = N }, or just N
+                let asset_id: Option<u32> = match data {
+                    LuaValue::Integer(i) => Some(*i as u32),
+                    LuaValue::Number(n) => Some(*n as u32),
+                    LuaValue::Table(table) => {
+                        // Try "id" first, then "_0"
+                        table.get::<u32>("id")
+                            .ok()
+                            .or_else(|| table.get::<u32>("_0").ok())
+                    }
+                    _ => None,
+                };
+
+                if let Some(id) = asset_id {
+                    if let Some(ref registry) = asset_registry {
+                        // Get the asset path from registry
+                        if let Some(path) = registry.get_path(id) {
+                            // Queue a command that will run with World access
+                            // This allows us to use asset_server.load::<T>() with the correct type
+                            let component_name_clone = component_name.clone();
+                            let constructor_clone = std::sync::Arc::clone(&constructor_arc);
+                            entity_commands.queue(move |mut entity: bevy::prelude::EntityWorldMut| {
+                                let asset_server = entity.world().resource::<AssetServer>().clone();
+                                let handle: Handle<T> = asset_server.load(&path);
+                                debug!(
+                                    "[HANDLE_COMPONENT] {} path '{}' -> Handle<{}>",
+                                    component_name_clone, path, std::any::type_name::<T>()
+                                );
+                                let component = constructor_clone(handle);
+                                entity.insert(component);
+                            });
+                            return Ok(());
+                        }
+                    }
+                    return Err(mlua::Error::RuntimeError(format!(
+                        "Failed to create {} from Lua. Asset ID {} not found in registry.",
+                        component_name, id
+                    )));
+                }
+                
+                Err(mlua::Error::RuntimeError(format!(
+                    "Failed to create {} from Lua. Expected 'id' field with asset ID or direct asset ID.",
+                    component_name
+                )))
+            },
+        );
+
+        self.handlers.insert(short_name.to_string(), handler);
+        debug!("✓ Registered handle component handler: {}", short_name);
+    }
 }
 
 /// Register entity wrapper components at runtime using TypeRegistry
@@ -976,7 +1050,7 @@ fn spawn_component_via_reflection(
 
 /// Set a reflected field value from a Lua value
 /// Set a reflected field value from a Lua value
-fn set_field_from_lua(
+pub fn set_field_from_lua(
     field: &mut dyn PartialReflect,
     lua_value: &LuaValue,
     asset_registry: Option<&crate::asset_loading::AssetRegistry>,
@@ -1016,10 +1090,30 @@ fn set_field_from_lua(
                         );
                     }
                 } else {
+                    // Handle not found - try loading from registered path
                     debug!(
-                        "[FIELD_SET] ERROR: Asset ID {} not found in registry!",
+                        "[FIELD_SET] Asset ID {} not in handle registry, trying path-based loading",
                         asset_id
                     );
+                    if let Some(path) = registry.get_path(*asset_id as u32) {
+                        debug!("[FIELD_SET] Found path '{}' for asset ID {}", path, asset_id);
+                        if let Some(ref asset_server) = registry.asset_server {
+                            if let Some(handle) = registry.try_load_from_path(&path, &type_path, asset_server) {
+                                debug!("[FIELD_SET] ✓ Loaded from path '{}' -> {:?}", path, handle.id());
+                                // Register the handle for future lookups
+                                registry.register_handle_with_id(*asset_id as u32, handle.clone());
+                                if registry.try_set_handle_field(field, &type_path, handle) {
+                                    return Ok(());
+                                }
+                            } else {
+                                debug!("[FIELD_SET] No typed loader for type '{}'", type_path);
+                            }
+                        } else {
+                            debug!("[FIELD_SET] AssetServer not available in registry");
+                        }
+                    } else {
+                        debug!("[FIELD_SET] ERROR: No path registered for asset ID {}", asset_id);
+                    }
                 }
 
                 // Fallback: image_handles (for loaded images via load_asset)

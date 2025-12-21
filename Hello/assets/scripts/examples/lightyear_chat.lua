@@ -184,7 +184,7 @@ function update_input_display(world)
         if input_focused then
             cursor = cursor_visible and "|" or " "
         end
-        input_entity_ref:set("Text", { text = "> " .. current_input .. cursor })
+        input_entity_ref:set({ Text = { text = "> " .. current_input .. cursor } })
     end
 end
 
@@ -406,7 +406,7 @@ else
         local entities = world:query({"Text"}, nil)
         for _, entity in ipairs(entities) do
             if entity:id() == status_entity then
-                entity:set("Text", { text = "Connected clients: " .. count .. " (awaiting bindings)" })
+                entity:set({Text = { text = "Connected clients: " .. count .. " (awaiting bindings)" }})
             end
         end
     end)

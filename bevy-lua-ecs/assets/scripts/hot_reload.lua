@@ -154,15 +154,15 @@ function movement_system(world)
             end
 
             -- Update transform
-            entity:set("Transform", {
+            entity:set({ Transform = {
                 translation = {x = new_x, y = new_y, z = 0},
                 rotation = transform.rotation,
                 scale = transform.scale
-            })
+            }})
 
             -- Update velocity if bounced
             if new_vx ~= velocity.x or new_vy ~= velocity.y then
-                entity:set("Velocity", {x = new_vx, y = new_vy})
+                entity:set({ Velocity = {x = new_vx, y = new_vy} })
             end
         end
     end

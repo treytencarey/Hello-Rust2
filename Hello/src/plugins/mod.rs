@@ -12,6 +12,9 @@ mod networking;
 #[cfg(feature = "tiled")]
 mod tiled;
 
+#[cfg(feature = "ufbx")]
+mod ufbx;
+
 pub use core::*;
 
 #[cfg(feature = "physics")]
@@ -22,3 +25,7 @@ pub use networking::*;
 
 #[cfg(feature = "tiled")]
 pub use tiled::*;
+
+#[cfg(feature = "ufbx")]
+pub use ufbx::*;
+

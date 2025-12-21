@@ -9,7 +9,7 @@
 spawn({ Component = {...} })  -- Create entity, returns builder
 entity:get("Component")       -- Read component data
 entity:has("Component")       -- Check component exists
-entity:set("Component", data) -- Write (queued)
+entity:set({ Component = data }) -- Write (queued)
 entity:id()                   -- Get entity ID
 entity:with_parent(id)        -- Set parent
 entity:observe("Event", fn)   -- Attach observer
@@ -21,7 +21,7 @@ register_system("Update", function(world)
     local dt = world:delta_time()
     local entities = world:query({"Transform"}, {"Changed"})  -- (with, changed)
     for i, entity in ipairs(entities) do
-        entity:set("Transform", {...})
+        entity:set({Transform = {...}})
     end
 end)
 ```

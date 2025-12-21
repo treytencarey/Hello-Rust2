@@ -93,15 +93,33 @@ impl LuaUserData for LuaEntitySnapshot {
 
         methods.add_method("id", |_, this, ()| Ok(this.entity.to_bits()));
 
+        // Set/update components using spawn-style syntax
+        // Usage: entity:set({ Text2d = { text = "..." }, Transform = {...} })
         methods.add_method(
             "set",
-            |lua, this, (component_name, component_data): (String, LuaTable)| {
-                // Create a registry key for the component data
-                let registry_key = lua.create_registry_value(component_data)?;
-
-                // Queue the update
-                this.update_queue
-                    .queue_update(this.entity, component_name, registry_key);
+            |lua, this, components: LuaTable| {
+                // Iterate through the table - keys are component names, values are component data
+                for pair in components.pairs::<String, LuaValue>() {
+                    let (component_name, component_value) = pair?;
+                    
+                    // Convert the value to a table if possible, or create a wrapper for scalar values
+                    let component_data = match component_value {
+                        LuaValue::Table(table) => table,
+                        _ => {
+                            // For non-table values, create a wrapper table with _0 (tuple struct style)
+                            let wrapper = lua.create_table()?;
+                            wrapper.set("_0", component_value)?;
+                            wrapper
+                        }
+                    };
+                    
+                    // Create a registry key for the component data
+                    let registry_key = lua.create_registry_value(component_data)?;
+                    
+                    // Queue the update
+                    this.update_queue
+                        .queue_update(this.entity, component_name, registry_key);
+                }
 
                 Ok(())
             },

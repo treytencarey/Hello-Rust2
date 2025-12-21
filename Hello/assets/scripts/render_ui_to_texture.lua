@@ -83,11 +83,11 @@ function setup()
         :with_parent(ui_root:id())
         :observe("Pointer<Over>", function(entity, event)
             print("[LUA_OBSERVER] Pointer Over - turning RED")
-            entity:set("BackgroundColor", { color = { r = 1.0, g = 0.0, b = 0.0, a = 1.0 } })
+            entity:set({ BackgroundColor = { color = { r = 1.0, g = 0.0, b = 0.0, a = 1.0 } } })
         end)
         :observe("Pointer<Out>", function(entity, event)
             print("[LUA_OBSERVER] Pointer Out - turning BLUE") 
-            entity:set("BackgroundColor", { color = { r = 0.0, g = 0.47, b = 0.84, a = 1.0 } })
+            entity:set({ BackgroundColor = { color = { r = 0.0, g = 0.47, b = 0.84, a = 1.0 } } })
         end)
         :observe("Pointer<Drag>", function(entity, event)
             print("[LUA_OBSERVER] Drag at x=" .. tostring(event.x) .. " y=" .. tostring(event.y))
@@ -174,7 +174,7 @@ function rotate_sphere(world)
             local sin_y = math.sin(half_angle)
             local cos_y = math.cos(half_angle)
             
-            entity:set("Transform", {
+            entity:set({Transform = {
                 translation = transform.translation,
                 rotation = {
                     x = 0.0,
@@ -183,7 +183,7 @@ function rotate_sphere(world)
                     w = cos_y
                 },
                 scale = transform.scale
-            })
+            }})
         end
     end
 end

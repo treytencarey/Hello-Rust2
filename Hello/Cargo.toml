@@ -44,13 +44,14 @@ TextureUsages = ["COPY_SRC", "COPY_DST", "TEXTURE_BINDING", "STORAGE_BINDING", "
 [features]
 # Unified default for demos - maximizes build cache reuse
 default = ["all-plugins"]
-all-plugins = ["physics", "tiled", "networking"]
+all-plugins = ["physics", "tiled", "networking", "ufbx"]
 
 # Core feature modules
 physics = ["dep:bevy_rapier2d"]
 physics3d = ["dep:bevy_rapier3d"]
 tiled = ["dep:bevy_ecs_tiled"]
 networking = ["dep:bevy_replicon", "dep:bevy_replicon_renet", "dep:bevy_renet", "dep:renet", "dep:serde", "dep:mlua", "dep:notify"]
+ufbx = ["dep:bevy_ufbx"]
 
 # Optional heavy features (trigger rebuild when used)
 bevy_mod_xr = ["dep:bevy_mod_xr"]
@@ -104,6 +105,7 @@ fastrand-contrib = "0.1"
 pathfinding = "4.14"
 bevy_mod_openxr = "0.4.0"
 openxr = "0.19.0"
+bevy_ufbx = { workspace = true, optional = true }
 
 [[example]]
 name = "networking"

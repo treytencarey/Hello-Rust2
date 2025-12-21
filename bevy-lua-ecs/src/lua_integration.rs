@@ -18,6 +18,7 @@ impl LuaScriptContext {
         queue: SpawnQueue,
         despawn_queue: crate::despawn_queue::DespawnQueue,
         resource_queue: crate::resource_queue::ResourceQueue,
+        update_queue: crate::component_update_queue::ComponentUpdateQueue,
         system_registry: LuaSystemRegistry,
         _builder_registry: crate::resource_builder::ResourceBuilderRegistry,
         script_instance: crate::script_entities::ScriptInstance,
@@ -26,6 +27,8 @@ impl LuaScriptContext {
 
         // Clone what we need for the closure
         let queue_clone = queue.clone();
+        let update_queue_clone = update_queue.clone();
+        let update_queue_for_parent = update_queue.clone();
         let resource_queue_clone = resource_queue.clone();
         let lua_clone = Arc::new(lua);
         let lua_for_closure = lua_clone.clone();
@@ -63,6 +66,7 @@ impl LuaScriptContext {
             let builder = crate::lua_spawn_builder::LuaSpawnBuilder::new(
                 temp_id,
                 queue_clone.clone(),
+                update_queue_clone.clone(),
                 lua_for_closure.clone(),
             );
             Ok(builder)
@@ -101,6 +105,7 @@ impl LuaScriptContext {
                 let builder = crate::lua_spawn_builder::LuaSpawnBuilder::new(
                     temp_id,
                     queue_for_parent.clone(),
+                    update_queue_for_parent.clone(),
                     lua_for_parent.clone(),
                 );
                 Ok(builder)
@@ -1044,6 +1049,7 @@ fn setup_lua_context(
     queue: Res<SpawnQueue>,
     despawn_queue: Res<crate::despawn_queue::DespawnQueue>,
     resource_queue: Res<crate::resource_queue::ResourceQueue>,
+    update_queue: Res<crate::component_update_queue::ComponentUpdateQueue>,
     builder_registry: Res<crate::resource_builder::ResourceBuilderRegistry>,
     asset_server: Res<AssetServer>,
     mut component_registry: ResMut<crate::components::ComponentRegistry>,
@@ -1053,10 +1059,15 @@ fn setup_lua_context(
     let system_registry = LuaSystemRegistry::default();
 
     // Create AssetRegistry with handle setters for all asset types
-    let asset_registry = crate::asset_loading::AssetRegistry::from_type_registry(&type_registry);
+    let mut asset_registry = crate::asset_loading::AssetRegistry::from_type_registry(&type_registry);
+
+    // Set AssetServer for typed path loading in set_field_from_lua
+    asset_registry.set_asset_server(asset_server.clone());
 
     // Auto-discover asset types from TypeRegistry (supplements build-time config)
     asset_registry.discover_and_register_handle_creators(&type_registry);
+    // NOTE: typed_path_loaders are registered via register_auto_typed_path_loaders() in LuaBindingsPlugin
+    // which uses compile-time discovered types for proper Handle<T> TypeId matching
 
     // Update ComponentRegistry with AssetRegistry reference
     component_registry.set_asset_registry(asset_registry.clone());
@@ -1065,6 +1076,7 @@ fn setup_lua_context(
         queue.clone(),
         despawn_queue.clone(),
         resource_queue.clone(),
+        update_queue.clone(),
         system_registry.clone(),
         builder_registry.clone(),
         script_instance.clone(),

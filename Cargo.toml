@@ -19,3 +19,4 @@ renet = "1.2"
 lightyear = { version = "0.25", features = ["udp", "netcode"] }
 lightyear_examples_common = { version = "0.25" }
 bevy_mod_xr = { version = "0.4.0" }
+bevy_ufbx = "=0.1.0-17"

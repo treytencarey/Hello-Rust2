@@ -60,44 +60,39 @@ pub fn register_auto_bitflags(registry: &bevy_lua_ecs::BitflagsRegistry) {
 #[doc = r" These are type names discovered by scanning bevy_* crates for:"]
 #[doc = r" `impl Asset for TypeName` or `#[derive(Asset)] struct TypeName`"]
 pub const DISCOVERED_ASSET_TYPES: &[&str] = &[
-    "AnimationClip",
     "AnimationGraph",
+    "AnimationClip",
     "LoadedUntypedAsset",
     "LoadedFolder",
     "AudioSource",
     "Pitch",
-    "AutoExposureCompensationCurve",
     "TiledMapAsset",
     "TiledWorldAsset",
-    "TiledMap",
-    "TiledWorld",
     "StandardTilemapMaterial",
-    "LineGizmo",
     "GizmoAsset",
-    "Gltf",
-    "GltfNode",
-    "GltfMesh",
-    "GltfPrimitive",
     "GltfSkin",
+    "GltfNode",
+    "Gltf",
+    "GltfPrimitive",
+    "GltfMesh",
     "Image",
     "TextureAtlasLayout",
     "Mesh",
     "SkinnedMeshInverseBindposes",
+    "ForwardDecalMaterialExt",
     "ExtendedMaterial",
+    "MeshletMesh",
     "StandardMaterial",
     "WireframeMaterial",
-    "ForwardDecalMaterialExt",
-    "MeshletMesh",
-    "Shader",
+    "AutoExposureCompensationCurve",
     "ShaderStorageBuffer",
     "DynamicScene",
     "Scene",
+    "Shader",
     "ColorMaterial",
-    "TextureAtlas",
     "Wireframe2dMaterial",
     "TilemapChunkMaterial",
     "Font",
-    "FontAtlasSet",
 ];
 #[doc = r" Register asset types at runtime using TypeRegistry"]
 #[doc = r" This looks up each discovered type name in the registry and registers"]
@@ -110,6 +105,34 @@ pub fn register_asset_types_from_registry(
         asset_registry,
         type_registry,
         DISCOVERED_ASSET_TYPES,
+    );
+}
+#[doc = r" Register typed path loaders for discovered asset types"]
+#[doc = r" This uses compile-time discovered types to call the typed_path_loaders macro"]
+#[doc = r" which enables proper Handle<T> loading from asset paths"]
+pub fn register_auto_typed_path_loaders(
+    asset_registry: &bevy_lua_ecs::AssetRegistry,
+    type_registry: &bevy::ecs::reflect::AppTypeRegistry,
+) {
+    bevy_lua_ecs::register_typed_path_loaders!(
+        asset_registry.typed_path_loaders,
+        type_registry,
+        bevy::animation::AnimationClip,
+        bevy::asset::LoadedUntypedAsset,
+        bevy::asset::LoadedFolder,
+        bevy::audio::AudioSource,
+        bevy::gizmos::GizmoAsset,
+        bevy::gltf::GltfSkin,
+        bevy::gltf::GltfNode,
+        bevy::gltf::Gltf,
+        bevy::gltf::GltfPrimitive,
+        bevy::gltf::GltfMesh,
+        bevy::prelude::Image,
+        bevy::prelude::Mesh,
+        bevy::prelude::StandardMaterial,
+        bevy::scene::DynamicScene,
+        bevy::scene::Scene,
+        bevy::text::Font
     );
 }
 #[doc = r" Auto-discovered Handle<T> newtype wrappers"]
@@ -1742,6 +1765,7 @@ fn register_asset_constructors(
     register_auto_newtype_wrappers(&asset_registry.newtype_wrappers);
     register_asset_cloners(&asset_registry);
     register_asset_constructor_bindings(&asset_registry);
+    register_auto_typed_path_loaders(&asset_registry, &type_registry);
     bevy::log::debug!(
         "Auto-generated asset constructors, component bindings, and newtype wrappers registered"
     );
@@ -1753,10 +1777,10 @@ fn register_asset_cloners(asset_registry: &bevy_lua_ecs::AssetRegistry) {
     bevy_lua_ecs::register_cloner_if_clone::<bevy::animation::AnimationClip>(&mut cloners);
     bevy_lua_ecs::register_cloner_if_clone::<bevy::audio::AudioSource>(&mut cloners);
     bevy_lua_ecs::register_cloner_if_clone::<bevy::gizmos::GizmoAsset>(&mut cloners);
-    bevy_lua_ecs::register_cloner_if_clone::<bevy::gltf::GltfNode>(&mut cloners);
-    bevy_lua_ecs::register_cloner_if_clone::<bevy::gltf::GltfMesh>(&mut cloners);
-    bevy_lua_ecs::register_cloner_if_clone::<bevy::gltf::GltfPrimitive>(&mut cloners);
     bevy_lua_ecs::register_cloner_if_clone::<bevy::gltf::GltfSkin>(&mut cloners);
+    bevy_lua_ecs::register_cloner_if_clone::<bevy::gltf::GltfNode>(&mut cloners);
+    bevy_lua_ecs::register_cloner_if_clone::<bevy::gltf::GltfPrimitive>(&mut cloners);
+    bevy_lua_ecs::register_cloner_if_clone::<bevy::gltf::GltfMesh>(&mut cloners);
     bevy_lua_ecs::register_cloner_if_clone::<bevy::prelude::Image>(&mut cloners);
     bevy_lua_ecs::register_cloner_if_clone::<bevy::prelude::Mesh>(&mut cloners);
     bevy_lua_ecs::register_cloner_if_clone::<bevy::prelude::StandardMaterial>(&mut cloners);
@@ -1801,4 +1825,33 @@ fn register_asset_constructor_bindings(asset_registry: &bevy_lua_ecs::AssetRegis
     bevy::log::debug!(
         "[ASSET_CONSTRUCTOR] Registered auto-discovered asset constructors for opaque types"
     );
+}
+#[doc = r" Register typed path loaders for all discovered asset types"]
+#[doc = r" This is auto-generated to enable load_asset paths to resolve with correct Handle<T> types"]
+#[doc = r" Uses the macro which checks ReflectAsset at runtime to filter non-Asset types"]
+fn register_typed_path_loaders(
+    asset_registry: &bevy_lua_ecs::AssetRegistry,
+    type_registry: &bevy::ecs::reflect::AppTypeRegistry,
+) {
+    bevy_lua_ecs::register_typed_path_loaders!(
+        asset_registry.typed_path_loaders,
+        type_registry,
+        bevy::animation::AnimationClip,
+        bevy::asset::LoadedUntypedAsset,
+        bevy::asset::LoadedFolder,
+        bevy::audio::AudioSource,
+        bevy::gizmos::GizmoAsset,
+        bevy::gltf::GltfSkin,
+        bevy::gltf::GltfNode,
+        bevy::gltf::Gltf,
+        bevy::gltf::GltfPrimitive,
+        bevy::gltf::GltfMesh,
+        bevy::prelude::Image,
+        bevy::prelude::Mesh,
+        bevy::prelude::StandardMaterial,
+        bevy::scene::DynamicScene,
+        bevy::scene::Scene,
+        bevy::text::Font
+    );
+    bevy::log::debug!("[TYPED_LOADER] Registered typed path loaders for asset types");
 }

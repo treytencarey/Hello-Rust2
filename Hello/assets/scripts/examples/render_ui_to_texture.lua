@@ -81,17 +81,17 @@ function setup()
         :with_parent(ui_root:id())
         :observe("Pointer<Over>", function(entity, event)
             print("[LUA_OBSERVER] Pointer Over - turning RED")
-            entity:set("BackgroundColor", { color = { r = 1.0, g = 0.0, b = 0.0, a = 1.0 } })
+            entity:set({ BackgroundColor = { color = { r = 1.0, g = 0.0, b = 0.0, a = 1.0 } } })
         end)
         :observe("Pointer<Out>", function(entity, event)
             print("[LUA_OBSERVER] Pointer Out - turning BLUE")
-            entity:set("BackgroundColor", { color = { r = 0.0, g = 0.0, b = 1.0, a = 1.0 } })
+            entity:set({ BackgroundColor = { color = { r = 0.0, g = 0.0, b = 1.0, a = 1.0 } } })
         end)
         :observe("Pointer<Drag>", function(entity, event)
             print("[LUA_OBSERVER] Drag at x=" .. tostring(event.x) .. " y=" .. tostring(event.y))
             -- Move the button to follow drag position
             if event.x and event.y then
-                entity:set("Node", {
+                entity:set({ Node = {
                     position_type = "Absolute",
                     left = { Px = event.x - 128 },  -- Offset to center button on cursor
                     top = { Px = event.y - 128 },
@@ -99,7 +99,7 @@ function setup()
                     height = { Percent = 50.0 },
                     align_items = "Center",
                     padding = { left = { Px = 20.0 }, right = { Px = 20.0 }, top = { Px = 20.0 }, bottom = { Px = 20.0 } }
-                })
+                } })
             end
         end)
     
@@ -170,11 +170,11 @@ function rotate_sphere(world)
             local sin_y = math.sin(half_angle)
             local cos_y = math.cos(half_angle)
             
-            entity:set("Transform", {
+            entity:set({Transform = {
                 translation = transform.translation,
                 rotation = { x = 0.0, y = sin_y, z = 0.0, w = cos_y },
                 scale = transform.scale
-            })
+            }})
         end
     end
 end

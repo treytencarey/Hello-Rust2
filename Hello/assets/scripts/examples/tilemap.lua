@@ -9,7 +9,7 @@ local scale = 2.0  -- Scale for visibility
 
 -- Load the tileset image
 local tileset = load_asset("tiled/Super_Retro_World_Interior_pack_week42/atlas_16x.png")
-print("Loaded tileset texture")
+print("Loaded tileset texture with ID: " .. tostring(tileset))
 
 -- Tileset configuration (from map_0.tmx)
 local tileset_columns = 48

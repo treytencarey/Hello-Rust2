@@ -191,7 +191,7 @@ local changed = world:query({"Transform"}, {"Transform"})
 #### Updating Components
 
 ```lua
-entity:set("ComponentName", { field = new_value })
+entity:set({ ComponentName = { field = new_value } })
 ```
 
 #### Reading Events
@@ -352,10 +352,10 @@ local button = spawn({
     Node = { width = { Px = 100 }, height = { Px = 50 } }
 })
     :observe("Pointer<Over>", function(entity, event)
-        entity:set("BackgroundColor", { color = { r = 1, g = 0, b = 0, a = 1 } })
+        entity:set({ BackgroundColor = { color = { r = 1, g = 0, b = 0, a = 1 } } })
     end)
     :observe("Pointer<Out>", function(entity, event)
-        entity:set("BackgroundColor", { color = { r = 0, g = 0, b = 1, a = 1 } })
+        entity:set({ BackgroundColor = { color = { r = 0, g = 0, b = 1, a = 1 } } })
     end)
     :observe("Pointer<Drag>", function(entity, event)
         -- event.x and event.y contain pointer position

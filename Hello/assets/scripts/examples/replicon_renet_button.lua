@@ -116,7 +116,7 @@ register_system("Update", function(world)
             color = { r = 0.15, g = 0.15, b = 0.15, a = 1.0 }
         end
         
-        entity:set("BackgroundColor", { color = color })
+        entity:set({BackgroundColor = { color = color }})
     end
 end)
 
@@ -128,7 +128,7 @@ register_system("Update", function(world)
     for _, entity in ipairs(texts) do
         local current_text = entity:get("Text")
         if current_text.text ~= text_value then
-            entity:set("Text", { text = text_value })
+            entity:set({Text = { text = text_value }})
         end
     end
 end)

@@ -35,6 +35,12 @@ pub type HandleCreator = Box<dyn Fn(UntypedHandle) -> Box<dyn PartialReflect> + 
 pub type NewtypeWrapperCreator =
     Box<dyn Fn(Box<dyn PartialReflect>) -> Box<dyn PartialReflect> + Send + Sync>;
 
+/// Type-erased asset path loader that loads with correct type
+/// Takes a path and AssetServer, returns UntypedHandle with correct inner TypeId
+/// Key should match handle field type paths (e.g., "Handle<Image>" part extracted from "Option<Handle<Image>>")
+pub type TypedPathLoader =
+    Box<dyn Fn(&str, &AssetServer) -> UntypedHandle + Send + Sync>;
+
 /// Parse an enum value from a string variant name using reflection
 /// This is used by auto-generated constructor code to parse enum parameters from Lua strings
 ///
@@ -167,6 +173,10 @@ pub struct AssetRegistry {
     /// Maps asset IDs to Image handles (for load_asset)
     image_handles: Arc<Mutex<HashMap<u32, Handle<Image>>>>,
 
+    /// Maps asset IDs to asset paths (for deferred typed loading)
+    /// The actual typed loading happens at spawn time when component type is known
+    asset_paths: Arc<Mutex<HashMap<u32, String>>>,
+
     /// Maps asset IDs to typed asset handles (for created assets - stored as UntypedHandle)
     typed_handles: Arc<Mutex<HashMap<u32, UntypedHandle>>>,
 
@@ -223,12 +233,22 @@ pub struct AssetRegistry {
     /// TypeId-keyed asset cloners that use &dyn Any for proper downcasting
     /// These preserve non-Reflect data (like Mesh vertex attributes) by cloning the actual object
     pub asset_cloners_by_typeid: Arc<Mutex<HashMap<std::any::TypeId, AssetCloner>>>,
+
+    /// Typed path loaders for loading assets from paths with correct Handle<T> type
+    /// Key: Asset type path (e.g., "bevy_image::image::Image")
+    /// Used by populate_asset_from_lua to load from registered paths with correct types
+    pub typed_path_loaders: Arc<Mutex<HashMap<String, TypedPathLoader>>>,
+
+    /// AssetServer for loading assets from paths at spawn time
+    /// Used by set_field_from_lua when a handle is registered as a path
+    pub asset_server: Option<AssetServer>,
 }
 
 impl Default for AssetRegistry {
     fn default() -> Self {
         Self {
             image_handles: Default::default(),
+            asset_paths: Default::default(),
             typed_handles: Default::default(),
             asset_handles: Default::default(),
             pending_assets: Default::default(),
@@ -244,6 +264,8 @@ impl Default for AssetRegistry {
             discovered_newtype_cache: Default::default(),
             registered_asset_types: Default::default(),
             asset_cloners_by_typeid: Default::default(),
+            typed_path_loaders: Default::default(),
+            asset_server: None,
         }
     }
 }
@@ -256,39 +278,64 @@ impl Default for AssetRegistry {
 macro_rules! register_handle_setters {
     ($registry:expr, $type_registry:expr, $($asset_type:ty),* $(,)?) => {
         {
-            let registry_guard = $type_registry.read();
+            // Note: We don't need ReflectAsset here because we have compile-time type information
+            // The setters use try_downcast_mut with the concrete type $asset_type
             $(
                 // For each asset type, create setters for both Handle<T> and Option<Handle<T>>
                 let type_path = std::any::type_name::<$asset_type>();
-                if let Some(registration) = registry_guard.get_with_type_path(type_path) {
-                    if registration.data::<bevy::asset::ReflectAsset>().is_some() {
-                        // 1. Register setter for Handle<T>
-                        let handle_type_path = format!("bevy_asset::handle::Handle<{}>", type_path);
-                        let setter: Box<dyn Fn(&mut dyn bevy::reflect::PartialReflect, bevy::asset::UntypedHandle) -> bool + Send + Sync> =
-                            Box::new(|field, handle| {
-                                if let Some(h) = field.try_downcast_mut::<bevy::asset::Handle<$asset_type>>() {
-                                    *h = handle.typed();
-                                    true
-                                } else {
-                                    false
-                                }
-                            });
-                        $registry.insert(handle_type_path.clone(), setter);
 
-                        // 2. Register setter for Option<Handle<T>> (critical for StandardMaterial textures!)
-                        let option_type_path = format!("core::option::Option<bevy_asset::handle::Handle<{}>>", type_path);
-                        let option_setter: Box<dyn Fn(&mut dyn bevy::reflect::PartialReflect, bevy::asset::UntypedHandle) -> bool + Send + Sync> =
-                            Box::new(|field, handle| {
-                                if let Some(opt) = field.try_downcast_mut::<Option<bevy::asset::Handle<$asset_type>>>() {
-                                    *opt = Some(handle.typed());
-                                    true
-                                } else {
-                                    false
-                                }
-                            });
-                        $registry.insert(option_type_path, option_setter);
-                    }
-                }
+                // 1. Register setter for Handle<T>
+                let handle_type_path = format!("bevy_asset::handle::Handle<{}>", type_path);
+                let setter: Box<dyn Fn(&mut dyn bevy::reflect::PartialReflect, bevy::asset::UntypedHandle) -> bool + Send + Sync> =
+                    Box::new(|field, handle| {
+                        if let Some(h) = field.try_downcast_mut::<bevy::asset::Handle<$asset_type>>() {
+                            *h = handle.typed();
+                            true
+                        } else {
+                            false
+                        }
+                    });
+                $registry.insert(handle_type_path.clone(), setter);
+
+                // 2. Register setter for Option<Handle<T>> (critical for StandardMaterial textures!)
+                let option_type_path = format!("core::option::Option<bevy_asset::handle::Handle<{}>>", type_path);
+                let option_setter: Box<dyn Fn(&mut dyn bevy::reflect::PartialReflect, bevy::asset::UntypedHandle) -> bool + Send + Sync> =
+                    Box::new(|field, handle| {
+                        if let Some(opt) = field.try_downcast_mut::<Option<bevy::asset::Handle<$asset_type>>>() {
+                            *opt = Some(handle.typed());
+                            true
+                        } else {
+                            false
+                        }
+                    });
+                $registry.insert(option_type_path, option_setter);
+            )*
+        }
+    };
+}
+
+/// Macro to register typed path loaders for asset types
+/// Usage: register_typed_path_loaders!(registry, type_registry, Image, Mesh, StandardMaterial, ...)
+/// Registers loaders that use AssetServer.load::<T>() to get correctly typed handles
+#[macro_export]
+macro_rules! register_typed_path_loaders {
+    ($registry:expr, $type_registry:expr, $($asset_type:ty),* $(,)?) => {
+        {
+            // Note: We don't need ReflectAsset here because we have compile-time type information
+            // The loader is created with the concrete type $asset_type, so asset_server.load() works directly
+            $(
+                let type_path = std::any::type_name::<$asset_type>();
+                // Register a loader that creates correctly typed Handle<T>
+                // Note: move closure to ensure no borrowed data is captured
+                // Convert path to owned String since asset_server.load requires 'static path
+                let loader: Box<dyn Fn(&str, &bevy::prelude::AssetServer) -> bevy::asset::UntypedHandle + Send + Sync> =
+                    Box::new(move |path, asset_server| {
+                        let owned_path = path.to_string();
+                        let typed_handle: bevy::asset::Handle<$asset_type> = asset_server.load(owned_path);
+                        typed_handle.untyped()
+                    });
+                $registry.lock().unwrap().insert(type_path.to_string(), loader);
+                bevy::log::debug!("[TYPED_PATH_LOADER] ✓ Registered loader for: {}", type_path);
             )*
         }
     };
@@ -487,6 +534,7 @@ impl AssetRegistry {
     pub fn new() -> Self {
         Self {
             image_handles: Default::default(),
+            asset_paths: Default::default(),
             typed_handles: Default::default(),
             asset_handles: Default::default(),
             pending_assets: Default::default(),
@@ -502,6 +550,8 @@ impl AssetRegistry {
             discovered_newtype_cache: Default::default(),
             registered_asset_types: Default::default(),
             asset_cloners_by_typeid: Default::default(),
+            typed_path_loaders: Default::default(),
+            asset_server: None,
         }
     }
 
@@ -535,8 +585,29 @@ impl AssetRegistry {
             debug!("  - {}", type_path);
         }
 
+        // Register typed path loaders for common Bevy asset types at Startup time
+        // These are needed BEFORE Lua scripts run (which happens at Startup)
+        // Additional types are registered by register_auto_typed_path_loaders() at PostStartup
+        let typed_path_loaders: Arc<Mutex<HashMap<String, TypedPathLoader>>> = Default::default();
+        register_typed_path_loaders!(
+            typed_path_loaders,
+            type_registry,
+            Image,
+            Mesh,
+            StandardMaterial,
+            Scene,
+            AnimationClip,
+            AudioSource,
+            Font,
+        );
+        debug!(
+            "✓ Registered {} typed path loaders for asset types at Startup",
+            typed_path_loaders.lock().unwrap().len()
+        );
+
         Self {
             image_handles: Default::default(),
+            asset_paths: Default::default(),
             typed_handles: Default::default(),
             asset_handles: Default::default(),
             pending_assets: Default::default(),
@@ -552,6 +623,8 @@ impl AssetRegistry {
             discovered_newtype_cache: Default::default(),
             registered_asset_types: Default::default(),
             asset_cloners_by_typeid: Default::default(),
+            typed_path_loaders,
+            asset_server: None,
         }
     }
 
@@ -617,6 +690,50 @@ impl AssetRegistry {
         if discovered_count > 0 {
             debug!(
                 "[ASSET_DISCOVER] Auto-discovered {} asset types for handle creators",
+                discovered_count
+            );
+        }
+    }
+
+    /// Auto-discover and register typed path loaders for all asset types in TypeRegistry
+    /// Uses ReflectAsset to load assets with correct TypeId at runtime
+    /// This eliminates the need for hard-coded asset type lists
+    pub fn discover_and_register_typed_path_loaders(&self, type_registry: &AppTypeRegistry) {
+        let registry = type_registry.read();
+        let mut path_loaders = self.typed_path_loaders.lock().unwrap();
+        let mut discovered_count = 0;
+
+        // Find all types with ReflectAsset - these are registered asset types
+        for registration in registry.iter() {
+            if registration.data::<ReflectAsset>().is_some() {
+                let type_path = registration.type_info().type_path().to_string();
+                
+                // Skip if already registered
+                if path_loaders.contains_key(&type_path) {
+                    continue;
+                }
+                
+                // Create a path loader that uses untyped loading
+                // The UntypedHandle will have the correct TypeId so set_field_from_lua can use it
+                let loader: TypedPathLoader = Box::new(move |path: &str, asset_server: &AssetServer| {
+                    // Use load_untyped which returns Handle<LoadedUntypedAsset>
+                    // Convert to UntypedHandle with .untyped()
+                    let owned_path = path.to_string();
+                    asset_server.load_untyped(owned_path).untyped()
+                });
+
+                path_loaders.insert(type_path.clone(), loader);
+                discovered_count += 1;
+                debug!(
+                    "[TYPED_PATH_DISCOVER] ✓ Registered path loader for: {}",
+                    type_path
+                );
+            }
+        }
+
+        if discovered_count > 0 {
+            debug!(
+                "[TYPED_PATH_DISCOVER] Auto-discovered {} asset types for path loaders",
                 discovered_count
             );
         }
@@ -1120,9 +1237,23 @@ impl AssetRegistry {
         self.image_handles.lock().unwrap().get(&id).cloned()
     }
 
+    /// Register any untyped handle (generic asset loading)
+    /// This is the most generic method - works for any asset type
+    pub fn register_untyped_handle(&self, handle: UntypedHandle) -> u32 {
+        let id = self.next_id.fetch_add(1, Ordering::Relaxed);
+        self.typed_handles.lock().unwrap().insert(id, handle);
+        id
+    }
+
     /// Register a typed asset handle (stores as UntypedHandle for any asset type)
     pub fn register_typed_handle(&self, id: u32, handle: UntypedHandle) {
         self.typed_handles.lock().unwrap().insert(id, handle);
+    }
+
+    /// Register a handle with a specific ID (alias for register_typed_handle)
+    /// Used by set_field_from_lua after loading from path
+    pub fn register_handle_with_id(&self, id: u32, handle: UntypedHandle) {
+        self.register_typed_handle(id, handle);
     }
 
     /// Get a typed asset handle by ID and convert to specific type
@@ -1133,8 +1264,100 @@ impl AssetRegistry {
     }
 
     /// Get an untyped handle by ID (most generic - works for any asset type)
+    /// Checks typed_handles, image_handles, and scene_handles
     pub fn get_untyped_handle(&self, id: u32) -> Option<UntypedHandle> {
-        self.typed_handles.lock().unwrap().get(&id).cloned()
+        // First check typed_handles (created assets)
+        if let Some(handle) = self.typed_handles.lock().unwrap().get(&id).cloned() {
+            return Some(handle);
+        }
+        
+        // Then check image_handles (loaded images via load_asset)
+        if let Some(handle) = self.image_handles.lock().unwrap().get(&id).cloned() {
+            return Some(handle.untyped());
+        }
+        
+        None
+    }
+
+    /// Register an asset path for deferred typed loading
+    /// The actual typed loading happens at spawn time when component type is known
+    pub fn register_path(&self, path: String) -> u32 {
+        let id = self.next_id.fetch_add(1, Ordering::Relaxed);
+        self.asset_paths.lock().unwrap().insert(id, path);
+        id
+    }
+
+    /// Get an asset path by ID
+    pub fn get_path(&self, id: u32) -> Option<String> {
+        self.asset_paths.lock().unwrap().get(&id).cloned()
+    }
+
+    /// Set the AssetServer for use in typed path loading
+    /// This is called during setup after AssetRegistry is created
+    pub fn set_asset_server(&mut self, asset_server: AssetServer) {
+        self.asset_server = Some(asset_server);
+    }
+
+    /// Try to load an asset from a path with the correct typed Handle based on field_type_path
+    /// Extracts the inner asset type from patterns like "Option<Handle<bevy_image::image::Image>>"
+    /// and uses registered TypedPathLoader to create correctly typed handles
+    pub fn try_load_from_path(
+        &self,
+        path: &str,
+        field_type_path: &str,
+        asset_server: &AssetServer,
+    ) -> Option<UntypedHandle> {
+        // Extract the asset type from the field type path
+        // Patterns: "Handle<T>" or "Option<Handle<T>>" or "core::option::Option<bevy_asset::handle::Handle<T>>"
+        let asset_type = Self::extract_asset_type_from_field_path(field_type_path)?;
+        
+        debug!(
+            "[TYPED_LOAD] Looking for loader for asset type: '{}' (from field: {})",
+            asset_type, field_type_path
+        );
+        
+        let loaders = self.typed_path_loaders.lock().unwrap();
+        if let Some(loader) = loaders.get(&asset_type) {
+            let handle = loader(path, asset_server);
+            debug!("[TYPED_LOAD] ✓ Loaded '{}' with type '{}'", path, asset_type);
+            Some(handle)
+        } else {
+            debug!(
+                "[TYPED_LOAD] ✗ No loader found for '{}'. Registered loaders: {:?}",
+                asset_type,
+                loaders.keys().collect::<Vec<_>>()
+            );
+            None
+        }
+    }
+
+    /// Extract the asset type from a field type path
+    /// e.g., "core::option::Option<bevy_asset::handle::Handle<bevy_image::image::Image>>" -> "bevy_image::image::Image"
+    fn extract_asset_type_from_field_path(field_type_path: &str) -> Option<String> {
+        // Find "Handle<" and extract what's inside
+        if let Some(handle_start) = field_type_path.find("Handle<") {
+            let after_handle = &field_type_path[handle_start + 7..]; // Skip "Handle<"
+            // Find matching closing >
+            let mut depth = 1;
+            let mut end_idx = 0;
+            for (i, c) in after_handle.chars().enumerate() {
+                match c {
+                    '<' => depth += 1,
+                    '>' => {
+                        depth -= 1;
+                        if depth == 0 {
+                            end_idx = i;
+                            break;
+                        }
+                    }
+                    _ => {}
+                }
+            }
+            if end_idx > 0 {
+                return Some(after_handle[..end_idx].to_string());
+            }
+        }
+        None
     }
 
     /// Register a pending asset for creation
@@ -1211,6 +1434,7 @@ pub fn process_pending_assets(world: &mut World) {
     // Get resources we need
     let type_registry = world.resource::<AppTypeRegistry>().clone();
     let asset_registry = world.resource::<AssetRegistry>().clone();
+    let asset_server = world.resource::<AssetServer>().clone();
     let lua_ctx = world
         .resource::<crate::lua_integration::LuaScriptContext>()
         .clone();
@@ -1309,6 +1533,7 @@ pub fn process_pending_assets(world: &mut World) {
                             &pending_asset.data,
                             &lua_ctx.lua,
                             &asset_registry,
+                            &asset_server,
                         ) {
                             error!(
                                 "Failed to populate asset {}: {}",
@@ -1877,6 +2102,7 @@ fn populate_asset_from_lua(
     registry_key: &RegistryKey,
     lua: &Lua,
     asset_registry: &AssetRegistry, // Added to resolve handle IDs!
+    asset_server: &AssetServer, // Added to load from paths when handle not found
 ) -> LuaResult<()> {
     // Get the Lua value from registry
     let lua_value: LuaValue = lua.registry_value(registry_key)?;
@@ -1947,10 +2173,32 @@ fn populate_asset_from_lua(
                                         debug!("[ASSET_POPULATE] ⚠ No handle setter registered for type: {}", type_path);
                                     }
                                 } else {
-                                    debug!(
-                                        "[ASSET_POPULATE] ✗ No handle found in registry for ID {}",
-                                        asset_id
-                                    );
+                                    // Handle not found - try loading from registered path with correct type
+                                    if let Some(path) = asset_registry.get_path(*asset_id as u32) {
+                                        debug!("[ASSET_POPULATE] Loading from path: {} for type: {}", path, type_path);
+                                        // Use try_load_from_path to get correctly typed handle
+                                        if let Some(typed_handle) = asset_registry.try_load_from_path(&path, &type_path, asset_server) {
+                                            // Register this handle for future lookups
+                                            asset_registry.register_typed_handle(*asset_id as u32, typed_handle.clone());
+                                            if asset_registry.try_set_handle_field(
+                                                field,
+                                                &type_path,
+                                                typed_handle,
+                                            ) {
+                                                debug!("[ASSET_POPULATE] ✓ Loaded and set {} from path", field_name);
+                                                continue;
+                                            } else {
+                                                debug!("[ASSET_POPULATE] ⚠ Loaded but failed to set handle for type: {}", type_path);
+                                            }
+                                        } else {
+                                            debug!("[ASSET_POPULATE] ⚠ No typed loader found for: {}", type_path);
+                                        }
+                                    } else {
+                                        debug!(
+                                            "[ASSET_POPULATE] ✗ No handle or path found in registry for ID {}",
+                                            asset_id
+                                        );
+                                    }
                                 }
                             }
                         }
@@ -2299,13 +2547,21 @@ pub fn add_asset_loading_to_lua(
             };
 
             // Check if file exists locally
-            let local_path = std::path::Path::new("assets").join(&path);
+            // Strip any sub-asset label (like #Scene0) before checking filesystem
+            let file_path = if let Some(idx) = path.find('#') {
+                &path[..idx]
+            } else {
+                path.as_str()
+            };
+            let local_path = std::path::Path::new("assets").join(file_path);
             let file_exists = local_path.exists();
 
             if file_exists {
-                // File exists locally - load it
-                let handle: Handle<Image> = asset_server_clone.load(&path);
-                let id = asset_registry_clone.register_image(handle);
+                // Register the path for deferred typed loading
+                // The typed Handle<T> loading happens in set_field_from_lua when field type is known
+                // AssetRegistry now stores AssetServer, so it can use typed_path_loaders at spawn time
+                let id = asset_registry_clone.register_path(path.clone());
+                debug!("📷 [LOAD_ASSET] Registered path '{}' -> ID {}", path, id);
 
                 // Track asset dependency for hot reload (when reload=true)
                 // This enables reloading the script when the asset updates

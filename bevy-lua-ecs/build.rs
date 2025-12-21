@@ -9,15 +9,50 @@ use std::path::{Path, PathBuf};
 use syn::{File, FnArg, ImplItem, Item, ItemImpl, ReturnType, Visibility};
 
 fn main() {
-    // Only rerun if these files change (not on every compile)
+    // IMPORTANT: We intentionally do NOT use cargo:rerun-if-changed for most files.
+    // This allows the build script to run every time and detect feature changes.
+    // The script is fast because it only regenerates bindings when features actually change.
+    
+    // Only watch build.rs itself (required for cargo)
     println!("cargo:rerun-if-changed=build.rs");
-    println!("cargo:rerun-if-changed=Cargo.toml");
-    println!("cargo:rerun-if-changed=../Hello/Cargo.toml");
-    // Cargo.lock is at workspace root, not in Hello/
-    println!("cargo:rerun-if-changed=../Cargo.lock");
-
+    
+    // Check if features changed - if so, we need to regenerate bindings
+    let should_regenerate = check_feature_changes();
+    
     let pkg_name = env::var("CARGO_PKG_NAME").unwrap_or_default();
-    println!("cargo:warning=Build script: PKG={}", pkg_name);
+    
+    if !should_regenerate {
+        // Check if output files exist - force regenerate if missing even with unchanged features
+        if let Ok(out_dir) = env::var("OUT_DIR") {
+            let build_dir = PathBuf::from(&out_dir);
+            
+            // Check OUT_DIR/auto_bindings.rs first (our own output)
+            let out_bindings = build_dir.join("auto_bindings.rs");
+            if !out_bindings.exists() {
+                println!("cargo:warning=Build script: OUT_DIR/auto_bindings.rs missing, forcing regeneration");
+                // Continue to regenerate
+            } else if let Some(parent_manifest) = find_parent_manifest(&build_dir) {
+                // Also check parent's auto_resource_bindings.rs
+                let parent_src_dir = parent_manifest.parent().unwrap().join("src");
+                let bindings_file = parent_src_dir.join("auto_resource_bindings.rs");
+                if !bindings_file.exists() {
+                    println!("cargo:warning=Build script: Parent auto_resource_bindings.rs missing, forcing regeneration");
+                    // Continue to regenerate
+                } else {
+                    println!("cargo:warning=Build script: Features unchanged, skipping regeneration");
+                    return;
+                }
+            } else {
+                println!("cargo:warning=Build script: Features unchanged, skipping regeneration");
+                return;
+            }
+        } else {
+            println!("cargo:warning=Build script: Features unchanged, skipping regeneration");
+            return;
+        }
+    }
+    
+    println!("cargo:warning=Build script: PKG={}, regenerating bindings", pkg_name);
 
     // Read our own Cargo.toml for event types
     if let Ok(manifest_dir) = env::var("CARGO_MANIFEST_DIR") {
@@ -42,6 +77,44 @@ fn main() {
         }
     }
     write_empty_bindings_with_events(Vec::new());
+}
+
+/// Check if features changed since last build.
+/// Returns true if bindings need regeneration, false if we can skip.
+fn check_feature_changes() -> bool {
+    use std::collections::hash_map::DefaultHasher;
+    use std::hash::{Hash, Hasher};
+    
+    // Collect all enabled features from environment
+    let mut features: Vec<String> = env::vars()
+        .filter(|(key, _)| key.starts_with("CARGO_FEATURE_"))
+        .map(|(key, _)| key)
+        .collect();
+    features.sort(); // Ensure consistent ordering
+    
+    // Create a hash of the feature set
+    let mut hasher = DefaultHasher::new();
+    features.hash(&mut hasher);
+    let feature_hash = hasher.finish();
+    
+    // Get the sentinel file path - use CARGO_MANIFEST_DIR for persistence across builds
+    let manifest_dir = env::var("CARGO_MANIFEST_DIR").unwrap_or_else(|_| ".".to_string());
+    let sentinel_path = PathBuf::from(&manifest_dir).join(".feature_hash");
+    
+    // Check if features changed from last build
+    let last_hash = fs::read_to_string(&sentinel_path)
+        .ok()
+        .and_then(|s| s.trim().parse::<u64>().ok());
+    
+    if last_hash == Some(feature_hash) {
+        // Features unchanged
+        return false;
+    }
+    
+    // Features changed! Write new hash
+    let _ = fs::write(&sentinel_path, feature_hash.to_string());
+    println!("cargo:warning=Features changed! Enabled: {:?}", features);
+    true
 }
 
 /// Convert PascalCase to snake_case (e.g., TextureUsages -> texture_usages)
@@ -824,7 +897,7 @@ fn discover_entity_wrapper_components() -> Vec<DiscoveredEntityWrapper> {
             let base_crate = dir_name.split('-').next().unwrap_or(dir_name);
 
             // Only scan crates that are in our dependencies
-            if !dependencies.contains(&base_crate.to_string()) {
+            if !dependencies.contains_key(base_crate) {
                 continue;
             }
 
@@ -882,9 +955,10 @@ fn discover_entity_wrapper_components() -> Vec<DiscoveredEntityWrapper> {
     wrappers
 }
 
-/// Read Cargo.lock to get list of bevy_* crate names that are actual dependencies
-fn get_bevy_dependencies_from_lock() -> Vec<String> {
-    let mut deps = Vec::new();
+/// Read Cargo.lock to get map of bevy_* crate names to their versions
+/// Returns: HashMap<crate_name, version> e.g. {"bevy_text" -> "0.17.3"}
+fn get_bevy_dependencies_from_lock() -> std::collections::HashMap<String, String> {
+    let mut deps = std::collections::HashMap::new();
 
     // Try to find Cargo.lock in workspace root or parent manifest dir
     let lock_paths = [
@@ -899,22 +973,49 @@ fn get_bevy_dependencies_from_lock() -> Vec<String> {
 
     for lock_path in lock_paths.into_iter().flatten() {
         if let Ok(content) = fs::read_to_string(&lock_path) {
-            // Simple parsing of Cargo.lock - look for [[package]] sections with bevy_* names
+            // Parse Cargo.lock toml-style - look for [[package]] sections
+            let mut current_name: Option<String> = None;
+            let mut current_version: Option<String> = None;
+            
             for line in content.lines() {
-                if line.starts_with("name = \"bevy_") {
-                    // Extract crate name from: name = "bevy_something"
+                let line = line.trim();
+                
+                // New package section
+                if line == "[[package]]" {
+                    // Save previous package if it was a bevy_ crate
+                    if let (Some(name), Some(version)) = (current_name.take(), current_version.take()) {
+                        if name.starts_with("bevy_") && !deps.contains_key(&name) {
+                            deps.insert(name, version);
+                        }
+                    }
+                } else if line.starts_with("name = \"") {
+                    // Extract: name = "bevy_something"
                     if let Some(start) = line.find('"') {
                         if let Some(end) = line.rfind('"') {
                             if start < end {
-                                let name = &line[start + 1..end];
-                                if !deps.contains(&name.to_string()) {
-                                    deps.push(name.to_string());
-                                }
+                                current_name = Some(line[start + 1..end].to_string());
+                            }
+                        }
+                    }
+                } else if line.starts_with("version = \"") {
+                    // Extract: version = "0.17.3"
+                    if let Some(start) = line.find('"') {
+                        if let Some(end) = line.rfind('"') {
+                            if start < end {
+                                current_version = Some(line[start + 1..end].to_string());
                             }
                         }
                     }
                 }
             }
+            
+            // Don't forget the last package
+            if let (Some(name), Some(version)) = (current_name, current_version) {
+                if name.starts_with("bevy_") && !deps.contains_key(&name) {
+                    deps.insert(name, version);
+                }
+            }
+            
             if !deps.is_empty() {
                 break; // Found deps, stop looking
             }
@@ -1063,7 +1164,7 @@ fn discover_handle_newtype_wrappers() -> Vec<DiscoveredHandleNewtype> {
             let base_crate = dir_name.split('-').next().unwrap_or(dir_name);
 
             // Only scan crates that are in our dependencies
-            if !dependencies.contains(&base_crate.to_string()) {
+            if !dependencies.contains_key(base_crate) {
                 continue;
             }
 
@@ -1275,13 +1376,19 @@ fn discover_asset_types() -> Vec<DiscoveredAssetType> {
                     // Scan bevy_* crates
                     if let Ok(crate_entries) = fs::read_dir(&index_dir) {
                         for crate_entry in crate_entries.flatten() {
-                            let crate_name = crate_entry.file_name().to_string_lossy().to_string();
+                            let crate_dir_name = crate_entry.file_name().to_string_lossy().to_string();
 
-                            // Extract base crate name (e.g., "bevy_mesh" from "bevy_mesh-0.17.2")
-                            let base_crate = crate_name.split('-').next().unwrap_or(&crate_name);
+                            // Parse crate directory name: "bevy_mesh-0.17.3" -> ("bevy_mesh", "0.17.3")
+                            let parts: Vec<&str> = crate_dir_name.rsplitn(2, '-').collect();
+                            if parts.len() != 2 {
+                                continue;
+                            }
+                            let version = parts[0];
+                            let base_crate = parts[1];
 
-                            // Only scan crates that are actual dependencies
-                            if !dependencies.contains(&base_crate.to_string()) {
+                            // Only scan crates that are actual dependencies with matching version
+                            let expected_version = dependencies.get(base_crate);
+                            if expected_version != Some(&version.to_string()) {
                                 continue;
                             }
 
@@ -1413,10 +1520,14 @@ fn parse_asset_types_from_source(
                         let entry = type_info
                             .entry(type_name.clone())
                             .or_insert((false, false, is_generic));
-                        if derive_str.contains("Asset") {
+                        
+                        // Check for Asset derive - must be standalone word, not substring
+                        // Split by non-alphanumeric chars and check for exact "Asset" match
+                        let tokens: Vec<&str> = derive_str.split(|c: char| !c.is_alphanumeric() && c != '_').collect();
+                        if tokens.iter().any(|t| *t == "Asset") {
                             entry.0 = true;
                         }
-                        if derive_str.contains("Clone") {
+                        if tokens.iter().any(|t| *t == "Clone") {
                             entry.1 = true;
                         }
                     }
@@ -1547,7 +1658,7 @@ fn discover_asset_constructors(
             let dir_name = crate_dir.file_name().and_then(|n| n.to_str()).unwrap_or("");
 
             let base_crate = dir_name.split('-').next().unwrap_or(dir_name);
-            if !dependencies.contains(&base_crate.to_string()) {
+            if !dependencies.contains_key(base_crate) {
                 continue;
             }
 
@@ -1796,7 +1907,7 @@ fn discover_systemparam_types() -> Vec<DiscoveredSystemParam> {
             let base_crate = dir_name.split('-').next().unwrap_or(dir_name);
 
             // Only scan crates that are in our dependencies
-            if !dependencies.contains(&base_crate.to_string()) {
+            if !dependencies.contains_key(base_crate) {
                 continue;
             }
 
@@ -1938,7 +2049,7 @@ fn discover_systemparam_methods(
             let dir_name = crate_dir.file_name().and_then(|n| n.to_str()).unwrap_or("");
 
             let base_crate = dir_name.split('-').next().unwrap_or(dir_name);
-            if !dependencies.contains(&base_crate.to_string()) {
+            if !dependencies.contains_key(base_crate) {
                 continue;
             }
 
@@ -2202,7 +2313,7 @@ fn discover_debug_types() -> std::collections::HashSet<String> {
             let dir_name = crate_dir.file_name().and_then(|n| n.to_str()).unwrap_or("");
 
             let base_crate = dir_name.split('-').next().unwrap_or(dir_name);
-            if !dependencies.contains(&base_crate.to_string()) {
+            if !dependencies.contains_key(base_crate) {
                 continue;
             }
 
@@ -2364,7 +2475,7 @@ fn discover_reflect_types() -> std::collections::HashSet<String> {
             let dir_name = crate_dir.file_name().and_then(|n| n.to_str()).unwrap_or("");
 
             let base_crate = dir_name.split('-').next().unwrap_or(dir_name);
-            if !dependencies.contains(&base_crate.to_string()) {
+            if !dependencies.contains_key(base_crate) {
                 continue;
             }
 
@@ -3539,6 +3650,34 @@ fn write_bindings_to_parent_crate(
         clone_count, total_count
     );
 
+    // Generate asset type paths for typed path loader macro registration
+    // These are the type paths (e.g., bevy::prelude::Image) that will be used in the macro
+    // The macro checks ReflectAsset at runtime, but we filter at compile time to avoid types
+    // that don't properly implement Asset (our parse_asset_types_from_source now uses exact word matching)
+    let asset_type_paths: Vec<_> = discovered_assets
+        .iter()
+        .filter_map(|asset| {
+            // Skip generic types - can't instantiate without concrete type parameters
+            if asset.is_generic {
+                return None;
+            }
+
+            // Also skip if full_path contains angle brackets (backup filter)
+            if asset.full_path.contains('<') || asset.type_name.contains('<') {
+                return None;
+            }
+
+            let normalized_path = normalize_bevy_path(&asset.full_path)?;
+            let type_path: syn::Path = syn::parse_str(&normalized_path).ok()?;
+            Some(type_path)
+        })
+        .collect();
+
+    println!(
+        "cargo:warning=  ✓ Generated {} asset type paths for typed path loader macro",
+        asset_type_paths.len()
+    );
+
     // Generate asset constructor registrations for discovered constructors
     // These allow opaque types like Image to be created from Lua using their actual constructors
     let constructor_registrations: Vec<_> = discovered_constructors.iter().filter_map(|ctor| {
@@ -4257,6 +4396,20 @@ fn write_bindings_to_parent_crate(
             );
         }
 
+        /// Register typed path loaders for discovered asset types
+        /// This uses compile-time discovered types to call the typed_path_loaders macro
+        /// which enables proper Handle<T> loading from asset paths
+        pub fn register_auto_typed_path_loaders(
+            asset_registry: &bevy_lua_ecs::AssetRegistry,
+            type_registry: &bevy::ecs::reflect::AppTypeRegistry,
+        ) {
+            bevy_lua_ecs::register_typed_path_loaders!(
+                asset_registry.typed_path_loaders,
+                type_registry,
+                #(#asset_type_paths),*
+            );
+        }
+
         /// Auto-discovered Handle<T> newtype wrappers
         /// Format: (newtype_name, inner_asset_name) - runtime will resolve via TypeRegistry
         /// Examples: ("ImageRenderTarget", "Image"), ("Mesh3d", "Mesh")
@@ -4524,6 +4677,10 @@ fn write_bindings_to_parent_crate(
             // Register auto-discovered asset constructors (for opaque types like Image)
             register_asset_constructor_bindings(&asset_registry);
 
+            // Register typed path loaders for all discovered asset types
+            // This enables load_asset paths to resolve to correctly typed Handle<T>
+            register_auto_typed_path_loaders(&asset_registry, &type_registry);
+
             bevy::log::debug!("Auto-generated asset constructors, component bindings, and newtype wrappers registered");
         }
 
@@ -4545,6 +4702,24 @@ fn write_bindings_to_parent_crate(
             #(#constructor_registrations)*
 
             bevy::log::debug!("[ASSET_CONSTRUCTOR] Registered auto-discovered asset constructors for opaque types");
+        }
+
+        /// Register typed path loaders for all discovered asset types
+        /// This is auto-generated to enable load_asset paths to resolve with correct Handle<T> types
+        /// Uses the macro which checks ReflectAsset at runtime to filter non-Asset types
+        fn register_typed_path_loaders(
+            asset_registry: &bevy_lua_ecs::AssetRegistry,
+            type_registry: &bevy::ecs::reflect::AppTypeRegistry,
+        ) {
+            // Use the macro which validates ReflectAsset at runtime
+            // This avoids compile errors from types that don't properly implement Asset
+            bevy_lua_ecs::register_typed_path_loaders!(
+                asset_registry.typed_path_loaders,
+                type_registry,
+                #(#asset_type_paths),*
+            );
+
+            bevy::log::debug!("[TYPED_LOADER] Registered typed path loaders for asset types");
         }
     };
 
@@ -5064,6 +5239,7 @@ fn normalize_bevy_path(path: &str) -> Option<String> {
         "bevy_xpbd",
         "bevy_hanabi",
         "bevy_kira_audio",
+        "bevy_ufbx",  // Third-party FBX loader
     ];
     for crate_name in &non_core_crates {
         if path.starts_with(&format!("{}::", crate_name)) {

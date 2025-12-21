@@ -1,93 +1,194 @@
 use crate::component_update_queue::ComponentUpdateQueue;
-use crate::components::{ComponentRegistry, LuaCustomComponents};
+use crate::components::LuaCustomComponents;
 use crate::lua_integration::LuaScriptContext;
 use bevy::prelude::*;
+use bevy::reflect::ReflectFromPtr;
 use mlua::prelude::*;
 use std::sync::Arc;
 
 /// System that processes the component update queue
+/// Uses reflection for updating ANY Bevy component (Text2d, Transform, etc.)
 pub fn process_component_updates(
-    mut commands: Commands,
-    queue: Res<ComponentUpdateQueue>,
-    component_registry: Res<ComponentRegistry>,
-    lua_ctx: Res<LuaScriptContext>,
-    mut query: Query<(Entity, Option<&mut LuaCustomComponents>)>,
+    world: &mut World,
 ) {
-    let requests = queue.drain();
+    // Collect requests from the queue
+    let requests = {
+        let queue = world.resource::<ComponentUpdateQueue>();
+        queue.drain()
+    };
 
     if requests.is_empty() {
         return;
     }
-
+    
+    // Get resources we need BEFORE any mutable entity access
+    let type_registry = world.resource::<AppTypeRegistry>().clone();
+    let asset_registry = world.get_resource::<crate::asset_loading::AssetRegistry>().cloned();
+    
     for request in requests {
-        // Check if it's a known Rust component
-        if let Some(handler) = component_registry.get(&request.component_name) {
-            // Check if entity still exists before trying to update it
-            // This prevents crashes when entities are despawned (e.g., client disconnect in networking)
-            if commands.get_entity(request.entity).is_err() {
-                // Entity was despawned, skip this update and clean up
-                if let Err(e) = lua_ctx.lua.remove_registry_value(request.data) {
-                    warn!(
-                        "Failed to remove registry value for despawned entity: {}",
-                        e
-                    );
-                }
-                continue;
-            }
-
-            // Retrieve the Lua value from the registry (can be string, table, number, etc.)
-            let data_value: LuaValue = match lua_ctx.lua.registry_value(&request.data) {
+        let type_path = request.component_name.clone();
+        debug!("[COMPONENT_UPDATE] Processing request for component '{}' on entity {:?}", type_path, request.entity);
+        
+        // Get Lua data before we start mutable access
+        let data_value: LuaValue = {
+            let lua_ctx = world.resource::<LuaScriptContext>();
+            match lua_ctx.lua.registry_value(&request.data) {
                 Ok(value) => value,
                 Err(e) => {
-                    error!(
-                        "Failed to retrieve Lua value for {}: {}",
-                        request.component_name, e
-                    );
+                    error!("Failed to retrieve Lua value for {}: {}", type_path, e);
                     continue;
                 }
-            };
-
-            // Get entity commands
-            let mut entity_commands = commands.entity(request.entity);
-
-            // Apply component update
-            if let Err(e) = handler(&data_value, &mut entity_commands) {
-                error!(
-                    "Failed to update component {}: {}",
-                    request.component_name, e
-                );
             }
-
-            // Remove the registry value to free memory
-            if let Err(e) = lua_ctx.lua.remove_registry_value(request.data) {
-                warn!(
-                    "Failed to remove registry value for {}: {}",
-                    request.component_name, e
-                );
-            }
-        } else {
-            // It's a generic Lua component - update it
-            if let Ok((entity, lua_components_opt)) = query.get_mut(request.entity) {
-                if let Some(mut lua_components) = lua_components_opt {
-                    // Update the registry key for this component
-                    lua_components
-                        .components
-                        .insert(request.component_name.clone(), Arc::new(request.data));
+        };
+        
+        // Check entity exists
+        if world.get_entity(request.entity).is_err() {
+            let lua_ctx = world.resource::<LuaScriptContext>();
+            let _ = lua_ctx.lua.remove_registry_value(request.data);
+            continue;
+        }
+        
+        // Try reflection-based update using in-place mutation
+        // This is the generic path that works for all reflected components like Text2d
+        let registry = type_registry.read();
+        let registration = registry.get_with_type_path(&type_path)
+            .or_else(|| registry.get_with_short_type_path(&type_path));
+        
+        debug!("[COMPONENT_UPDATE] Looking up type: '{}' -> found: {}", type_path, registration.is_some());
+        
+        let mut component_updated = false;
+        
+        if let Some(registration) = registration {
+            if let (Some(_reflect_component), Some(reflect_from_ptr)) = (
+                registration.data::<ReflectComponent>(),
+                registration.data::<ReflectFromPtr>().cloned(),
+            ) {
+                let component_id = world.components().get_id(registration.type_id());
+                
+                if let Some(comp_id) = component_id {
+                    // Release read lock before mutable access
+                    drop(registry);
+                    
+                    // Now do mutable entity access
+                    if let Ok(mut entity_mut) = world.get_entity_mut(request.entity) {
+                        if let Ok(mut component_ptr) = entity_mut.get_mut_by_id(comp_id) {
+                            // SAFETY: We have the correct TypeId and exclusive access via EntityMut
+                            let component_mut = unsafe { 
+                                reflect_from_ptr.as_reflect_mut(component_ptr.as_mut()) 
+                            };
+                            
+                            // Update fields from Lua table
+                            if let LuaValue::Table(table) = &data_value {
+                                if let Err(e) = update_component_from_lua(
+                                    component_mut.as_partial_reflect_mut(),
+                                    table,
+                                    asset_registry.as_ref(),
+                                    &type_registry,
+                                ) {
+                                    error!("Failed to update component {} from Lua: {}", type_path, e);
+                                } else {
+                                    debug!("[COMPONENT_UPDATE] Updated {} via reflection", type_path);
+                                    component_updated = true;
+                                }
+                            }
+                        } else {
+                            debug!("[COMPONENT_UPDATE] Component {} not found on entity", type_path);
+                        }
+                    }
                 } else {
-                    // Entity doesn't have LuaCustomComponents yet, add it
-                    let mut lua_components = LuaCustomComponents::default();
-                    lua_components
-                        .components
-                        .insert(request.component_name.clone(), Arc::new(request.data));
-                    commands.entity(entity).insert(lua_components);
+                    drop(registry);
                 }
             } else {
-                warn!("Entity {:?} not found for component update", request.entity);
-                // Clean up the registry value
-                if let Err(e) = lua_ctx.lua.remove_registry_value(request.data) {
-                    warn!("Failed to remove registry value: {}", e);
+                drop(registry);
+            }
+        } else {
+            drop(registry);
+        }
+        
+        if component_updated {
+            let lua_ctx = world.resource::<LuaScriptContext>();
+            let _ = lua_ctx.lua.remove_registry_value(request.data);
+            continue;
+        }
+        
+        // Fallback: It's a generic Lua component - store in LuaCustomComponents
+        if let Ok(mut entity_mut) = world.get_entity_mut(request.entity) {
+            if let Some(mut lua_components) = entity_mut.get_mut::<LuaCustomComponents>() {
+                lua_components.components.insert(request.component_name.clone(), Arc::new(request.data));
+            } else {
+                let mut lua_components = LuaCustomComponents::default();
+                lua_components.components.insert(request.component_name.clone(), Arc::new(request.data));
+                entity_mut.insert(lua_components);
+            }
+        } else {
+            warn!("Entity {:?} not found for component update", request.entity);
+            let lua_ctx = world.resource::<LuaScriptContext>();
+            let _ = lua_ctx.lua.remove_registry_value(request.data);
+        }
+    }
+}
+
+/// Update a component's fields from a Lua table using reflection
+fn update_component_from_lua(
+    component: &mut dyn bevy::reflect::PartialReflect,
+    table: &LuaTable,
+    asset_registry: Option<&crate::asset_loading::AssetRegistry>,
+    type_registry: &AppTypeRegistry,
+) -> LuaResult<()> {
+    use bevy::reflect::ReflectMut;
+    
+    match component.reflect_mut() {
+        ReflectMut::Struct(struct_mut) => {
+            // Update each field from the table
+            for pair in table.pairs::<String, LuaValue>() {
+                let (key, value) = pair?;
+                debug!("[COMPONENT_UPDATE] Updating struct field '{}' with value type: {:?}", key, std::mem::discriminant(&value));
+                if let Some(field) = struct_mut.field_mut(&key) {
+                    crate::components::set_field_from_lua(field, &value, asset_registry, type_registry, Some(&key))?;
                 }
             }
         }
+        ReflectMut::TupleStruct(tuple_mut) => {
+            // For tuple structs like Text2d(String) or BackgroundColor(Color)
+            // Check for explicit field names like _0, _1, or aliases like "text"
+            let mut handled = false;
+            
+            for pair in table.pairs::<String, LuaValue>() {
+                let (key, value) = pair?;
+                // Handle _0, _1, etc. field names
+                if key.starts_with('_') {
+                    if let Ok(index) = key[1..].parse::<usize>() {
+                        if let Some(field) = tuple_mut.field_mut(index) {
+                            crate::components::set_field_from_lua(field, &value, asset_registry, type_registry, Some(&key))?;
+                            handled = true;
+                        }
+                    }
+                } else if key == "text" && tuple_mut.field_len() == 1 {
+                    // Special case: "text" alias for single-field tuple struct like Text2d
+                    if let Some(field) = tuple_mut.field_mut(0) {
+                        crate::components::set_field_from_lua(field, &value, asset_registry, type_registry, Some(&key))?;
+                        handled = true;
+                    }
+                }
+            }
+            
+            // Fallback: if single-field tuple struct and only one key in table,
+            // use that key's VALUE for field 0 (matches spawn behavior for BackgroundColor = { color = {...} })
+            if !handled && tuple_mut.field_len() == 1 {
+                let mut pairs: Vec<_> = table.pairs::<String, LuaValue>().filter_map(|r| r.ok()).collect();
+                if pairs.len() == 1 {
+                    let (key, value) = pairs.remove(0);
+                    debug!("[COMPONENT_UPDATE] Using single-key fallback: '{}' value for tuple struct field 0", key);
+                    if let Some(field) = tuple_mut.field_mut(0) {
+                        crate::components::set_field_from_lua(field, &value, asset_registry, type_registry, Some(&key))?;
+                    }
+                }
+            }
+        }
+        _ => {
+            debug!("Unsupported reflect type for component update");
+        }
     }
+    
+    Ok(())
 }

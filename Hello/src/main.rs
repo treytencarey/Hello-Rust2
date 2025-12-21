@@ -10,6 +10,7 @@
 //!   cargo run -- --network client --server-addr 192.168.1.100
 
 use bevy::prelude::*;
+use bevy::asset::{AssetPlugin, AssetMode};
 use clap::Parser;
 
 // Import from library crate
@@ -23,6 +24,9 @@ use hello::plugins::{HelloNetworkingPlugin, NetworkConfig, NetworkMode};
 
 #[cfg(feature = "tiled")]
 use hello::plugins::HelloTiledPlugin;
+
+#[cfg(feature = "ufbx")]
+use hello::plugins::HelloUfbxPlugin;
 
 #[derive(Parser)]
 #[command(name = "hello", about = "Bevy + Lua game framework")]
@@ -65,6 +69,7 @@ const DEMOS: &[(&str, &str, &str, Option<&str>)] = &[
     ("networking", "scripts/main.lua", "Network peer (client mode)", Some("networking")),
     ("button", "scripts/examples/button.lua", "Simple button example", None),
     ("basic", "scripts/spawn_text.lua", "Basic text spawning", None),
+    ("ufbx", "scripts/examples/ufbx.lua", "FBX model loading with ufbx", Some("ufbx")),
 ];
 
 fn main() {
@@ -79,6 +84,7 @@ fn main() {
                 Some("physics") => cfg!(feature = "physics"),
                 Some("tiled") => cfg!(feature = "tiled"),
                 Some("networking") => cfg!(feature = "networking"),
+                Some("ufbx") => cfg!(feature = "ufbx"),
                 _ => false,
             };
             let status = if available { "✓" } else { "✗" };
@@ -106,13 +112,25 @@ fn main() {
     
     let mut app = App::new();
     
-    // Add Bevy default plugins
-    app.add_plugins(DefaultPlugins);
+    // Add Bevy default plugins, configure AssetPlugin to allow absolute paths
+    // (FBX files often embed absolute texture paths from export environment)
+    app.add_plugins(DefaultPlugins.set(AssetPlugin {
+        mode: AssetMode::Unprocessed,
+        meta_check: bevy::asset::AssetMetaCheck::Never,
+        // Allow absolute paths embedded in FBX files to be loaded
+        // Security note: Be cautious with this in production - only enable for trusted content
+        unapproved_path_mode: bevy::asset::UnapprovedPathMode::Allow,
+        ..default()
+    }));
     
     // Add core plugin
     app.add_plugins(HelloCorePlugin {
         spawn_camera_2d: !args.no_camera,
     });
+
+    // Add ufbx plugin if feature enabled
+    #[cfg(feature = "ufbx")]
+    app.add_plugins(HelloUfbxPlugin);
     
     // Parse network mode
     #[cfg(feature = "networking")]
