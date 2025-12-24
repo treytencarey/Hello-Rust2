@@ -75,10 +75,10 @@ pub use script_registry::ScriptRegistry;
 pub use serde_components::SerdeComponentRegistry;
 pub use spawn_queue::SpawnQueue;
 pub use systemparam_lua_trait::{
-    call_read_events_global, call_systemparam_method_global, call_write_events_global,
-    call_write_messages_global, set_event_dispatcher, set_event_write_dispatcher,
-    set_message_write_dispatcher, set_systemparam_dispatcher, LuaSystemParamMethods,
-    LuaSystemParamRegistry,
+    call_component_method_global, call_read_events_global, call_systemparam_method_global,
+    call_write_events_global, call_write_messages_global, set_component_method_dispatcher,
+    set_event_dispatcher, set_event_write_dispatcher, set_message_write_dispatcher,
+    set_systemparam_dispatcher, LuaSystemParamMethods, LuaSystemParamRegistry,
 };
 
 /// Register common Bevy event types for Lua access via world:read_events()

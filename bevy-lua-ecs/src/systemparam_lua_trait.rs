@@ -152,7 +152,41 @@ pub fn call_write_messages_global(
     }
 }
 
-/// Registry for Lua-accessible SystemParams
+/// Function signature for the auto-generated Component method dispatcher
+/// Takes: Lua, World, entity_id, type_name, method_name, args
+pub type ComponentMethodDispatchFn =
+    fn(&Lua, &mut World, u64, &str, &str, LuaMultiValue) -> LuaResult<LuaValue>;
+
+/// Global dispatch function for Component method calls (e.g., Transform::looking_at)
+static COMPONENT_METHOD_DISPATCHER: std::sync::OnceLock<ComponentMethodDispatchFn> =
+    std::sync::OnceLock::new();
+
+/// Set the global Component method dispatcher
+/// This should be called by the parent crate's initialization code
+/// to register the auto-generated dispatch_component_method function
+pub fn set_component_method_dispatcher(dispatcher: ComponentMethodDispatchFn) {
+    let _ = COMPONENT_METHOD_DISPATCHER.set(dispatcher);
+}
+
+/// Call the registered Component method dispatcher
+/// Returns an error if no dispatcher has been set
+pub fn call_component_method_global(
+    lua: &Lua,
+    world: &mut World,
+    entity_id: u64,
+    type_name: &str,
+    method_name: &str,
+    args: LuaMultiValue,
+) -> LuaResult<LuaValue> {
+    if let Some(dispatcher) = COMPONENT_METHOD_DISPATCHER.get() {
+        dispatcher(lua, world, entity_id, type_name, method_name, args)
+    } else {
+        Err(LuaError::RuntimeError(format!(
+            "Component method dispatch not configured. Call set_component_method_dispatcher() at initialization."
+        )))
+    }
+}
+
 /// This is the main infrastructure for exposing SystemParam methods to Lua
 #[derive(Resource, Clone, Default)]
 pub struct LuaSystemParamRegistry {

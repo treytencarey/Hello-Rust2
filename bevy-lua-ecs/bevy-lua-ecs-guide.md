@@ -62,6 +62,22 @@ local result = world:call_systemparam_method("MeshRayCast", "cast_ray", {
 })
 ```
 
+### Component Methods (Auto-Discovered)
+```lua
+-- Call methods on entity components (Transform/GlobalTransform currently supported)
+world:call_component_method(entity_id, "Transform", "looking_at", {x=0,y=0,z=0}, {x=0,y=1,z=0})
+world:call_component_method(entity_id, "Transform", "rotate", {x=0,y=0.5,z=0,w=0.87})
+world:call_component_method(entity_id, "Transform", "with_translation", {x=1,y=2,z=3})
+
+-- Check if entity has component
+if world:has_component(entity_id, "Transform") then ... end
+
+-- Get raw entity (for SystemParam methods like MeshRayCast)
+local entity = world:get_entity(entity_id)
+```
+
+**Note:** Builder methods returning `Self` (looking_at, with_*) auto-write result back to component.
+
 ### Resources
 ```lua
 insert_resource("TypeName", data)     -- Insert (needs Rust builder)
@@ -111,6 +127,7 @@ world:despawn_all("TagComponent")         -- Despawn by tag
 
 **These are discovered at compile time and require no manual setup:**
 
+- **Component Methods**: Methods on `#[derive(Component)]` types (Transform/GlobalTransform)
 - **SystemParams**: Types with `#[derive(SystemParam)]` and their methods
 - **Events**: Types with `#[derive(Event)]` from bevy_window, bevy_input
 - **Messages**: Types using `MessageWriter<T>` (e.g., PointerInput)

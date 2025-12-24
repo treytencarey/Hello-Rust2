@@ -1,6 +1,9 @@
--- Hello Game Main Script
+-- Hello Game-- Main entry point for Hello
 -- This is your game's main Lua script
 
--- Load the ufbx FBX example
-require("scripts/examples/ufbx.lua")
+-- Load FPS counter
+local FPS = require("scripts/examples/ufbx.lua")
 
+-- Disable VSync for higher FPS
+local VSync = require("modules/VSync.lua")
+VSync.disable()

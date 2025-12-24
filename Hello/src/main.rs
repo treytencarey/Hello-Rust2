@@ -115,12 +115,12 @@ fn main() {
     // Add Bevy default plugins, configure AssetPlugin to allow absolute paths
     // (FBX files often embed absolute texture paths from export environment)
     app.add_plugins(DefaultPlugins.set(AssetPlugin {
-        mode: AssetMode::Unprocessed,
-        meta_check: bevy::asset::AssetMetaCheck::Never,
-        // Allow absolute paths embedded in FBX files to be loaded
-        // Security note: Be cautious with this in production - only enable for trusted content
-        unapproved_path_mode: bevy::asset::UnapprovedPathMode::Allow,
-        ..default()
+            mode: AssetMode::Unprocessed,
+            meta_check: bevy::asset::AssetMetaCheck::Never,
+            // Allow absolute paths embedded in FBX files to be loaded
+            // Security note: Be cautious with this in production - only enable for trusted content
+            unapproved_path_mode: bevy::asset::UnapprovedPathMode::Allow,
+            ..default()
     }));
     
     // Add core plugin

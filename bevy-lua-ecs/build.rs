@@ -1,7 +1,7 @@
 // Build script for bevy-lua-ecs
 // Automatically generates Lua bindings for resource types specified in dependent crates
 
-use quote::quote;
+use quote::{quote, ToTokens};
 use serde::{Deserialize, Serialize};
 use std::env;
 use std::fs;
@@ -333,6 +333,12 @@ fn generate_bindings_for_manifest(manifest_path: &Path) {
     let (discovered_systemparams, discovered_systemparam_methods) =
         get_discovered_systemparams_and_methods();
 
+    // Auto-discover Component methods (e.g., Transform::looking_at)
+    let discovered_component_methods = get_discovered_component_methods();
+    
+    // Discover what types are exported from bevy::prelude (reserved for future use)
+    let _bevy_prelude_types = discover_bevy_prelude_types();
+
     // Parse bitflags from metadata [package.metadata.lua_bitflags]
     let metadata_bitflags = get_bitflags_from_metadata(&manifest);
 
@@ -362,6 +368,7 @@ fn generate_bindings_for_manifest(manifest_path: &Path) {
         newtypes,
         discovered_systemparams,
         discovered_systemparam_methods,
+        discovered_component_methods,
         &parent_src_dir,
     );
 
@@ -695,6 +702,598 @@ struct SystemParamCache {
     systemparams: Vec<DiscoveredSystemParam>,
     /// Discovered methods on those types
     methods: Vec<DiscoveredSystemParamMethod>,
+}
+
+// =============================================================================
+// COMPONENT METHOD DISCOVERY
+// Auto-discover methods on Component types (e.g., Transform::looking_at)
+// =============================================================================
+
+/// Discovered method on a Component type
+#[derive(Debug, Clone, Serialize, Deserialize)]
+struct DiscoveredComponentMethod {
+    /// Full type path (e.g., "bevy::transform::components::Transform")
+    type_path: String,
+    /// Short type name (e.g., "Transform")
+    type_name: String,
+    /// Method name (e.g., "looking_at")
+    method_name: String,
+    /// Parameters (excluding &self/&mut self)
+    params: Vec<SystemParamMethodParam>,
+    /// Return type as string
+    return_type: String,
+    /// Whether method takes &mut self (vs &self)
+    takes_mut_self: bool,
+    /// Source crate name (e.g., "bevy_transform") for dynamic import generation
+    source_crate: String,
+}
+
+/// Cache for discovered Component methods
+#[derive(Debug, Serialize, Deserialize)]
+struct ComponentMethodCache {
+    /// Hash of Cargo.lock to detect dependency changes
+    cargo_lock_hash: String,
+    /// Discovered methods
+    methods: Vec<DiscoveredComponentMethod>,
+}
+
+/// Get cache file path for component methods
+fn get_component_method_cache_path() -> Option<PathBuf> {
+    let out_dir = env::var("OUT_DIR").ok()?;
+    Some(PathBuf::from(out_dir).join("component_method_cache.json"))
+}
+
+/// Load component method cache if valid
+fn load_component_method_cache() -> Option<ComponentMethodCache> {
+    let cache_path = get_component_method_cache_path()?;
+    let content = fs::read_to_string(&cache_path).ok()?;
+    let cache: ComponentMethodCache = serde_json::from_str(&content).ok()?;
+    
+    // Check if cache is still valid (Cargo.lock hasn't changed)
+    let current_hash = compute_cargo_lock_hash();
+    if cache.cargo_lock_hash == current_hash {
+        println!("cargo:warning=[CACHE] Component method cache hit - using cached methods");
+        Some(cache)
+    } else {
+        println!("cargo:warning=[CACHE] Component method cache invalidated - Cargo.lock changed");
+        None
+    }
+}
+
+/// Save component method cache
+fn save_component_method_cache(methods: &[DiscoveredComponentMethod]) {
+    let Some(cache_path) = get_component_method_cache_path() else {
+        return;
+    };
+    let cache = ComponentMethodCache {
+        cargo_lock_hash: compute_cargo_lock_hash(),
+        methods: methods.to_vec(),
+    };
+    if let Ok(json) = serde_json::to_string_pretty(&cache) {
+        let _ = fs::write(&cache_path, json);
+    }
+}
+
+/// Get discovered component methods (from cache or by discovery)
+fn get_discovered_component_methods() -> Vec<DiscoveredComponentMethod> {
+    // Try cache first
+    if let Some(cache) = load_component_method_cache() {
+        return cache.methods;
+    }
+
+    // Cache miss - run discovery
+    println!("cargo:warning=[CACHE] Cache miss - running Component method discovery...");
+    let methods = discover_component_methods();
+
+    // Save to cache for next time
+    save_component_method_cache(&methods);
+
+    methods
+}
+
+/// Discover all types exported from bevy::prelude by parsing bevy_internal/src/prelude.rs
+fn discover_bevy_prelude_types() -> std::collections::HashSet<String> {
+    let mut prelude_types = std::collections::HashSet::new();
+    
+    // Get cargo home
+    let cargo_home = env::var("CARGO_HOME")
+        .or_else(|_| env::var("HOME").map(|h| format!("{}/.cargo", h)))
+        .or_else(|_| env::var("USERPROFILE").map(|h| format!("{}/.cargo", h)))
+        .unwrap_or_default();
+
+    if cargo_home.is_empty() {
+        println!("cargo:warning=[PRELUDE] Could not find CARGO_HOME");
+        return prelude_types;
+    }
+
+    let registry_src = PathBuf::from(&cargo_home).join("registry/src");
+    if !registry_src.exists() {
+        return prelude_types;
+    }
+
+    // Find bevy_internal crate (contains the prelude)
+    for index_entry in fs::read_dir(&registry_src).into_iter().flatten().flatten() {
+        let index_dir = index_entry.path();
+        if !index_dir.is_dir() {
+            continue;
+        }
+        
+        for crate_entry in fs::read_dir(&index_dir).into_iter().flatten().flatten() {
+            let crate_dir = crate_entry.path();
+            let dir_name = crate_dir.file_name().and_then(|n| n.to_str()).unwrap_or("");
+            
+            if !dir_name.starts_with("bevy_internal-") {
+                continue;
+            }
+            
+            let prelude_path = crate_dir.join("src/prelude.rs");
+            if prelude_path.exists() {
+                if let Ok(source) = fs::read_to_string(&prelude_path) {
+                    parse_prelude_exports(&source, &mut prelude_types);
+                }
+            }
+        }
+    }
+    
+    // Second pass: Process __GLOB_CRATE__ markers to find actual types from crate preludes
+    let glob_crates: Vec<String> = prelude_types.iter()
+        .filter(|s| s.starts_with("__GLOB_CRATE__:"))
+        .map(|s| s.trim_start_matches("__GLOB_CRATE__:").to_string())
+        .collect();
+    
+    // Remove the markers
+    prelude_types.retain(|s| !s.starts_with("__GLOB_CRATE__:"));
+    
+    // Parse each crate's prelude
+    for glob_crate in glob_crates {
+        // Find the crate directory
+        for index_entry in fs::read_dir(&registry_src).into_iter().flatten().flatten() {
+            let index_dir = index_entry.path();
+            if !index_dir.is_dir() { continue; }
+            
+            for crate_entry in fs::read_dir(&index_dir).into_iter().flatten().flatten() {
+                let crate_dir = crate_entry.path();
+                let dir_name = crate_dir.file_name().and_then(|n| n.to_str()).unwrap_or("");
+                
+                // Match crate name (e.g., "bevy_transform-0.17.3")
+                if !dir_name.starts_with(&format!("{}-", glob_crate)) {
+                    continue;
+                }
+                
+                let crate_prelude = crate_dir.join("src/prelude.rs");
+                if crate_prelude.exists() {
+                    if let Ok(source) = fs::read_to_string(&crate_prelude) {
+                        parse_prelude_exports(&source, &mut prelude_types);
+                    }
+                }
+            }
+        }
+    }
+    
+    println!("cargo:warning=[PRELUDE] Discovered {} prelude types", prelude_types.len());
+    prelude_types
+}
+
+/// Parse `pub use` statements from prelude source to extract exported type names
+fn parse_prelude_exports(source: &str, types: &mut std::collections::HashSet<String>) {
+    if let Ok(file) = syn::parse_file(source) {
+        for item in &file.items {
+            if let syn::Item::Use(item_use) = item {
+                // Only public uses
+                if matches!(item_use.vis, syn::Visibility::Public(_)) {
+                    collect_prelude_types(&item_use.tree, types);
+                }
+            }
+        }
+    }
+}
+
+/// Recursively collect type names from a use tree
+fn collect_prelude_types(tree: &syn::UseTree, types: &mut std::collections::HashSet<String>) {
+    collect_prelude_types_with_path(tree, String::new(), types);
+}
+
+/// Helper that tracks the import path for glob extraction
+fn collect_prelude_types_with_path(tree: &syn::UseTree, path: String, types: &mut std::collections::HashSet<String>) {
+    match tree {
+        syn::UseTree::Path(use_path) => {
+            let new_path = if path.is_empty() {
+                use_path.ident.to_string()
+            } else {
+                format!("{}::{}", path, use_path.ident)
+            };
+            collect_prelude_types_with_path(&use_path.tree, new_path, types);
+        }
+        syn::UseTree::Name(use_name) => {
+            let name = use_name.ident.to_string();
+            // Skip lowercase names (modules, functions) - we want types (PascalCase typically)
+            if name.chars().next().map_or(false, |c| c.is_uppercase()) {
+                types.insert(name);
+            }
+        }
+        syn::UseTree::Rename(use_rename) => {
+            let name = use_rename.rename.to_string();
+            if name.chars().next().map_or(false, |c| c.is_uppercase()) {
+                types.insert(name);
+            }
+        }
+        syn::UseTree::Glob(_) => {
+            // For glob imports like `bevy_transform::prelude::*`, record the crate prelude path
+            // We'll handle these in a second pass by parsing the actual crate preludes
+            if path.starts_with("bevy_") && path.ends_with("::prelude") {
+                // Extract crate name (e.g., "bevy_transform" from "bevy_transform::prelude")
+                if let Some(crate_name) = path.split("::").next() {
+                    types.insert(format!("__GLOB_CRATE__:{}", crate_name));
+                }
+            }
+        }
+        syn::UseTree::Group(use_group) => {
+            for item in &use_group.items {
+                collect_prelude_types_with_path(item, path.clone(), types);
+            }
+        }
+    }
+}
+
+/// Discover methods on Component types (Transform, GlobalTransform, etc.)
+fn discover_component_methods() -> Vec<DiscoveredComponentMethod> {
+    let mut methods = Vec::new();
+
+    println!("cargo:warning=[COMPONENT_DISCOVERY] Scanning for Component methods...");
+
+    // Get cargo home
+    let cargo_home = env::var("CARGO_HOME")
+        .or_else(|_| env::var("HOME").map(|h| format!("{}/.cargo", h)))
+        .or_else(|_| env::var("USERPROFILE").map(|h| format!("{}/.cargo", h)))
+        .unwrap_or_default();
+
+    if cargo_home.is_empty() {
+        return methods;
+    }
+
+    let registry_src = PathBuf::from(&cargo_home).join("registry/src");
+    if !registry_src.exists() {
+        return methods;
+    }
+
+    // Scan bevy_transform crate specifically for Transform methods
+    let dependencies = get_bevy_dependencies_from_lock();
+
+    for index_entry in fs::read_dir(&registry_src).into_iter().flatten().flatten() {
+        let index_dir = index_entry.path();
+        if !index_dir.is_dir() {
+            continue;
+        }
+
+        for crate_entry in fs::read_dir(&index_dir).into_iter().flatten().flatten() {
+            let crate_dir = crate_entry.path();
+            let dir_name = crate_dir.file_name().and_then(|n| n.to_str()).unwrap_or("");
+
+            // Parse crate name and version from directory name (format: "crate_name-version")
+            // e.g., "bevy_transform-0.17.3" -> ("bevy_transform", "0.17.3")
+            let parts: Vec<&str> = dir_name.rsplitn(2, '-').collect();
+            if parts.len() != 2 {
+                continue;
+            }
+            let dir_version = parts[0];
+            let base_crate = parts[1];
+            
+            if !base_crate.starts_with("bevy_") {
+                continue;
+            }
+            
+            // Check if this crate is in our dependencies AND version matches
+            let expected_version = match dependencies.get(base_crate) {
+                Some(v) => v,
+                None => continue,
+            };
+            
+            // Only scan the exact version we depend on
+            if dir_version != expected_version {
+                continue;
+            }
+
+            let src_dir = crate_dir.join("src");
+            if src_dir.exists() {
+                scan_directory_for_component_methods(&src_dir, base_crate, &mut methods);
+            }
+        }
+    }
+
+    // Deduplicate by (type_name, method_name)
+    let mut seen = std::collections::HashSet::new();
+    methods.retain(|m| seen.insert((m.type_name.clone(), m.method_name.clone())));
+
+    println!(
+        "cargo:warning=  ✓ Discovered {} Component methods",
+        methods.len()
+    );
+    for method in &methods {
+        let params_str: Vec<String> = method
+            .params
+            .iter()
+            .map(|p| format!("{}: {}", p.name, p.type_str))
+            .collect();
+        println!(
+            "cargo:warning=    - {}::{}({})",
+            method.type_name,
+            method.method_name,
+            params_str.join(", ")
+        );
+    }
+
+    methods
+}
+
+/// Scan directory for Component method implementations
+fn scan_directory_for_component_methods(
+    dir: &Path,
+    crate_name: &str,
+    results: &mut Vec<DiscoveredComponentMethod>,
+) {
+    for entry in fs::read_dir(dir).into_iter().flatten().flatten() {
+        let path = entry.path();
+
+        if path.is_dir() {
+            scan_directory_for_component_methods(&path, crate_name, results);
+        } else if path.extension().map_or(false, |ext| ext == "rs") {
+            if let Ok(source) = fs::read_to_string(&path) {
+                parse_component_methods_from_source(&source, crate_name, results);
+            }
+        }
+    }
+}
+
+/// Parse source for impl blocks of Component types (auto-detected via #[derive(Component)])
+/// Now fully automatic without hardcoded type lists
+fn parse_component_methods_from_source(
+    source: &str,
+    _crate_name: &str,
+    results: &mut Vec<DiscoveredComponentMethod>,
+) {
+    let Ok(file) = syn::parse_file(source) else {
+        return;
+    };
+
+    // First pass: parse use statements to build type resolution map
+    // Maps short name -> full path
+    let mut import_map: std::collections::HashMap<String, String> = std::collections::HashMap::new();
+    
+    for item in &file.items {
+        if let syn::Item::Use(item_use) = item {
+            collect_use_imports(&item_use.tree, String::new(), &mut import_map);
+        }
+    }
+
+    // Find all types with #[derive(Component)] - now purely automatic
+    // Also handle #[cfg_attr(feature = "...", derive(Component))]
+    let mut component_types = std::collections::HashSet::new();
+    
+    for item in &file.items {
+        if let syn::Item::Struct(item_struct) = item {
+            // Check if this struct has #[derive(Component)] or #[cfg_attr(..., derive(Component))]
+            for attr in &item_struct.attrs {
+                let tokens = attr.meta.to_token_stream().to_string();
+                
+                // Check for direct #[derive(Component)]
+                if attr.path().is_ident("derive") && tokens.contains("Component") {
+                    component_types.insert(item_struct.ident.to_string());
+                }
+                
+                // Check for #[cfg_attr(..., derive(Component))]
+                // Transform uses: #[cfg_attr(feature = "bevy-support", derive(Component))]
+                if attr.path().is_ident("cfg_attr") && tokens.contains("derive") && tokens.contains("Component") {
+                    component_types.insert(item_struct.ident.to_string());
+                }
+            }
+        }
+    }
+
+    // Second pass: find impl blocks for those types
+    for item in &file.items {
+        if let syn::Item::Impl(item_impl) = item {
+            // Only inherent impls (not trait impls)
+            if item_impl.trait_.is_some() {
+                continue;
+            }
+
+            // Get type name being implemented
+            let type_name = match &*item_impl.self_ty {
+                syn::Type::Path(type_path) => type_path
+                    .path
+                    .segments
+                    .last()
+                    .map(|s| s.ident.to_string())
+                    .unwrap_or_default(),
+                _ => continue,
+            };
+
+            // Check if this is a Component type we discovered
+            if !component_types.contains(&type_name) {
+                continue;
+            }
+
+            // Use short type name - bevy::prelude::* is in scope in generated code
+            // Types in prelude will compile, types not in prelude will fail at compile time
+            // This is the natural filtering we want with no hardcoded lists
+            let type_path = type_name.clone();
+
+            // Find public methods that take &self or &mut self
+            for impl_item in &item_impl.items {
+                if let syn::ImplItem::Fn(method) = impl_item {
+                    // Must be public
+                    if !matches!(method.vis, syn::Visibility::Public(_)) {
+                        continue;
+                    }
+
+                    // Must take &self or &mut self
+                    let takes_mut_self = method.sig.inputs.iter().any(|arg| {
+                        matches!(arg, syn::FnArg::Receiver(r) if r.mutability.is_some())
+                    });
+                    let takes_self = method.sig.inputs.iter().any(|arg| {
+                        matches!(arg, syn::FnArg::Receiver(_))
+                    });
+                    if !takes_self {
+                        continue;
+                    }
+
+                    let method_name = method.sig.ident.to_string();
+
+                    // Parse parameters
+                    let mut params = parse_systemparam_method_params(&method.sig);
+                    
+                    // Skip methods with `impl Trait` parameters - they can't be handled via reflection
+                    let has_impl_params = params.iter().any(|p| 
+                        p.type_str.starts_with("impl") || p.type_str.contains("impl ")
+                    );
+                    if has_impl_params {
+                        continue;
+                    }
+                    
+                    // Try to resolve param types using imports - skip if unresolvable
+                    let mut all_resolved = true;
+                    for p in &mut params {
+                        if let Some(resolved) = component_resolve_type_path(&p.type_str, &import_map, _crate_name) {
+                            p.type_str = resolved;
+                        } else if !component_is_primitive_type(&p.type_str) {
+                            // Can't resolve this type and it's not a primitive - skip this method
+                            all_resolved = false;
+                            break;
+                        }
+                    }
+                    if !all_resolved {
+                        continue;
+                    }
+
+                    // Get return type
+                    let (return_type, _) = parse_return_type(&method.sig.output);
+
+                    results.push(DiscoveredComponentMethod {
+                        type_path: type_path.clone(),
+                        type_name: type_name.clone(),
+                        method_name,
+                        params,
+                        return_type,
+                        takes_mut_self,
+                        source_crate: _crate_name.to_string(),
+                    });
+                }
+            }
+        }
+    }
+}
+
+/// Collect imports from a use tree into a map of short_name -> full_path
+fn collect_use_imports(tree: &syn::UseTree, prefix: String, map: &mut std::collections::HashMap<String, String>) {
+    match tree {
+        syn::UseTree::Path(use_path) => {
+            let new_prefix = if prefix.is_empty() {
+                use_path.ident.to_string()
+            } else {
+                format!("{}::{}", prefix, use_path.ident)
+            };
+            collect_use_imports(&use_path.tree, new_prefix, map);
+        }
+        syn::UseTree::Name(use_name) => {
+            let full_path = if prefix.is_empty() {
+                use_name.ident.to_string()
+            } else {
+                format!("{}::{}", prefix, use_name.ident)
+            };
+            map.insert(use_name.ident.to_string(), full_path);
+        }
+        syn::UseTree::Rename(use_rename) => {
+            let full_path = if prefix.is_empty() {
+                use_rename.ident.to_string()
+            } else {
+                format!("{}::{}", prefix, use_rename.ident)
+            };
+            map.insert(use_rename.rename.to_string(), full_path);
+        }
+        syn::UseTree::Glob(_) => {
+            // Can't resolve glob imports statically
+        }
+        syn::UseTree::Group(use_group) => {
+            for item in &use_group.items {
+                collect_use_imports(item, prefix.clone(), map);
+            }
+        }
+    }
+}
+
+/// Extract module path from relative file path
+/// e.g., "src/components/transform.rs" -> "components::transform"
+fn extract_module_path(relative_path: &Path) -> String {
+    let path_str = relative_path.to_string_lossy();
+    
+    // Remove src/ prefix if present
+    let without_src = if path_str.starts_with("src/") || path_str.starts_with("src\\") {
+        &path_str[4..]
+    } else {
+        &path_str
+    };
+    
+    // Remove .rs extension
+    let without_ext = without_src.trim_end_matches(".rs");
+    
+    // Skip lib.rs and mod.rs as they don't add to the module path
+    if without_ext == "lib" || without_ext == "mod" {
+        return String::new();
+    }
+    
+    // Also handle paths ending in /mod.rs
+    let trimmed = without_ext.trim_end_matches("/mod").trim_end_matches("\\mod");
+    
+    // Convert path separators to ::
+    trimmed.replace('/', "::").replace('\\', "::")
+}
+
+/// Resolve a type path for Component methods
+/// Since we use `use bevy::prelude::*;` in generated code, short names from prelude work directly
+/// Types not in prelude will cause compile errors which naturally filters them out
+fn component_resolve_type_path(
+    type_str: &str, 
+    _import_map: &std::collections::HashMap<String, String>,
+    _crate_name: &str,
+) -> Option<String> {
+    // Strip reference prefix if present
+    let (ref_prefix, base_type) = if type_str.starts_with("&mut ") {
+        ("&mut ", &type_str[5..])
+    } else if type_str.starts_with("& ") {
+        ("& ", &type_str[2..])
+    } else if type_str.starts_with("&") {
+        ("&", &type_str[1..])
+    } else {
+        ("", type_str)
+    };
+    
+    // Skip types with complex paths that aren't in prelude
+    if base_type.contains("::") && !base_type.starts_with("bevy::prelude::") {
+        return None;
+    }
+    
+    // Heuristic: Skip types that are unlikely to be in bevy::prelude
+    // - Single or two letter types (generics like V, T)
+    // - Types ending in common non-prelude suffixes
+    if base_type.len() <= 2 {
+        return None; // Generic type parameters
+    }
+    
+    // Skip types with generic parameters (e.g., "Option<T>")
+    if base_type.contains('<') || base_type.contains('>') {
+        return None;
+    }
+    
+    // Return short name - bevy::prelude::* is in scope in generated code
+    // Types not in prelude will cause compile errors and be naturally filtered
+    Some(format!("{}{}", ref_prefix, base_type))
+}
+
+/// Check if a type is a primitive that doesn't need resolution (for Component methods)
+fn component_is_primitive_type(type_str: &str) -> bool {
+    let primitives = ["f32", "f64", "i32", "i64", "u32", "u64", "i8", "i16", "u8", "u16", "bool", "usize", "isize"];
+    let base = type_str.trim_start_matches("&mut ").trim_start_matches("& ").trim_start_matches("&");
+    primitives.contains(&base)
 }
 
 /// Get cache file path in the target directory
@@ -2186,7 +2785,28 @@ fn parse_systemparam_method_params(sig: &syn::Signature) -> Vec<SystemParamMetho
                 };
 
                 let ty = &pat_type.ty;
-                let type_str = quote::quote!(#ty).to_string().replace(" ", "");
+                let mut type_str = quote::quote!(#ty).to_string().replace(" ", "");
+                
+                // Handle impl Trait patterns like "impl TryInto<Dir3>" or "impl Into<Quat>"
+                // For TryInto<Dir3>, use Vec3 since it implements TryInto<Dir3> and is easier to construct from Lua
+                // For Into<T>, use T directly
+                if type_str.starts_with("impl") {
+                    // Extract the type from patterns like "implTryInto<Dir3>" or "implInto<Quat>"
+                    if let Some(start) = type_str.find('<') {
+                        if let Some(end) = type_str.rfind('>') {
+                            let inner_type = &type_str[start + 1..end];
+                            
+                            // For TryInto<Dir3>, use Vec3 since Vec3 implements TryInto<Dir3>
+                            // Vec3 is easier to construct from Lua tables via reflection
+                            if inner_type == "Dir3" || inner_type == "Dir2" || inner_type == "Dir3A" {
+                                type_str = "Vec3".to_string();
+                            } else {
+                                // For other Into<T> patterns, use T directly
+                                type_str = inner_type.to_string();
+                            }
+                        }
+                    }
+                }
 
                 // Check if it's a reference
                 let is_reference = type_str.starts_with("&");
@@ -3552,6 +4172,7 @@ fn write_bindings_to_parent_crate(
     newtypes: Vec<NewtypeSpec>,
     discovered_systemparams: Vec<DiscoveredSystemParam>, // Auto-discovered SystemParam types
     discovered_systemparam_methods: Vec<DiscoveredSystemParamMethod>, // Methods on SystemParam types
+    discovered_component_methods: Vec<DiscoveredComponentMethod>, // Methods on Component types (e.g., Transform::looking_at)
     parent_src_dir: &Path,
 ) {
     let generated_file = parent_src_dir.join("auto_resource_bindings.rs");
@@ -4326,7 +4947,8 @@ fn write_bindings_to_parent_crate(
                     let mut state = bevy::ecs::system::SystemState::<#type_path>::new(world);
                     let mut param = state.get_mut(world);
                     let result = #method_call;
-                    Ok(mlua::Value::String(lua.create_string(&format!("{:?}", result))?))
+                    // Convert result to Lua using reflection helper
+                    bevy_lua_ecs::reflection::result_to_lua_value(lua, &result)
                 }
             })
         })
@@ -4337,10 +4959,274 @@ fn write_bindings_to_parent_crate(
         systemparam_dispatch_arms.len()
     );
 
+    // Generate Component method dispatch arms using generic reflection
+    // Filter based on type structure: simple identifiers work with imports
+    // Complex types (with :: or <>) are skipped as they won't resolve
+    
+    // First pass: filter methods and collect unique crates for imports
+    let mut component_crates_used: std::collections::HashSet<String> = std::collections::HashSet::new();
+    let filtered_component_methods: Vec<_> = discovered_component_methods.iter()
+        .filter(|m| {
+            let type_name = &m.type_name;
+            
+            // TEMPORARY: Only include Transform and GlobalTransform for now
+            // Other component types have various codegen issues that need debugging
+            // TODO: Expand this once issues are resolved
+            if type_name != "Transform" && type_name != "GlobalTransform" {
+                return false;
+            }
+            
+            // Skip component types with complex paths
+            if type_name.contains("::") || type_name.contains('<') || type_name.contains('>') {
+                return false;
+            }
+            
+            // Skip methods with params that have complex types
+            let primitives = ["f32", "f64", "i32", "i64", "u32", "u64", "i8", "i16", "u8", "u16", "bool", "usize", "isize"];
+            for p in &m.params {
+                let base_type = p.type_str
+                    .trim_start_matches("&mut ")
+                    .trim_start_matches("& ")
+                    .trim_start_matches('&');
+                
+                // Skip if param type has complex path (except bevy::prelude::)
+                if base_type.contains("::") && !base_type.starts_with("bevy::prelude::") {
+                    return false;
+                }
+                
+                // Skip generic params (single letter types like T, V)
+                if base_type.len() <= 2 && !primitives.contains(&base_type) {
+                    return false;
+                }
+                
+                // Skip types with generic angle brackets
+                if base_type.contains('<') || base_type.contains('>') {
+                    return false;
+                }
+            }
+            
+            true
+        })
+        .collect();
+    
+    // Collect unique crates from filtered methods
+    for m in &filtered_component_methods {
+        if !m.source_crate.is_empty() {
+            component_crates_used.insert(m.source_crate.clone());
+        }
+    }
+    
+    // Now generate dispatch arms from filtered methods
+    let component_dispatch_arms: Vec<_> = filtered_component_methods.iter()
+        .filter_map(|m| {
+            let type_name = &m.type_name;
+            let method_name = &m.method_name;
+            
+            // Log methods that pass the filter
+            println!("cargo:warning= + Generating dispatch for {}::{} ({} params)", type_name, method_name, m.params.len());
+            
+            let method_ident = syn::Ident::new(method_name, proc_macro2::Span::call_site());
+            
+            // Parse the type path
+            let type_path: syn::Path = syn::parse_str(&m.type_path).ok()?;
+            
+            // Generate parameter extraction using reflection (same pattern as systemparam)
+            let mut param_extractions = Vec::new();
+            let mut param_names = Vec::new();
+            
+            for (i, p) in m.params.iter().enumerate() {
+                let typed_param_ident = syn::Ident::new(&format!("typed_param_{}", i), proc_macro2::Span::call_site());
+                
+                // Strip reference prefix for type registry lookup (short name)
+                let type_name_for_lookup = p.type_str
+                    .trim_start_matches("&mut ")
+                    .trim_start_matches("& ")
+                    .trim_start_matches('&');
+                let type_name_lit = type_name_for_lookup.rsplit("::").next().unwrap_or(type_name_for_lookup);
+                
+                // Types are pre-resolved during discovery - use p.type_str directly
+                // Strip reference prefix for the concrete type path
+                let base_type = p.type_str
+                    .trim_start_matches("&mut ")
+                    .trim_start_matches("& ")
+                    .trim_start_matches('&');
+                
+                // Try to parse as a path, skip if not valid
+                let param_type_path: syn::Path = match syn::parse_str(base_type) {
+                    Ok(path) => path,
+                    Err(_) => return None, // Skip methods with unparseable param types
+                };
+                
+                param_extractions.push(quote::quote! {
+                    // Parameter: #type_name_lit
+                    let #typed_param_ident: #param_type_path = {
+                        // Get default via reflection if available
+                        let reflect_default = type_registry.get_with_short_type_path(#type_name_lit)
+                            .and_then(|reg| reg.data::<bevy::prelude::ReflectDefault>());
+                        
+                        let mut param_instance: Box<dyn bevy::reflect::PartialReflect>;
+                        let mut used_default = false;
+                        
+                        if let Some(rd) = reflect_default {
+                            param_instance = rd.default().into_partial_reflect();
+                            used_default = true;
+                        } else if let Some(arg_val) = args.pop_front() {
+                            // Try to construct via FromReflect
+                            if let mlua::Value::Table(ref arg_table) = arg_val {
+                                if let Some(reg) = type_registry.get_with_short_type_path(#type_name_lit) {
+                                    if let Some(rfr) = reg.data::<bevy::reflect::ReflectFromReflect>() {
+                                        let type_info = reg.type_info();
+                                        let dynamic = bevy_lua_ecs::lua_table_to_dynamic(lua, arg_table, type_info, &app_type_registry)
+                                            .map_err(|e| mlua::Error::RuntimeError(format!("Failed to build param '{}': {}", #type_name_lit, e)))?;
+                                        if let Some(concrete) = rfr.from_reflect(&dynamic) {
+                                            param_instance = concrete;
+                                        } else {
+                                            return Err(mlua::Error::RuntimeError(format!(
+                                                "Failed to construct parameter type '{}' via FromReflect",
+                                                #type_name_lit
+                                            )));
+                                        }
+                                    } else {
+                                        return Err(mlua::Error::RuntimeError(format!(
+                                            "Parameter type '{}' has no FromReflect implementation",
+                                            #type_name_lit
+                                        )));
+                                    }
+                                } else {
+                                    return Err(mlua::Error::RuntimeError(format!(
+                                        "Parameter type '{}' not found in TypeRegistry",
+                                        #type_name_lit
+                                    )));
+                                }
+                            } else {
+                                return Err(mlua::Error::RuntimeError(format!(
+                                    "Parameter type '{}' expected table argument, got {:?}",
+                                    #type_name_lit, arg_val.type_name()
+                                )));
+                            }
+                        } else {
+                            return Err(mlua::Error::RuntimeError(format!(
+                                "Cannot construct parameter type '{}' - no argument provided and no Default",
+                                #type_name_lit
+                            )));
+                        };
+                        
+                        // If we used Default, populate from Lua arg if available
+                        if used_default {
+                            if let Some(arg_val) = args.pop_front() {
+                                if let mlua::Value::Table(t) = arg_val {
+                                    let _ = bevy_lua_ecs::lua_to_reflection(lua, &mlua::Value::Table(t), param_instance.as_partial_reflect_mut(), &app_type_registry);
+                                }
+                            }
+                        }
+                        
+                        // Downcast to concrete type using try_downcast_ref
+                        param_instance.try_downcast_ref::<#param_type_path>()
+                            .cloned()
+                            .ok_or_else(|| mlua::Error::RuntimeError(format!(
+                                "Failed to downcast parameter to '{}'", #type_name_lit
+                            )))?
+                    };
+                });
+                // If this is a reference parameter, pass a reference
+                if p.is_reference {
+                    param_names.push(quote::quote! { &#typed_param_ident });
+                } else {
+                    param_names.push(quote::quote! { #typed_param_ident });
+                }
+            }
+            
+            println!("cargo:warning=    + Generating dispatch for {}::{} ({} params)", type_name, method_name, m.params.len());
+            
+            // Generate method call
+            let method_call = if param_names.is_empty() {
+                if m.takes_mut_self {
+                    quote::quote! { comp.#method_ident() }
+                } else {
+                    quote::quote! { comp.#method_ident() }
+                }
+            } else {
+                if m.takes_mut_self {
+                    quote::quote! { comp.#method_ident(#(#param_names),*) }
+                } else {
+                    quote::quote! { comp.#method_ident(#(#param_names),*) }
+                }
+            };
+            
+            // Check if method returns Self (builder pattern) - if so, we need to write the result back
+            let returns_self = m.return_type == "Self" || m.return_type.as_str() == type_name;
+            
+            // Handle mutable vs immutable self
+            let component_access = if m.takes_mut_self {
+                if returns_self {
+                    // For builder methods that return Self, write the result back to the component
+                    quote::quote! {
+                        if let Some(mut comp) = world.get_mut::<#type_path>(entity) {
+                            let result = #method_call;
+                            *comp = result;
+                            Ok(mlua::Value::Nil)
+                        } else {
+                            Err(mlua::Error::RuntimeError(format!("Entity {:?} has no {} component", entity, #type_name)))
+                        }
+                    }
+                } else {
+                    quote::quote! {
+                        if let Some(mut comp) = world.get_mut::<#type_path>(entity) {
+                            let result = #method_call;
+                            Ok(mlua::Value::Nil) // TODO: use result_to_lua_value when return type reflects
+                        } else {
+                            Err(mlua::Error::RuntimeError(format!("Entity {:?} has no {} component", entity, #type_name)))
+                        }
+                    }
+                }
+            } else {
+                quote::quote! {
+                    if let Some(comp) = world.get::<#type_path>(entity) {
+                        let result = #method_call;
+                        Ok(mlua::Value::Nil) // TODO: use result_to_lua_value when return type reflects
+                    } else {
+                        Err(mlua::Error::RuntimeError(format!("Entity {:?} has no {} component", entity, #type_name)))
+                    }
+                }
+            };
+            
+            Some(quote::quote! {
+                (#type_name, #method_name) => {
+                    let app_type_registry = world.resource::<bevy::ecs::reflect::AppTypeRegistry>().clone();
+                    let type_registry = app_type_registry.read();
+                    let mut args: std::collections::VecDeque<mlua::Value> = args.into_iter().collect();
+                    let entity = bevy::prelude::Entity::from_bits(entity_id);
+                    
+                    #(#param_extractions)*
+                    
+                    #component_access
+                }
+            })
+        })
+        .collect();
+
+    println!(
+        "cargo:warning=  ✓ Generated {} Component method dispatch arms",
+        component_dispatch_arms.len()
+    );
+    
+    // Note: Dynamic import generation is disabled for now.
+    // Transform and GlobalTransform are in bevy::prelude which is already imported.
+    // Direct crate names like "bevy_transform" are not valid - they're accessed via bevy::transform.
+    // TODO: If we expand beyond Transform, we may need to add explicit imports.
+    let dynamic_crate_imports: Vec<proc_macro2::TokenStream> = Vec::new();
+
     let full_code = quote! {
 
         // Auto-generated Lua resource and component method bindings
         // Generated by bevy-lua-ecs build script
+        
+        // Import bevy::prelude so short type names work without qualification
+        #[allow(unused_imports)]
+        use bevy::prelude::*;
+        
+        // Dynamic imports for crates used by component methods
+        #(#dynamic_crate_imports)*
 
         pub fn register_auto_resource_bindings(registry: &bevy_lua_ecs::LuaResourceRegistry) {
             #(#method_bindings)*
@@ -4460,7 +5346,25 @@ fn write_bindings_to_parent_crate(
             }
         }
 
-        /// Dispatch read_events call for a specific event type
+        /// Dispatch a Component method call from Lua
+        /// This directly accesses components on entities and calls their methods
+        /// Supports Transform::looking_at, Transform::looking_to, etc.
+        pub fn dispatch_component_method(
+            lua: &mlua::Lua,
+            world: &mut bevy::prelude::World,
+            entity_id: u64,
+            type_name: &str,
+            method_name: &str,
+            args: mlua::MultiValue,
+        ) -> mlua::Result<mlua::Value> {
+            match (type_name, method_name) {
+                #(#component_dispatch_arms),*
+                _ => Err(mlua::Error::RuntimeError(format!(
+                    "Unknown or unsupported Component method: {}::{}", type_name, method_name
+                )))
+            }
+        }
+
         /// Returns a Lua table of events converted via reflection
         pub fn dispatch_read_events(
             lua: &mlua::Lua,
@@ -4599,6 +5503,10 @@ fn write_bindings_to_parent_crate(
                 // Register the message writer dispatcher - this connects the generated
                 // dispatch_write_message function to the library's write_message
                 bevy_lua_ecs::set_message_write_dispatcher(dispatch_write_message);
+
+                // Register the Component method dispatcher - this connects the generated
+                // dispatch_component_method function to the library's call_component_method
+                bevy_lua_ecs::set_component_method_dispatcher(dispatch_component_method);
 
                 // Register Bevy Event types for Lua read_events()
                 // This registers Events<T> for auto-discovered event types

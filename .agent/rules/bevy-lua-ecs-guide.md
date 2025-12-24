@@ -1,3 +1,7 @@
+---
+trigger: always_on
+---
+
 # Bevy-Lua-ECS Quick Reference
 
 **Core Philosophy: "Zero Rust"** - All game logic in Lua. Rust provides generic ECS infrastructure.
@@ -37,7 +41,7 @@ register_system("Update", function(world)
     local dt = world:delta_time()
     local entities = world:query({"Transform", "Sprite"}, nil)  -- (with, changed)
     for i, entity in ipairs(entities) do
-        entity:set("Transform", {...})  -- Queued update
+        entity:set({ Transform = {...} })  -- Queued update
     end
 end)
 ```
@@ -46,7 +50,7 @@ end)
 ```lua
 entity:get("Component")  -- Read
 entity:has("Component")  -- Check
-entity:set("Component", data)  -- Write (queued)
+entity:set({ Component = data })  -- Write (queued)
 entity:id()  -- Get ID
 ```
 

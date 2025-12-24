@@ -33,7 +33,6 @@ end
 -- Update system - calculates and displays FPS
 function FPS.update(world)
     if not fps_entity then 
-        print("[FPS] No entity!")
         return 
     end
     
@@ -47,10 +46,7 @@ function FPS.update(world)
         local fps = frame_count / time_accumulator
         last_fps = math.floor(fps + 0.5)  -- Round to nearest integer
         
-        print("[FPS] Updating text to: FPS: " .. tostring(last_fps))
-        
-        -- Update the Text2d component directly - it's a tuple struct Text2d(String)
-        -- Use "text" alias which maps to _0 field for tuple structs
+        -- Update the Text2d component directly
         fps_entity:set({
             Text2d = { text = "FPS: " .. tostring(last_fps) }
         })

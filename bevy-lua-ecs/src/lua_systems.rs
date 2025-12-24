@@ -169,6 +169,122 @@ fn run_single_lua_system(
             })?,
         )?;
 
+        // get_entity(bits) - get an entity wrapper from entity bits (from entity:id() or MeshRayCast results)
+        // Returns an entity wrapper with :has(), :get(), :id() methods
+        world_table.set(
+            "get_entity",
+            scope.create_function({
+                let update_queue_clone = update_queue.clone();
+                move |lua_ctx, (_self, entity_bits): (LuaTable, i64)| {
+                    // Reconstruct Entity from bits
+                    let entity = Entity::from_bits(entity_bits as u64);
+                    
+                    // Check if entity exists in world
+                    let entity_ref = match world.get_entity(entity) {
+                        Ok(e) => e,
+                        Err(_) => {
+                            debug!("[GET_ENTITY] Entity {:?} does not exist", entity);
+                            return Ok(LuaValue::Nil);
+                        }
+                    };
+                    
+                    // Get Lua custom components (for :has() checks like VrPanelMarker)
+                    let lua_components = if let Some(custom) = entity_ref.get::<crate::LuaCustomComponents>() {
+                        // Just clone the Arc references
+                        custom.components.clone()
+                    } else {
+                        std::collections::HashMap::new()
+                    };
+                    
+                    let snapshot = crate::lua_world_api::LuaEntitySnapshot {
+                        entity,
+                        component_data: std::collections::HashMap::new(), // Not populating for now
+                        lua_components,
+                        update_queue: update_queue_clone.clone(),
+                    };
+                    
+                    debug!("[GET_ENTITY] Returning snapshot for {:?}", entity);
+                    Ok(LuaValue::UserData(lua_ctx.create_userdata(snapshot)?))
+                }
+            })?,
+        )?;
+
+        // has_component(entity_index, entity_generation, component_name) - check if an entity has a specific component
+        // entity_index and entity_generation come from MeshRayCast result format "77v0" -> index=77, generation=0
+        // This iterates through all entities to find the one matching index/generation
+        world_table.set(
+            "has_component",
+            scope.create_function(
+                |_lua_ctx, (_self, target_index, target_gen_display, component_name): (LuaTable, u32, u32, String)| {
+                    // Bevy Debug format shows generation - 1, so "77v0" means generation()=1
+                    // But entity.generation() returns the actual NonZeroU32 value
+                    let target_gen = target_gen_display + 1;
+                    
+                    debug!("[HAS_COMPONENT] Looking for entity index={} gen_display={} (actual_gen={}) with '{}'", 
+                        target_index, target_gen_display, target_gen, component_name);
+                    
+                    // Iterate all entities to find one matching index and generation
+                    let mut found_entity: Option<Entity> = None;
+                    for entity_ref in world.iter_entities() {
+                        let entity = entity_ref.id();
+                        if entity.index() == target_index && entity.generation().to_bits() == target_gen {
+                            found_entity = Some(entity);
+                            break;
+                        }
+                    }
+                    
+                    let entity = match found_entity {
+                        Some(e) => e,
+                        None => {
+                            debug!("[HAS_COMPONENT] No entity found with index={} generation={}", target_index, target_gen);
+                            return Ok(false);
+                        }
+                    };
+                    
+                    debug!("[HAS_COMPONENT] Found entity {:?}, checking for component", entity);
+                    
+                    // Get entity reference for component check
+                    let entity_ref = match world.get_entity(entity) {
+                        Ok(eref) => eref,
+                        Err(_) => return Ok(false),
+                    };
+                    
+                    // Look up component type in registry
+                    let type_registry = component_registry.type_registry();
+                    let registry = type_registry.read();
+                    
+                    // Try short name first, then full path
+                    let type_registration = registry
+                        .get_with_short_type_path(&component_name)
+                        .or_else(|| registry.get_with_type_path(&component_name));
+                    
+                    if let Some(registration) = type_registration {
+                        // Get ReflectComponent to check if entity has it
+                        if let Some(reflect_component) = registration.data::<ReflectComponent>() {
+                            let filtered_ref: bevy::ecs::world::FilteredEntityRef = (&entity_ref).into();
+                            let has = reflect_component.reflect(filtered_ref).is_some();
+                            debug!("[HAS_COMPONENT] Rust component check: {}", has);
+                            if has {
+                                return Ok(true);
+                            }
+                        }
+                    }
+                    
+                    // Check custom Lua components
+                    if let Some(lua_comps) = entity_ref.get::<crate::components::LuaCustomComponents>() {
+                        let has = lua_comps.components.contains_key(&component_name);
+                        debug!("[HAS_COMPONENT] Lua component check: {}, available: {:?}", 
+                            has, lua_comps.components.keys().collect::<Vec<_>>());
+                        if has {
+                            return Ok(true);
+                        }
+                    }
+                    
+                    Ok(false)
+                },
+            )?,
+        )?;
+
         // get_resource(resource_type_name) - get a resource by type name via reflection
         // Returns the resource as a Lua table, or nil if not found
         // Usage: local ray_map = world:get_resource("bevy::picking::backend::ray::RayMap")
@@ -316,7 +432,41 @@ fn run_single_lua_system(
             })?,
         )?;
 
-        // Helper function to cleanup a script instance (shared by reload and stop)
+        // call_component_method(entity_id, type_name, method_name, ...args) - call a method on a Component
+        // Supports Transform::looking_at, etc. Uses the global dispatcher set by the parent crate's initialization
+        world_table.set(
+            "call_component_method",
+            scope.create_function({
+                move |lua_ctx,
+                      (_, entity_id, type_name, method_name, args): (
+                    LuaTable,
+                    u64,
+                    String,
+                    String,
+                    mlua::MultiValue,
+                )| {
+                    // SAFETY: Entity mutation requires mutable world access
+                    #[allow(invalid_reference_casting)]
+                    let world_mut = unsafe { &mut *(world as *const World as *mut World) };
+
+                    // Resolve temp_id to real entity (handles both spawn() temp IDs and query() real IDs)
+                    let spawn_queue = world.resource::<crate::spawn_queue::SpawnQueue>();
+                    let resolved_entity = spawn_queue.resolve_entity(entity_id);
+                    let resolved_id = resolved_entity.to_bits();
+
+                    // Use the global dispatch callback set by the parent crate
+                    crate::systemparam_lua_trait::call_component_method_global(
+                        lua_ctx,
+                        world_mut,
+                        resolved_id,
+                        &type_name,
+                        &method_name,
+                        args,
+                    )
+                }
+            })?,
+        )?;
+
         let cleanup_script_instance =
             |lua_ctx: &Lua, instance_id: u64, _script_name: &str| -> Result<(), LuaError> {
                 let script_registry = world

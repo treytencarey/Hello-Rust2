@@ -1,8 +1,231 @@
 use bevy::prelude::*;
 #[cfg(feature = "auto-reflection")]
 use bevy::reflect::{Reflect, StructInfo, TypeInfo, TypeRegistry};
+use bevy::reflect::{PartialReflect, ReflectRef};
 use mlua::prelude::*;
 use std::collections::HashMap;
+
+/// Convert any reflected Bevy value to a Lua value
+/// - Entity → u64 bits (use world:get_entity(bits) to get entity wrapper)
+/// - Structs → Lua tables with field names as keys
+/// - TupleStructs → Lua tables with numeric keys (1-indexed)  
+/// - Lists/Arrays → Lua array tables
+/// - Tuples → Lua array tables
+/// - Primitives → Lua primitives (f32, f64, bool, String, etc.)
+/// - Options → nil if None, value if Some
+/// Falls back to Debug format if reflection isn't available
+pub fn reflect_to_lua_value(lua: &Lua, value: &dyn PartialReflect) -> LuaResult<LuaValue> {
+    // Check if this is an Entity by type path
+    if let Some(type_info) = value.get_represented_type_info() {
+        if type_info.type_path() == "bevy_ecs::entity::Entity" {
+            // We can't downcast PartialReflect to Entity directly
+            // Use the debug representation to extract the entity bits
+            // Entity debug format is "Entity(index, generation)" or similar
+            // But we want to return the actual bits - need to use try_downcast_ref on concrete
+            // Since we're getting &dyn PartialReflect, try using try_as_reflect
+            if let Some(reflect) = value.try_as_reflect() {
+                if let Some(entity) = reflect.downcast_ref::<Entity>() {
+                    return Ok(LuaValue::Integer(entity.to_bits() as i64));
+                }
+            }
+        }
+    }
+    
+    match value.reflect_ref() {
+        ReflectRef::Struct(s) => {
+            let table = lua.create_table()?;
+            for i in 0..s.field_len() {
+                if let (Some(name), Some(field)) = (s.name_at(i), s.field_at(i)) {
+                    let lua_value = reflect_to_lua_value(lua, field)?;
+                    table.set(name, lua_value)?;
+                }
+            }
+            Ok(LuaValue::Table(table))
+        }
+        ReflectRef::TupleStruct(ts) => {
+            let table = lua.create_table()?;
+            for i in 0..ts.field_len() {
+                if let Some(field) = ts.field(i) {
+                    let lua_value = reflect_to_lua_value(lua, field)?;
+                    table.set((i + 1) as i64, lua_value)?; // Lua is 1-indexed
+                }
+            }
+            Ok(LuaValue::Table(table))
+        }
+        ReflectRef::Tuple(t) => {
+            let table = lua.create_table()?;
+            for i in 0..t.field_len() {
+                if let Some(field) = t.field(i) {
+                    let lua_value = reflect_to_lua_value(lua, field)?;
+                    table.set((i + 1) as i64, lua_value)?;
+                }
+            }
+            Ok(LuaValue::Table(table))
+        }
+        ReflectRef::List(list) => {
+            let table = lua.create_table()?;
+            for i in 0..list.len() {
+                if let Some(item) = list.get(i) {
+                    let lua_value = reflect_to_lua_value(lua, item)?;
+                    table.set((i + 1) as i64, lua_value)?;
+                }
+            }
+            Ok(LuaValue::Table(table))
+        }
+        ReflectRef::Array(arr) => {
+            let table = lua.create_table()?;
+            for i in 0..arr.len() {
+                if let Some(item) = arr.get(i) {
+                    let lua_value = reflect_to_lua_value(lua, item)?;
+                    table.set((i + 1) as i64, lua_value)?;
+                }
+            }
+            Ok(LuaValue::Table(table))
+        }
+        ReflectRef::Map(map) => {
+            let table = lua.create_table()?;
+            for (key, val) in map.iter() {
+                let lua_key = reflect_to_lua_value(lua, key)?;
+                let lua_val = reflect_to_lua_value(lua, val)?;
+                table.set(lua_key, lua_val)?;
+            }
+            Ok(LuaValue::Table(table))
+        }
+        ReflectRef::Set(set) => {
+            let table = lua.create_table()?;
+            for (i, item) in set.iter().enumerate() {
+                let lua_value = reflect_to_lua_value(lua, item)?;
+                table.set((i + 1) as i64, lua_value)?;
+            }
+            Ok(LuaValue::Table(table))
+        }
+        ReflectRef::Enum(e) => {
+            // Handle Option specially
+            if let Some(type_info) = value.get_represented_type_info() {
+                let type_path = type_info.type_path();
+                if type_path.starts_with("core::option::Option") {
+                    let variant = e.variant_name();
+                    if variant == "None" {
+                        return Ok(LuaValue::Nil);
+                    } else if variant == "Some" && e.field_len() > 0 {
+                        if let Some(field) = e.field_at(0) {
+                            return reflect_to_lua_value(lua, field);
+                        }
+                    }
+                }
+            }
+            // For other enums, return table with variant name and fields
+            let table = lua.create_table()?;
+            table.set("variant", e.variant_name())?;
+            let fields = lua.create_table()?;
+            for i in 0..e.field_len() {
+                if let Some(field) = e.field_at(i) {
+                    let lua_value = reflect_to_lua_value(lua, field)?;
+                    // Use field name if available, otherwise index
+                    if let Some(name) = e.name_at(i) {
+                        fields.set(name, lua_value)?;
+                    } else {
+                        fields.set((i + 1) as i64, lua_value)?;
+                    }
+                }
+            }
+            table.set("fields", fields)?;
+            Ok(LuaValue::Table(table))
+        }
+        ReflectRef::Opaque(opaque) => {
+            // Try to downcast to common primitive types
+            if let Some(reflect) = opaque.try_as_reflect() {
+                // Numeric types
+                if let Some(v) = reflect.downcast_ref::<f32>() {
+                    return Ok(LuaValue::Number(*v as f64));
+                }
+                if let Some(v) = reflect.downcast_ref::<f64>() {
+                    return Ok(LuaValue::Number(*v));
+                }
+                if let Some(v) = reflect.downcast_ref::<i8>() {
+                    return Ok(LuaValue::Integer(*v as i64));
+                }
+                if let Some(v) = reflect.downcast_ref::<i16>() {
+                    return Ok(LuaValue::Integer(*v as i64));
+                }
+                if let Some(v) = reflect.downcast_ref::<i32>() {
+                    return Ok(LuaValue::Integer(*v as i64));
+                }
+                if let Some(v) = reflect.downcast_ref::<i64>() {
+                    return Ok(LuaValue::Integer(*v));
+                }
+                if let Some(v) = reflect.downcast_ref::<u8>() {
+                    return Ok(LuaValue::Integer(*v as i64));
+                }
+                if let Some(v) = reflect.downcast_ref::<u16>() {
+                    return Ok(LuaValue::Integer(*v as i64));
+                }
+                if let Some(v) = reflect.downcast_ref::<u32>() {
+                    return Ok(LuaValue::Integer(*v as i64));
+                }
+                if let Some(v) = reflect.downcast_ref::<u64>() {
+                    return Ok(LuaValue::Integer(*v as i64));
+                }
+                if let Some(v) = reflect.downcast_ref::<usize>() {
+                    return Ok(LuaValue::Integer(*v as i64));
+                }
+                // Boolean
+                if let Some(v) = reflect.downcast_ref::<bool>() {
+                    return Ok(LuaValue::Boolean(*v));
+                }
+                // String types
+                if let Some(v) = reflect.downcast_ref::<String>() {
+                    return Ok(LuaValue::String(lua.create_string(v)?));
+                }
+                if let Some(v) = reflect.downcast_ref::<&str>() {
+                    return Ok(LuaValue::String(lua.create_string(*v)?));
+                }
+            }
+            // Fallback to Debug format
+            Ok(LuaValue::String(lua.create_string(&format!("{:?}", opaque))?))
+        }
+    }
+}
+
+/// Try to convert a generic type implementing PartialReflect to a Lua value
+/// This is a convenience wrapper for use from generated code
+pub fn try_reflect_to_lua_value<T: PartialReflect + ?Sized>(lua: &Lua, value: &T) -> LuaResult<LuaValue> {
+    reflect_to_lua_value(lua, value.as_partial_reflect())
+}
+
+/// Trait for types that can be converted to Lua values from systemparam method results
+pub trait ToLuaValue {
+    fn to_lua_value(&self, lua: &Lua) -> LuaResult<LuaValue>;
+}
+
+// Implementation for slices of (Entity, T) where T: PartialReflect  
+impl<T: PartialReflect> ToLuaValue for [(Entity, T)] {
+    fn to_lua_value(&self, lua: &Lua) -> LuaResult<LuaValue> {
+        let table = lua.create_table()?;
+        for (i, (entity, hit)) in self.iter().enumerate() {
+            let hit_table = lua.create_table()?;
+            hit_table.set("entity", entity.to_bits())?;
+            // Convert the hit data using reflection
+            let hit_lua = reflect_to_lua_value(lua, hit.as_partial_reflect())?;
+            hit_table.set("data", hit_lua)?;
+            table.set((i + 1) as i64, hit_table)?;
+        }
+        Ok(LuaValue::Table(table))
+    }
+}
+
+// Implementation for references to slices of (Entity, T)
+impl<T: PartialReflect> ToLuaValue for &[(Entity, T)] {
+    fn to_lua_value(&self, lua: &Lua) -> LuaResult<LuaValue> {
+        <[(Entity, T)] as ToLuaValue>::to_lua_value(*self, lua)
+    }
+}
+
+/// Convert any result type to Lua value using the ToLuaValue trait
+/// This is the main entry point for generated code
+pub fn result_to_lua_value<T: ToLuaValue + ?Sized>(lua: &Lua, value: &T) -> LuaResult<LuaValue> {
+    value.to_lua_value(lua)
+}
 
 /// Bundle definition for Lua spawning
 pub struct BundleDefinition {

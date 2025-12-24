@@ -98,6 +98,7 @@ bytes = "1"  # Required for Renet message types
 mlua = { workspace = true, optional = true }
 notify = { version = "6.1", optional = true }
 bevy_mod_xr = { workspace = true, optional = true }
+uuid = "1.11"  # For PointerId::Custom in VR controller raycasting
 rand = "0.8"
 clap = { version = "4.1", features = ["derive"] }
 fastrand = "2.3"
@@ -135,6 +136,11 @@ required-features = ["physics3d"]
 [[example]]
 name = "vr_simple"
 path = "examples/vr_simple.rs"
+required-features = ["bevy_mod_xr"]
+
+[[example]]
+name = "vr_ui_panel"
+path = "examples/vr_ui_panel.rs"
 required-features = ["bevy_mod_xr"]
 
 [[example]]

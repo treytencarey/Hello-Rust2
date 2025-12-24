@@ -405,48 +405,71 @@ end
 
 #### Component Method Bindings
 
-Call methods on entity components directly from Lua:
+Call methods on entity components directly from Lua. The build script automatically discovers methods on Component types.
+
+##### Auto-Discovered Transform Methods
+
+Transform and GlobalTransform methods are auto-discovered and available immediately:
 
 ```lua
--- Query for entities with MessageSender component
-local senders = world:query({"MessageSender"}, nil)
-for _, sender in ipairs(senders) do
-    -- Call send() method on the component
-    world:call_component_method(sender, "MessageSender", "send", message_json)
-end
+-- looking_at: Orient transform to face a target position
+local panel_entity = spawn({ Transform = {...} }):id()
+world:call_component_method(panel_entity, "Transform", "looking_at", 
+    {x = 0, y = 0, z = 0},     -- target position
+    {x = 0, y = 1, z = 0})     -- up vector
 
--- Query for entities with MessageReceiver component  
-local receivers = world:query({"MessageReceiver"}, nil)
-for _, receiver in ipairs(receivers) do
-    -- Call receive() method and get results
-    local messages = world:call_component_method(receiver, "MessageReceiver", "receive")
-    for _, msg in ipairs(messages) do
-        print("Received:", msg)
-    end
-end
+-- rotate: Apply rotation quaternion
+world:call_component_method(entity_id, "Transform", "rotate", 
+    {x = 0, y = 0.5, z = 0, w = 0.866})  -- Quat
+
+-- with_translation, with_rotation, with_scale: Builder methods
+world:call_component_method(entity_id, "Transform", "with_translation", 
+    {x = 10, y = 0, z = 0})
+
+-- rotate_x, rotate_y, rotate_z: Axis rotation shortcuts
+world:call_component_method(entity_id, "Transform", "rotate_y", 0.1)  -- radians
+
+-- Direction getters
+local forward = world:call_component_method(entity_id, "Transform", "forward")
+local up = world:call_component_method(entity_id, "Transform", "up")
 ```
 
-**Game developers register component methods in Rust**:
+**Note**: Builder methods that return `Self` (like `looking_at`, `with_translation`) automatically write the result back to the component.
+
+##### Entity Utility Methods
+
+```lua
+-- Check if entity has a specific component
+if world:has_component(entity_id, "Transform") then
+    print("Entity has Transform!")
+end
+
+-- Get entity for use with SystemParam methods (e.g., MeshRayCast hits)
+local entity = world:get_entity(entity_id)
+```
+
+##### Custom Component Registration
+
+For game-specific component methods, register them in Rust:
 
 ```rust
 use bevy_lua_ecs::LuaComponentRegistry;
 
 fn register_components(registry: Res<LuaComponentRegistry>) {
-    // Register methods for your component types
     registry.register_component::<MyComponent, _>("MyComponent", |methods| {
         methods.add("do_something", |component, _lua, arg: String| {
             component.internal_method(arg);
-            Ok(true)  // Return value must implement IntoLua
+            Ok(true)
         });
     });
 }
 ```
 
 **Key Features**:
-- 🎯 **Generic Infrastructure**: Library has ZERO knowledge of specific components/plugins
-- ✅ **Type-Safe**: Methods use Rust's type system for safety
-- 🔄 **Auto-Mutability Detection**: Only mutable components can register methods (Bevy 0.16)
-- 🎮 **Game-Specific Registration**: Keep plugin bindings in your game code, not the library
+- 🎯 **Auto-Discovery**: Transform/GlobalTransform methods discovered at compile time
+- ✅ **Builder Pattern Support**: Methods returning `Self` auto-write back to component
+- 🔄 **Generic Infrastructure**: Works with any `#[derive(Component)]` type
+- 🎮 **Extensible**: Register custom methods for game-specific components
 
 ## Advanced: Resource Management
 

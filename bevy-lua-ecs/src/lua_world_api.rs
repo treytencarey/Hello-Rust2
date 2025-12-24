@@ -127,6 +127,147 @@ impl LuaUserData for LuaEntitySnapshot {
     }
 }
 
+/// Convert a reflected value to Lua using Bevy's reflection API directly.
+/// This preserves struct field names that would be lost through serde serialization.
+pub fn reflection_to_lua(lua: &Lua, value: &dyn bevy::reflect::PartialReflect) -> LuaResult<LuaValue> {
+    use bevy::reflect::ReflectRef;
+    
+    match value.reflect_ref() {
+        ReflectRef::Struct(s) => {
+            let table = lua.create_table()?;
+            for i in 0..s.field_len() {
+                if let Some(field) = s.field_at(i) {
+                    let field_name = match s.name_at(i) {
+                        Some(name) => name.to_string(),
+                        None => format!("{}", i),
+                    };
+                    table.set(field_name, reflection_to_lua(lua, field)?)?;
+                }
+            }
+            Ok(LuaValue::Table(table))
+        }
+        ReflectRef::TupleStruct(ts) => {
+            let table = lua.create_table()?;
+            for i in 0..ts.field_len() {
+                if let Some(field) = ts.field(i) {
+                    // Use _0, _1, etc. for tuple struct fields (like bevy-lua-ecs convention)
+                    table.set(format!("_{}", i), reflection_to_lua(lua, field)?)?;
+                    // Also set numeric indices for array-style access
+                    table.set(i + 1, reflection_to_lua(lua, field)?)?;
+                }
+            }
+            Ok(LuaValue::Table(table))
+        }
+        ReflectRef::Tuple(t) => {
+            let table = lua.create_table()?;
+            for i in 0..t.field_len() {
+                if let Some(field) = t.field(i) {
+                    table.set(i + 1, reflection_to_lua(lua, field)?)?;
+                }
+            }
+            Ok(LuaValue::Table(table))
+        }
+        ReflectRef::List(list) => {
+            let table = lua.create_table()?;
+            for i in 0..list.len() {
+                if let Some(item) = list.get(i) {
+                    table.set(i + 1, reflection_to_lua(lua, item)?)?;
+                }
+            }
+            Ok(LuaValue::Table(table))
+        }
+        ReflectRef::Array(arr) => {
+            let table = lua.create_table()?;
+            for i in 0..arr.len() {
+                if let Some(item) = arr.get(i) {
+                    table.set(i + 1, reflection_to_lua(lua, item)?)?;
+                }
+            }
+            Ok(LuaValue::Table(table))
+        }
+        ReflectRef::Map(map) => {
+            let table = lua.create_table()?;
+            for (key, val) in map.iter() {
+                // Try to get a string key
+                if let Some(key_str) = key.try_downcast_ref::<String>() {
+                    table.set(key_str.clone(), reflection_to_lua(lua, val)?)?;
+                } else if let Some(key_str) = key.try_downcast_ref::<&str>() {
+                    table.set(*key_str, reflection_to_lua(lua, val)?)?;
+                } else {
+                    // Use debug format for non-string keys
+                    table.set(format!("{:?}", key), reflection_to_lua(lua, val)?)?;
+                }
+            }
+            Ok(LuaValue::Table(table))
+        }
+        ReflectRef::Set(set) => {
+            let table = lua.create_table()?;
+            for (i, item) in set.iter().enumerate() {
+                table.set(i + 1, reflection_to_lua(lua, item)?)?;
+            }
+            Ok(LuaValue::Table(table))
+        }
+        ReflectRef::Enum(e) => {
+            // For enums, create a table with the variant name as key
+            let table = lua.create_table()?;
+            let variant_name = e.variant_name();
+            
+            if e.field_len() == 0 {
+                // Unit variant
+                table.set(variant_name, true)?;
+            } else if e.field_len() == 1 {
+                // Newtype variant
+                if let Some(field) = e.field_at(0) {
+                    table.set(variant_name, reflection_to_lua(lua, field)?)?;
+                }
+            } else {
+                // Tuple or struct variant
+                let inner = lua.create_table()?;
+                for i in 0..e.field_len() {
+                    if let Some(field) = e.field_at(i) {
+                        if let Some(name) = e.name_at(i) {
+                            inner.set(name.to_string(), reflection_to_lua(lua, field)?)?;
+                        } else {
+                            inner.set(i + 1, reflection_to_lua(lua, field)?)?;
+                        }
+                    }
+                }
+                table.set(variant_name, inner)?;
+            }
+            Ok(LuaValue::Table(table))
+        }
+        ReflectRef::Opaque(opaque) => {
+            // Try to extract primitive values
+            if let Some(v) = opaque.try_downcast_ref::<f32>() {
+                return Ok(LuaValue::Number(*v as f64));
+            }
+            if let Some(v) = opaque.try_downcast_ref::<f64>() {
+                return Ok(LuaValue::Number(*v));
+            }
+            if let Some(v) = opaque.try_downcast_ref::<i32>() {
+                return Ok(LuaValue::Integer(*v as i64));
+            }
+            if let Some(v) = opaque.try_downcast_ref::<i64>() {
+                return Ok(LuaValue::Integer(*v));
+            }
+            if let Some(v) = opaque.try_downcast_ref::<u32>() {
+                return Ok(LuaValue::Integer(*v as i64));
+            }
+            if let Some(v) = opaque.try_downcast_ref::<u64>() {
+                return Ok(LuaValue::Integer(*v as i64));
+            }
+            if let Some(v) = opaque.try_downcast_ref::<bool>() {
+                return Ok(LuaValue::Boolean(*v));
+            }
+            if let Some(v) = opaque.try_downcast_ref::<String>() {
+                return Ok(LuaValue::String(lua.create_string(v)?));
+            }
+            // Fallback to debug string for unknown opaque types
+            Ok(LuaValue::String(lua.create_string(&format!("{:?}", opaque))?))
+        }
+    }
+}
+
 /// Helper function to convert serde_json::Value to Lua value
 fn json_to_lua(lua: &Lua, value: &serde_json::Value) -> LuaResult<LuaValue> {
     json_to_lua_impl(lua, value, None)
@@ -195,7 +336,7 @@ fn json_to_lua_impl(
 
 /// Execute a query and collect entity snapshots
 pub fn execute_query(
-    _lua: &Lua,
+    lua: &Lua,
     world: &World,
     query_builder: &LuaQueryBuilder,
     component_registry: &ComponentRegistry,
@@ -241,20 +382,32 @@ pub fn execute_query(
                                 Into::<bevy::ecs::world::FilteredEntityRef>::into(&entity_ref),
                             )
                         {
-                            // Use TypedReflectSerializer to get proper JSON serialization
-                            use bevy::reflect::serde::TypedReflectSerializer;
-                            let serializer =
-                                TypedReflectSerializer::new(component.as_reflect(), &type_registry);
-                            if let Ok(json_value) = serde_json::to_value(serializer) {
-                                if let Ok(json_string) = serde_json::to_string(&json_value) {
-                                    component_data.insert(component_name.clone(), json_string);
+                            // Use reflection_to_lua to convert directly with proper field names
+                            match reflection_to_lua(lua, component) {
+                                Ok(lua_value) => {
+                                    // Store as registry key (same as Lua components)
+                                    if let Ok(registry_key) = lua.create_registry_value(lua_value) {
+                                        lua_components.insert(component_name.clone(), Arc::new(registry_key));
+                                        continue;
+                                    }
+                                }
+                                Err(_) => {
+                                    // Fallback to JSON if reflection_to_lua fails
+                                    use bevy::reflect::serde::TypedReflectSerializer;
+                                    let serializer =
+                                        TypedReflectSerializer::new(component.as_reflect(), &type_registry);
+                                    if let Ok(json_value) = serde_json::to_value(serializer) {
+                                        if let Ok(json_string) = serde_json::to_string(&json_value) {
+                                            component_data.insert(component_name.clone(), json_string);
+                                            continue;
+                                        }
+                                    }
+                                    // Final fallback to Debug
+                                    component_data
+                                        .insert(component_name.clone(), format!("{:?}", component));
                                     continue;
                                 }
                             }
-                            // Fallback to Debug if serialization fails
-                            component_data
-                                .insert(component_name.clone(), format!("{:?}", component));
-                            continue;
                         }
                     }
                 }

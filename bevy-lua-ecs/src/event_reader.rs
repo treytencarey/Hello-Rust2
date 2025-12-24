@@ -100,11 +100,40 @@ pub fn reflection_to_lua(
             Ok(LuaValue::Table(table))
         }
         ReflectRef::Opaque(v) => {
-            // For opaque values, we can't easily downcast since PartialReflect doesn't have downcast_ref
-            // Instead, we'll try to use the debug representation or return a simple string
-            // This is a limitation of the generic event reading approach
-
-            // Try to get a string representation
+            // Handle primitive types explicitly - they are opaque in Bevy reflection
+            // but we need to convert them to proper Lua types
+            
+            // Try to downcast to common primitive types
+            if let Some(b) = v.try_downcast_ref::<bool>() {
+                return Ok(LuaValue::Boolean(*b));
+            }
+            if let Some(n) = v.try_downcast_ref::<f32>() {
+                return Ok(LuaValue::Number(*n as f64));
+            }
+            if let Some(n) = v.try_downcast_ref::<f64>() {
+                return Ok(LuaValue::Number(*n));
+            }
+            if let Some(n) = v.try_downcast_ref::<i32>() {
+                return Ok(LuaValue::Integer(*n as i64));
+            }
+            if let Some(n) = v.try_downcast_ref::<i64>() {
+                return Ok(LuaValue::Integer(*n));
+            }
+            if let Some(n) = v.try_downcast_ref::<u32>() {
+                return Ok(LuaValue::Integer(*n as i64));
+            }
+            if let Some(n) = v.try_downcast_ref::<u64>() {
+                return Ok(LuaValue::Integer(*n as i64));
+            }
+            if let Some(n) = v.try_downcast_ref::<usize>() {
+                return Ok(LuaValue::Integer(*n as i64));
+            }
+            if let Some(s) = v.try_downcast_ref::<String>() {
+                return Ok(LuaValue::String(lua.create_string(s)?));
+            }
+            
+            // For other opaque values, use debug representation as string
+            // This is a fallback for types we don't explicitly handle
             let debug_str = format!("{:?}", v);
             Ok(LuaValue::String(lua.create_string(&debug_str)?))
         }

@@ -15,6 +15,9 @@ mod tiled;
 #[cfg(feature = "ufbx")]
 mod ufbx;
 
+#[cfg(feature = "bevy_mod_xr")]
+mod vr;
+
 pub use core::*;
 
 #[cfg(feature = "physics")]
@@ -29,3 +32,5 @@ pub use tiled::*;
 #[cfg(feature = "ufbx")]
 pub use ufbx::*;
 
+#[cfg(feature = "bevy_mod_xr")]
+pub use vr::*;

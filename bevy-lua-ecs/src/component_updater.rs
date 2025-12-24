@@ -27,7 +27,7 @@ pub fn process_component_updates(
     
     for request in requests {
         let type_path = request.component_name.clone();
-        debug!("[COMPONENT_UPDATE] Processing request for component '{}' on entity {:?}", type_path, request.entity);
+        debug!("[COMPONENT_UPDATE] Processing request for component '{}' on entity {:?} (bits={})", type_path, request.entity, request.entity.to_bits());
         
         // Get Lua data before we start mutable access
         let data_value: LuaValue = {
@@ -183,6 +183,49 @@ fn update_component_from_lua(
                         crate::components::set_field_from_lua(field, &value, asset_registry, type_registry, Some(&key))?;
                     }
                 }
+            }
+        }
+        ReflectMut::Enum(_enum_mut) => {
+            // Handle enum updates - for now, support unit variants (like Visibility::Visible)
+            // The table should have exactly one key (the component name) with a string value (variant name)
+            // OR just a single string value representing the variant name
+            
+            // First, check if there's a single key in the table that might be the variant value
+            let pairs: Vec<_> = table.pairs::<String, LuaValue>().filter_map(|r| r.ok()).collect();
+            
+            let variant_name = if pairs.len() == 1 {
+                // Single key-value pair - the value should be the variant name
+                match &pairs[0].1 {
+                    LuaValue::String(s) => s.to_str().ok().map(|s| s.to_string()),
+                    _ => None,
+                }
+            } else {
+                None
+            };
+            
+            if let Some(variant_name) = variant_name {
+                // Create a DynamicEnum with the unit variant
+                use bevy::reflect::{DynamicEnum, DynamicVariant};
+                
+                let type_path = component.reflect_type_path().to_string();
+                let registry = type_registry.read();
+                
+                if let Some(registration) = registry.get_with_type_path(&type_path) {
+                    // Check if this variant exists and is a unit variant
+                    if let Some(reflect_from_reflect) = registration.data::<bevy::reflect::ReflectFromReflect>() {
+                        let dynamic_enum = DynamicEnum::new(&variant_name, DynamicVariant::Unit);
+                        
+                        if let Some(concrete) = reflect_from_reflect.from_reflect(&dynamic_enum) {
+                            component.apply(concrete.as_ref());
+                            debug!("[COMPONENT_UPDATE] Applied enum variant '{}' to {}", variant_name, type_path);
+                            return Ok(());
+                        } else {
+                            debug!("[COMPONENT_UPDATE] Failed to create enum {} from variant '{}'", type_path, variant_name);
+                        }
+                    }
+                }
+            } else {
+                debug!("[COMPONENT_UPDATE] Enum update expected single key with string variant name");
             }
         }
         _ => {

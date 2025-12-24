@@ -611,9 +611,13 @@ impl LuaScriptContext {
             .set("spawn_with_parent", spawn_with_parent)?;
 
         // Create despawn function
+        // Entity ID may be a temp_id from spawn() or a real entity ID from query()
+        // Use resolve_entity to handle both cases - it looks up temp_id->entity mapping
+        // and falls back to from_bits() for real entity IDs
+        let queue_for_despawn = queue.clone();
         let despawn = lua_clone.create_function(move |_lua_ctx, entity_id: u64| {
-            let entity = Entity::from_raw_u32(entity_id as u32)
-                .ok_or_else(|| LuaError::RuntimeError("Invalid entity ID".to_string()))?;
+            // Resolve temp_id to real entity, or convert bits directly if it's a real ID
+            let entity = queue_for_despawn.resolve_entity(entity_id);
             despawn_queue.queue_despawn(entity);
             Ok(())
         })?;

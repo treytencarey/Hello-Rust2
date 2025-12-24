@@ -51,7 +51,7 @@ pub fn process_despawn_queue(
         }
     }
 
-    // Despawn the entities
+    // Despawn the entities (Bevy 0.16+ despawn() handles children automatically)
     for entity in entities_to_despawn {
         commands.entity(entity).despawn();
         debug!("Despawned entity: {:?}", entity);
