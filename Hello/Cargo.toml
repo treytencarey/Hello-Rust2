@@ -107,6 +107,7 @@ pathfinding = "4.14"
 bevy_mod_openxr = "0.4.0"
 openxr = "0.19.0"
 bevy_ufbx = { workspace = true, optional = true }
+bevy_ui_text_input = "0.6"
 
 [[example]]
 name = "networking"
