@@ -123,10 +123,13 @@ fn main() {
             ..default()
     }));
     
+    // Add text input support (editable text fields with clipboard, selection)
+    app.add_plugins(bevy_ui_text_input::TextInputPlugin);
+    // Add Lua wrapper for text input spawning
+    app.add_plugins(hello::text_input::LuaTextInputPlugin);
+    
     // Add core plugin
-    app.add_plugins(HelloCorePlugin {
-        spawn_camera_2d: !args.no_camera,
-    });
+    app.add_plugins(HelloCorePlugin {});
 
     // Add ufbx plugin if feature enabled
     #[cfg(feature = "ufbx")]

@@ -57,7 +57,6 @@ fn main() {
     }
     
     app.add_plugins(LuaSpawnPlugin)
-        .add_systems(Startup, setup)
         .add_systems(PostStartup, register_lua_message_functions)
         .add_systems(PostStartup, load_and_run_script.after(register_lua_message_functions))
         .add_systems(Update, echo_messages_system)  // MVP: local echo for testing
@@ -89,12 +88,6 @@ impl Default for MessageQueue {
 
 #[derive(Resource)]
 struct IsClientMode(bool);
-
-fn setup(mut commands: Commands) {
-    commands.spawn(Camera2d);
-    info!("✅ Camera spawned");
-}
-
 /// Register Lua functions for sending/receiving messages
 fn register_lua_message_functions(
     lua_ctx: Res<LuaScriptContext>,

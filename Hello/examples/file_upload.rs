@@ -58,7 +58,6 @@ fn main() {
     app.add_systems(PreStartup, setup_networking);
 
     // Setup camera and register networking methods
-    app.add_systems(Startup, setup);
     app.insert_resource(IsClient(is_client));
     app.add_systems(PostStartup, load_and_run_script);
 
@@ -76,11 +75,6 @@ fn setup_networking(
     // Register networking method bindings (for world:call_resource_method in Lua)
     networking::register_networking_methods(&lua_resource_registry);
     info!("✓ Networking components and methods registered");
-}
-
-fn setup(mut commands: Commands) {
-    commands.spawn(Camera2d);
-    info!("✓ Camera spawned");
 }
 
 fn load_and_run_script(

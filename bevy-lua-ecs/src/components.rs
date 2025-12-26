@@ -1206,11 +1206,39 @@ pub fn set_field_from_lua(
             // Silently continue if nested field setting fails - might not be a nested struct
             let _ = e;
         }
-    } else {
-        // warn!(
-        //     "Could not downcast field of type {} to any known type",
-        //     field.reflect_type_path()
-        // );
+    } else if let LuaValue::String(variant_name_str) = lua_value {
+        // Check if the target field is an enum type - handle string as unit variant name
+        // This supports patterns like: flex_direction = "Column", display = "Flex", align_items = "Center"
+        use bevy::reflect::{DynamicEnum, DynamicVariant, ReflectMut};
+        
+        if let ReflectMut::Enum(_) = field.reflect_mut() {
+            let variant_name = variant_name_str.to_str()?;
+            let type_path = field.reflect_type_path().to_string();
+            
+            debug!("[FIELD_SET_ENUM] Field '{}' is enum type '{}', trying variant '{}'", 
+                   field_name_str, type_path, variant_name);
+            
+            let registry = type_registry.read();
+            if let Some(registration) = registry.get_with_type_path(&type_path) {
+                if let Some(reflect_from_reflect) = registration.data::<bevy::reflect::ReflectFromReflect>() {
+                    // Create a DynamicEnum with a unit variant
+                    let dynamic_enum = DynamicEnum::new(variant_name.to_string(), DynamicVariant::Unit);
+                    
+                    if let Some(concrete) = reflect_from_reflect.from_reflect(&dynamic_enum) {
+                        field.apply(concrete.as_ref());
+                        debug!("[FIELD_SET_ENUM] ✓ Applied enum variant '{}' to field '{}'", variant_name, field_name_str);
+                        return Ok(());
+                    } else {
+                        warn!("[FIELD_SET_ENUM] Failed to create enum '{}' with variant '{}' - from_reflect returned None", 
+                              type_path, variant_name);
+                    }
+                } else {
+                    debug!("[FIELD_SET_ENUM] Type '{}' doesn't have ReflectFromReflect", type_path);
+                }
+            } else {
+                debug!("[FIELD_SET_ENUM] Type '{}' not found in registry", type_path);
+            }
+        }
     }
 
     Ok(())

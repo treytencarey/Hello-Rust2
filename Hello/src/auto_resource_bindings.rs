@@ -20,7 +20,6 @@ pub const DISCOVERED_ENTITY_WRAPPERS: &[&str] = &[
     "MainEntity",
     "OcclusionCullingSubviewEntities",
     "ParentSync",
-    "ClientEntityMap",
     "PriorityMap",
     "TargetCamera",
     "UiTargetCamera",
@@ -72,11 +71,11 @@ pub const DISCOVERED_ASSET_TYPES: &[&str] = &[
     "TiledWorldAsset",
     "StandardTilemapMaterial",
     "GizmoAsset",
+    "GltfSkin",
     "GltfMesh",
     "Gltf",
-    "GltfPrimitive",
     "GltfNode",
-    "GltfSkin",
+    "GltfPrimitive",
     "Image",
     "TextureAtlasLayout",
     "Mesh",
@@ -124,11 +123,11 @@ pub fn register_auto_typed_path_loaders(
         bevy::asset::LoadedFolder,
         bevy::audio::AudioSource,
         bevy::gizmos::GizmoAsset,
+        bevy::gltf::GltfSkin,
         bevy::gltf::GltfMesh,
         bevy::gltf::Gltf,
-        bevy::gltf::GltfPrimitive,
         bevy::gltf::GltfNode,
-        bevy::gltf::GltfSkin,
+        bevy::gltf::GltfPrimitive,
         bevy::prelude::Image,
         bevy::prelude::Mesh,
         bevy::prelude::StandardMaterial,
@@ -4985,6 +4984,7 @@ pub fn dispatch_component_method(
     }
 }
 #[doc = r" Returns a Lua table of events converted via reflection"]
+#[doc = r" Also supports reading Message types (uses MessageReader instead of EventReader)"]
 pub fn dispatch_read_events(
     lua: &mlua::Lua,
     world: &mut bevy::prelude::World,
@@ -4993,7 +4993,616 @@ pub fn dispatch_read_events(
     let type_registry = world
         .resource::<bevy::ecs::reflect::AppTypeRegistry>()
         .clone();
-    match event_type { "WindowResized" | "bevy_window::event::WindowResized" | "bevy::window::WindowResized" => { let mut system_state = bevy :: ecs :: system :: SystemState :: < bevy :: prelude :: EventReader < bevy :: window :: WindowResized >> :: new (world) ; let mut event_reader = system_state . get_mut (world) ; let results = lua . create_table () ? ; let mut index = 1 ; for event in event_reader . read () { if let Ok (event_value) = bevy_lua_ecs :: reflection_to_lua (lua , event as & dyn bevy :: reflect :: PartialReflect , & type_registry) { results . set (index , event_value) ? ; index += 1 ; } } Ok (mlua :: Value :: Table (results)) } , "RequestRedraw" | "bevy_window::event::RequestRedraw" | "bevy::window::RequestRedraw" => { let mut system_state = bevy :: ecs :: system :: SystemState :: < bevy :: prelude :: EventReader < bevy :: window :: RequestRedraw >> :: new (world) ; let mut event_reader = system_state . get_mut (world) ; let results = lua . create_table () ? ; let mut index = 1 ; for event in event_reader . read () { if let Ok (event_value) = bevy_lua_ecs :: reflection_to_lua (lua , event as & dyn bevy :: reflect :: PartialReflect , & type_registry) { results . set (index , event_value) ? ; index += 1 ; } } Ok (mlua :: Value :: Table (results)) } , "WindowCreated" | "bevy_window::event::WindowCreated" | "bevy::window::WindowCreated" => { let mut system_state = bevy :: ecs :: system :: SystemState :: < bevy :: prelude :: EventReader < bevy :: window :: WindowCreated >> :: new (world) ; let mut event_reader = system_state . get_mut (world) ; let results = lua . create_table () ? ; let mut index = 1 ; for event in event_reader . read () { if let Ok (event_value) = bevy_lua_ecs :: reflection_to_lua (lua , event as & dyn bevy :: reflect :: PartialReflect , & type_registry) { results . set (index , event_value) ? ; index += 1 ; } } Ok (mlua :: Value :: Table (results)) } , "WindowCloseRequested" | "bevy_window::event::WindowCloseRequested" | "bevy::window::WindowCloseRequested" => { let mut system_state = bevy :: ecs :: system :: SystemState :: < bevy :: prelude :: EventReader < bevy :: window :: WindowCloseRequested >> :: new (world) ; let mut event_reader = system_state . get_mut (world) ; let results = lua . create_table () ? ; let mut index = 1 ; for event in event_reader . read () { if let Ok (event_value) = bevy_lua_ecs :: reflection_to_lua (lua , event as & dyn bevy :: reflect :: PartialReflect , & type_registry) { results . set (index , event_value) ? ; index += 1 ; } } Ok (mlua :: Value :: Table (results)) } , "WindowClosed" | "bevy_window::event::WindowClosed" | "bevy::window::WindowClosed" => { let mut system_state = bevy :: ecs :: system :: SystemState :: < bevy :: prelude :: EventReader < bevy :: window :: WindowClosed >> :: new (world) ; let mut event_reader = system_state . get_mut (world) ; let results = lua . create_table () ? ; let mut index = 1 ; for event in event_reader . read () { if let Ok (event_value) = bevy_lua_ecs :: reflection_to_lua (lua , event as & dyn bevy :: reflect :: PartialReflect , & type_registry) { results . set (index , event_value) ? ; index += 1 ; } } Ok (mlua :: Value :: Table (results)) } , "WindowClosing" | "bevy_window::event::WindowClosing" | "bevy::window::WindowClosing" => { let mut system_state = bevy :: ecs :: system :: SystemState :: < bevy :: prelude :: EventReader < bevy :: window :: WindowClosing >> :: new (world) ; let mut event_reader = system_state . get_mut (world) ; let results = lua . create_table () ? ; let mut index = 1 ; for event in event_reader . read () { if let Ok (event_value) = bevy_lua_ecs :: reflection_to_lua (lua , event as & dyn bevy :: reflect :: PartialReflect , & type_registry) { results . set (index , event_value) ? ; index += 1 ; } } Ok (mlua :: Value :: Table (results)) } , "WindowDestroyed" | "bevy_window::event::WindowDestroyed" | "bevy::window::WindowDestroyed" => { let mut system_state = bevy :: ecs :: system :: SystemState :: < bevy :: prelude :: EventReader < bevy :: window :: WindowDestroyed >> :: new (world) ; let mut event_reader = system_state . get_mut (world) ; let results = lua . create_table () ? ; let mut index = 1 ; for event in event_reader . read () { if let Ok (event_value) = bevy_lua_ecs :: reflection_to_lua (lua , event as & dyn bevy :: reflect :: PartialReflect , & type_registry) { results . set (index , event_value) ? ; index += 1 ; } } Ok (mlua :: Value :: Table (results)) } , "CursorMoved" | "bevy_window::event::CursorMoved" | "bevy::window::CursorMoved" => { let mut system_state = bevy :: ecs :: system :: SystemState :: < bevy :: prelude :: EventReader < bevy :: window :: CursorMoved >> :: new (world) ; let mut event_reader = system_state . get_mut (world) ; let results = lua . create_table () ? ; let mut index = 1 ; for event in event_reader . read () { if let Ok (event_value) = bevy_lua_ecs :: reflection_to_lua (lua , event as & dyn bevy :: reflect :: PartialReflect , & type_registry) { results . set (index , event_value) ? ; index += 1 ; } } Ok (mlua :: Value :: Table (results)) } , "CursorEntered" | "bevy_window::event::CursorEntered" | "bevy::window::CursorEntered" => { let mut system_state = bevy :: ecs :: system :: SystemState :: < bevy :: prelude :: EventReader < bevy :: window :: CursorEntered >> :: new (world) ; let mut event_reader = system_state . get_mut (world) ; let results = lua . create_table () ? ; let mut index = 1 ; for event in event_reader . read () { if let Ok (event_value) = bevy_lua_ecs :: reflection_to_lua (lua , event as & dyn bevy :: reflect :: PartialReflect , & type_registry) { results . set (index , event_value) ? ; index += 1 ; } } Ok (mlua :: Value :: Table (results)) } , "CursorLeft" | "bevy_window::event::CursorLeft" | "bevy::window::CursorLeft" => { let mut system_state = bevy :: ecs :: system :: SystemState :: < bevy :: prelude :: EventReader < bevy :: window :: CursorLeft >> :: new (world) ; let mut event_reader = system_state . get_mut (world) ; let results = lua . create_table () ? ; let mut index = 1 ; for event in event_reader . read () { if let Ok (event_value) = bevy_lua_ecs :: reflection_to_lua (lua , event as & dyn bevy :: reflect :: PartialReflect , & type_registry) { results . set (index , event_value) ? ; index += 1 ; } } Ok (mlua :: Value :: Table (results)) } , "WindowFocused" | "bevy_window::event::WindowFocused" | "bevy::window::WindowFocused" => { let mut system_state = bevy :: ecs :: system :: SystemState :: < bevy :: prelude :: EventReader < bevy :: window :: WindowFocused >> :: new (world) ; let mut event_reader = system_state . get_mut (world) ; let results = lua . create_table () ? ; let mut index = 1 ; for event in event_reader . read () { if let Ok (event_value) = bevy_lua_ecs :: reflection_to_lua (lua , event as & dyn bevy :: reflect :: PartialReflect , & type_registry) { results . set (index , event_value) ? ; index += 1 ; } } Ok (mlua :: Value :: Table (results)) } , "WindowOccluded" | "bevy_window::event::WindowOccluded" | "bevy::window::WindowOccluded" => { let mut system_state = bevy :: ecs :: system :: SystemState :: < bevy :: prelude :: EventReader < bevy :: window :: WindowOccluded >> :: new (world) ; let mut event_reader = system_state . get_mut (world) ; let results = lua . create_table () ? ; let mut index = 1 ; for event in event_reader . read () { if let Ok (event_value) = bevy_lua_ecs :: reflection_to_lua (lua , event as & dyn bevy :: reflect :: PartialReflect , & type_registry) { results . set (index , event_value) ? ; index += 1 ; } } Ok (mlua :: Value :: Table (results)) } , "WindowScaleFactorChanged" | "bevy_window::event::WindowScaleFactorChanged" | "bevy::window::WindowScaleFactorChanged" => { let mut system_state = bevy :: ecs :: system :: SystemState :: < bevy :: prelude :: EventReader < bevy :: window :: WindowScaleFactorChanged >> :: new (world) ; let mut event_reader = system_state . get_mut (world) ; let results = lua . create_table () ? ; let mut index = 1 ; for event in event_reader . read () { if let Ok (event_value) = bevy_lua_ecs :: reflection_to_lua (lua , event as & dyn bevy :: reflect :: PartialReflect , & type_registry) { results . set (index , event_value) ? ; index += 1 ; } } Ok (mlua :: Value :: Table (results)) } , "WindowBackendScaleFactorChanged" | "bevy_window::event::WindowBackendScaleFactorChanged" | "bevy::window::WindowBackendScaleFactorChanged" => { let mut system_state = bevy :: ecs :: system :: SystemState :: < bevy :: prelude :: EventReader < bevy :: window :: WindowBackendScaleFactorChanged >> :: new (world) ; let mut event_reader = system_state . get_mut (world) ; let results = lua . create_table () ? ; let mut index = 1 ; for event in event_reader . read () { if let Ok (event_value) = bevy_lua_ecs :: reflection_to_lua (lua , event as & dyn bevy :: reflect :: PartialReflect , & type_registry) { results . set (index , event_value) ? ; index += 1 ; } } Ok (mlua :: Value :: Table (results)) } , "WindowMoved" | "bevy_window::event::WindowMoved" | "bevy::window::WindowMoved" => { let mut system_state = bevy :: ecs :: system :: SystemState :: < bevy :: prelude :: EventReader < bevy :: window :: WindowMoved >> :: new (world) ; let mut event_reader = system_state . get_mut (world) ; let results = lua . create_table () ? ; let mut index = 1 ; for event in event_reader . read () { if let Ok (event_value) = bevy_lua_ecs :: reflection_to_lua (lua , event as & dyn bevy :: reflect :: PartialReflect , & type_registry) { results . set (index , event_value) ? ; index += 1 ; } } Ok (mlua :: Value :: Table (results)) } , "WindowThemeChanged" | "bevy_window::event::WindowThemeChanged" | "bevy::window::WindowThemeChanged" => { let mut system_state = bevy :: ecs :: system :: SystemState :: < bevy :: prelude :: EventReader < bevy :: window :: WindowThemeChanged >> :: new (world) ; let mut event_reader = system_state . get_mut (world) ; let results = lua . create_table () ? ; let mut index = 1 ; for event in event_reader . read () { if let Ok (event_value) = bevy_lua_ecs :: reflection_to_lua (lua , event as & dyn bevy :: reflect :: PartialReflect , & type_registry) { results . set (index , event_value) ? ; index += 1 ; } } Ok (mlua :: Value :: Table (results)) } , "KeyboardInput" | "bevy_input::keyboard::KeyboardInput" | "bevy::input::keyboard::KeyboardInput" => { let mut system_state = bevy :: ecs :: system :: SystemState :: < bevy :: prelude :: EventReader < bevy :: input :: keyboard :: KeyboardInput >> :: new (world) ; let mut event_reader = system_state . get_mut (world) ; let results = lua . create_table () ? ; let mut index = 1 ; for event in event_reader . read () { if let Ok (event_value) = bevy_lua_ecs :: reflection_to_lua (lua , event as & dyn bevy :: reflect :: PartialReflect , & type_registry) { results . set (index , event_value) ? ; index += 1 ; } } Ok (mlua :: Value :: Table (results)) } , "KeyboardFocusLost" | "bevy_input::keyboard::KeyboardFocusLost" | "bevy::input::keyboard::KeyboardFocusLost" => { let mut system_state = bevy :: ecs :: system :: SystemState :: < bevy :: prelude :: EventReader < bevy :: input :: keyboard :: KeyboardFocusLost >> :: new (world) ; let mut event_reader = system_state . get_mut (world) ; let results = lua . create_table () ? ; let mut index = 1 ; for event in event_reader . read () { if let Ok (event_value) = bevy_lua_ecs :: reflection_to_lua (lua , event as & dyn bevy :: reflect :: PartialReflect , & type_registry) { results . set (index , event_value) ? ; index += 1 ; } } Ok (mlua :: Value :: Table (results)) } , "MouseButtonInput" | "bevy_input::mouse::MouseButtonInput" | "bevy::input::mouse::MouseButtonInput" => { let mut system_state = bevy :: ecs :: system :: SystemState :: < bevy :: prelude :: EventReader < bevy :: input :: mouse :: MouseButtonInput >> :: new (world) ; let mut event_reader = system_state . get_mut (world) ; let results = lua . create_table () ? ; let mut index = 1 ; for event in event_reader . read () { if let Ok (event_value) = bevy_lua_ecs :: reflection_to_lua (lua , event as & dyn bevy :: reflect :: PartialReflect , & type_registry) { results . set (index , event_value) ? ; index += 1 ; } } Ok (mlua :: Value :: Table (results)) } , "MouseMotion" | "bevy_input::mouse::MouseMotion" | "bevy::input::mouse::MouseMotion" => { let mut system_state = bevy :: ecs :: system :: SystemState :: < bevy :: prelude :: EventReader < bevy :: input :: mouse :: MouseMotion >> :: new (world) ; let mut event_reader = system_state . get_mut (world) ; let results = lua . create_table () ? ; let mut index = 1 ; for event in event_reader . read () { if let Ok (event_value) = bevy_lua_ecs :: reflection_to_lua (lua , event as & dyn bevy :: reflect :: PartialReflect , & type_registry) { results . set (index , event_value) ? ; index += 1 ; } } Ok (mlua :: Value :: Table (results)) } , "MouseWheel" | "bevy_input::mouse::MouseWheel" | "bevy::input::mouse::MouseWheel" => { let mut system_state = bevy :: ecs :: system :: SystemState :: < bevy :: prelude :: EventReader < bevy :: input :: mouse :: MouseWheel >> :: new (world) ; let mut event_reader = system_state . get_mut (world) ; let results = lua . create_table () ? ; let mut index = 1 ; for event in event_reader . read () { if let Ok (event_value) = bevy_lua_ecs :: reflection_to_lua (lua , event as & dyn bevy :: reflect :: PartialReflect , & type_registry) { results . set (index , event_value) ? ; index += 1 ; } } Ok (mlua :: Value :: Table (results)) } , "PointerInput" | "bevy_picking::pointer::PointerInput" | "bevy::picking::pointer::PointerInput" => { let mut system_state = bevy :: ecs :: system :: SystemState :: < bevy :: prelude :: EventReader < bevy :: picking :: pointer :: PointerInput >> :: new (world) ; let mut event_reader = system_state . get_mut (world) ; let results = lua . create_table () ? ; let mut index = 1 ; for event in event_reader . read () { if let Ok (event_value) = bevy_lua_ecs :: reflection_to_lua (lua , event as & dyn bevy :: reflect :: PartialReflect , & type_registry) { results . set (index , event_value) ? ; index += 1 ; } } Ok (mlua :: Value :: Table (results)) } _ => Err (mlua :: Error :: RuntimeError (format ! ("Unknown event type: '{}'. Available events are discovered from bevy_window and bevy_input." , event_type))) }
+    match event_type {
+        "WindowResized" | "bevy_window::event::WindowResized" | "bevy::window::WindowResized" => {
+            let mut system_state = bevy::ecs::system::SystemState::<
+                bevy::prelude::EventReader<bevy::window::WindowResized>,
+            >::new(world);
+            let mut event_reader = system_state.get_mut(world);
+            let results = lua.create_table()?;
+            let mut index = 1;
+            for event in event_reader.read() {
+                if let Ok(event_value) = bevy_lua_ecs::reflection_to_lua(
+                    lua,
+                    event as &dyn bevy::reflect::PartialReflect,
+                    &type_registry,
+                ) {
+                    results.set(index, event_value)?;
+                    index += 1;
+                }
+            }
+            Ok(mlua::Value::Table(results))
+        }
+        "RequestRedraw" | "bevy_window::event::RequestRedraw" | "bevy::window::RequestRedraw" => {
+            let mut system_state = bevy::ecs::system::SystemState::<
+                bevy::prelude::EventReader<bevy::window::RequestRedraw>,
+            >::new(world);
+            let mut event_reader = system_state.get_mut(world);
+            let results = lua.create_table()?;
+            let mut index = 1;
+            for event in event_reader.read() {
+                if let Ok(event_value) = bevy_lua_ecs::reflection_to_lua(
+                    lua,
+                    event as &dyn bevy::reflect::PartialReflect,
+                    &type_registry,
+                ) {
+                    results.set(index, event_value)?;
+                    index += 1;
+                }
+            }
+            Ok(mlua::Value::Table(results))
+        }
+        "WindowCreated" | "bevy_window::event::WindowCreated" | "bevy::window::WindowCreated" => {
+            let mut system_state = bevy::ecs::system::SystemState::<
+                bevy::prelude::EventReader<bevy::window::WindowCreated>,
+            >::new(world);
+            let mut event_reader = system_state.get_mut(world);
+            let results = lua.create_table()?;
+            let mut index = 1;
+            for event in event_reader.read() {
+                if let Ok(event_value) = bevy_lua_ecs::reflection_to_lua(
+                    lua,
+                    event as &dyn bevy::reflect::PartialReflect,
+                    &type_registry,
+                ) {
+                    results.set(index, event_value)?;
+                    index += 1;
+                }
+            }
+            Ok(mlua::Value::Table(results))
+        }
+        "WindowCloseRequested"
+        | "bevy_window::event::WindowCloseRequested"
+        | "bevy::window::WindowCloseRequested" => {
+            let mut system_state = bevy::ecs::system::SystemState::<
+                bevy::prelude::EventReader<bevy::window::WindowCloseRequested>,
+            >::new(world);
+            let mut event_reader = system_state.get_mut(world);
+            let results = lua.create_table()?;
+            let mut index = 1;
+            for event in event_reader.read() {
+                if let Ok(event_value) = bevy_lua_ecs::reflection_to_lua(
+                    lua,
+                    event as &dyn bevy::reflect::PartialReflect,
+                    &type_registry,
+                ) {
+                    results.set(index, event_value)?;
+                    index += 1;
+                }
+            }
+            Ok(mlua::Value::Table(results))
+        }
+        "WindowClosed" | "bevy_window::event::WindowClosed" | "bevy::window::WindowClosed" => {
+            let mut system_state = bevy::ecs::system::SystemState::<
+                bevy::prelude::EventReader<bevy::window::WindowClosed>,
+            >::new(world);
+            let mut event_reader = system_state.get_mut(world);
+            let results = lua.create_table()?;
+            let mut index = 1;
+            for event in event_reader.read() {
+                if let Ok(event_value) = bevy_lua_ecs::reflection_to_lua(
+                    lua,
+                    event as &dyn bevy::reflect::PartialReflect,
+                    &type_registry,
+                ) {
+                    results.set(index, event_value)?;
+                    index += 1;
+                }
+            }
+            Ok(mlua::Value::Table(results))
+        }
+        "WindowClosing" | "bevy_window::event::WindowClosing" | "bevy::window::WindowClosing" => {
+            let mut system_state = bevy::ecs::system::SystemState::<
+                bevy::prelude::EventReader<bevy::window::WindowClosing>,
+            >::new(world);
+            let mut event_reader = system_state.get_mut(world);
+            let results = lua.create_table()?;
+            let mut index = 1;
+            for event in event_reader.read() {
+                if let Ok(event_value) = bevy_lua_ecs::reflection_to_lua(
+                    lua,
+                    event as &dyn bevy::reflect::PartialReflect,
+                    &type_registry,
+                ) {
+                    results.set(index, event_value)?;
+                    index += 1;
+                }
+            }
+            Ok(mlua::Value::Table(results))
+        }
+        "WindowDestroyed"
+        | "bevy_window::event::WindowDestroyed"
+        | "bevy::window::WindowDestroyed" => {
+            let mut system_state = bevy::ecs::system::SystemState::<
+                bevy::prelude::EventReader<bevy::window::WindowDestroyed>,
+            >::new(world);
+            let mut event_reader = system_state.get_mut(world);
+            let results = lua.create_table()?;
+            let mut index = 1;
+            for event in event_reader.read() {
+                if let Ok(event_value) = bevy_lua_ecs::reflection_to_lua(
+                    lua,
+                    event as &dyn bevy::reflect::PartialReflect,
+                    &type_registry,
+                ) {
+                    results.set(index, event_value)?;
+                    index += 1;
+                }
+            }
+            Ok(mlua::Value::Table(results))
+        }
+        "CursorMoved" | "bevy_window::event::CursorMoved" | "bevy::window::CursorMoved" => {
+            let mut system_state = bevy::ecs::system::SystemState::<
+                bevy::prelude::EventReader<bevy::window::CursorMoved>,
+            >::new(world);
+            let mut event_reader = system_state.get_mut(world);
+            let results = lua.create_table()?;
+            let mut index = 1;
+            for event in event_reader.read() {
+                if let Ok(event_value) = bevy_lua_ecs::reflection_to_lua(
+                    lua,
+                    event as &dyn bevy::reflect::PartialReflect,
+                    &type_registry,
+                ) {
+                    results.set(index, event_value)?;
+                    index += 1;
+                }
+            }
+            Ok(mlua::Value::Table(results))
+        }
+        "CursorEntered" | "bevy_window::event::CursorEntered" | "bevy::window::CursorEntered" => {
+            let mut system_state = bevy::ecs::system::SystemState::<
+                bevy::prelude::EventReader<bevy::window::CursorEntered>,
+            >::new(world);
+            let mut event_reader = system_state.get_mut(world);
+            let results = lua.create_table()?;
+            let mut index = 1;
+            for event in event_reader.read() {
+                if let Ok(event_value) = bevy_lua_ecs::reflection_to_lua(
+                    lua,
+                    event as &dyn bevy::reflect::PartialReflect,
+                    &type_registry,
+                ) {
+                    results.set(index, event_value)?;
+                    index += 1;
+                }
+            }
+            Ok(mlua::Value::Table(results))
+        }
+        "CursorLeft" | "bevy_window::event::CursorLeft" | "bevy::window::CursorLeft" => {
+            let mut system_state = bevy::ecs::system::SystemState::<
+                bevy::prelude::EventReader<bevy::window::CursorLeft>,
+            >::new(world);
+            let mut event_reader = system_state.get_mut(world);
+            let results = lua.create_table()?;
+            let mut index = 1;
+            for event in event_reader.read() {
+                if let Ok(event_value) = bevy_lua_ecs::reflection_to_lua(
+                    lua,
+                    event as &dyn bevy::reflect::PartialReflect,
+                    &type_registry,
+                ) {
+                    results.set(index, event_value)?;
+                    index += 1;
+                }
+            }
+            Ok(mlua::Value::Table(results))
+        }
+        "WindowFocused" | "bevy_window::event::WindowFocused" | "bevy::window::WindowFocused" => {
+            let mut system_state = bevy::ecs::system::SystemState::<
+                bevy::prelude::EventReader<bevy::window::WindowFocused>,
+            >::new(world);
+            let mut event_reader = system_state.get_mut(world);
+            let results = lua.create_table()?;
+            let mut index = 1;
+            for event in event_reader.read() {
+                if let Ok(event_value) = bevy_lua_ecs::reflection_to_lua(
+                    lua,
+                    event as &dyn bevy::reflect::PartialReflect,
+                    &type_registry,
+                ) {
+                    results.set(index, event_value)?;
+                    index += 1;
+                }
+            }
+            Ok(mlua::Value::Table(results))
+        }
+        "WindowOccluded"
+        | "bevy_window::event::WindowOccluded"
+        | "bevy::window::WindowOccluded" => {
+            let mut system_state = bevy::ecs::system::SystemState::<
+                bevy::prelude::EventReader<bevy::window::WindowOccluded>,
+            >::new(world);
+            let mut event_reader = system_state.get_mut(world);
+            let results = lua.create_table()?;
+            let mut index = 1;
+            for event in event_reader.read() {
+                if let Ok(event_value) = bevy_lua_ecs::reflection_to_lua(
+                    lua,
+                    event as &dyn bevy::reflect::PartialReflect,
+                    &type_registry,
+                ) {
+                    results.set(index, event_value)?;
+                    index += 1;
+                }
+            }
+            Ok(mlua::Value::Table(results))
+        }
+        "WindowScaleFactorChanged"
+        | "bevy_window::event::WindowScaleFactorChanged"
+        | "bevy::window::WindowScaleFactorChanged" => {
+            let mut system_state = bevy::ecs::system::SystemState::<
+                bevy::prelude::EventReader<bevy::window::WindowScaleFactorChanged>,
+            >::new(world);
+            let mut event_reader = system_state.get_mut(world);
+            let results = lua.create_table()?;
+            let mut index = 1;
+            for event in event_reader.read() {
+                if let Ok(event_value) = bevy_lua_ecs::reflection_to_lua(
+                    lua,
+                    event as &dyn bevy::reflect::PartialReflect,
+                    &type_registry,
+                ) {
+                    results.set(index, event_value)?;
+                    index += 1;
+                }
+            }
+            Ok(mlua::Value::Table(results))
+        }
+        "WindowBackendScaleFactorChanged"
+        | "bevy_window::event::WindowBackendScaleFactorChanged"
+        | "bevy::window::WindowBackendScaleFactorChanged" => {
+            let mut system_state = bevy::ecs::system::SystemState::<
+                bevy::prelude::EventReader<bevy::window::WindowBackendScaleFactorChanged>,
+            >::new(world);
+            let mut event_reader = system_state.get_mut(world);
+            let results = lua.create_table()?;
+            let mut index = 1;
+            for event in event_reader.read() {
+                if let Ok(event_value) = bevy_lua_ecs::reflection_to_lua(
+                    lua,
+                    event as &dyn bevy::reflect::PartialReflect,
+                    &type_registry,
+                ) {
+                    results.set(index, event_value)?;
+                    index += 1;
+                }
+            }
+            Ok(mlua::Value::Table(results))
+        }
+        "FileDragAndDrop"
+        | "bevy_window::event::FileDragAndDrop"
+        | "bevy::window::FileDragAndDrop" => {
+            let mut system_state = bevy::ecs::system::SystemState::<
+                bevy::prelude::EventReader<bevy::window::FileDragAndDrop>,
+            >::new(world);
+            let mut event_reader = system_state.get_mut(world);
+            let results = lua.create_table()?;
+            let mut index = 1;
+            for event in event_reader.read() {
+                if let Ok(event_value) = bevy_lua_ecs::reflection_to_lua(
+                    lua,
+                    event as &dyn bevy::reflect::PartialReflect,
+                    &type_registry,
+                ) {
+                    results.set(index, event_value)?;
+                    index += 1;
+                }
+            }
+            Ok(mlua::Value::Table(results))
+        }
+        "WindowMoved" | "bevy_window::event::WindowMoved" | "bevy::window::WindowMoved" => {
+            let mut system_state = bevy::ecs::system::SystemState::<
+                bevy::prelude::EventReader<bevy::window::WindowMoved>,
+            >::new(world);
+            let mut event_reader = system_state.get_mut(world);
+            let results = lua.create_table()?;
+            let mut index = 1;
+            for event in event_reader.read() {
+                if let Ok(event_value) = bevy_lua_ecs::reflection_to_lua(
+                    lua,
+                    event as &dyn bevy::reflect::PartialReflect,
+                    &type_registry,
+                ) {
+                    results.set(index, event_value)?;
+                    index += 1;
+                }
+            }
+            Ok(mlua::Value::Table(results))
+        }
+        "WindowThemeChanged"
+        | "bevy_window::event::WindowThemeChanged"
+        | "bevy::window::WindowThemeChanged" => {
+            let mut system_state = bevy::ecs::system::SystemState::<
+                bevy::prelude::EventReader<bevy::window::WindowThemeChanged>,
+            >::new(world);
+            let mut event_reader = system_state.get_mut(world);
+            let results = lua.create_table()?;
+            let mut index = 1;
+            for event in event_reader.read() {
+                if let Ok(event_value) = bevy_lua_ecs::reflection_to_lua(
+                    lua,
+                    event as &dyn bevy::reflect::PartialReflect,
+                    &type_registry,
+                ) {
+                    results.set(index, event_value)?;
+                    index += 1;
+                }
+            }
+            Ok(mlua::Value::Table(results))
+        }
+        "AppLifecycle" | "bevy_window::event::AppLifecycle" | "bevy::window::AppLifecycle" => {
+            let mut system_state = bevy::ecs::system::SystemState::<
+                bevy::prelude::EventReader<bevy::window::AppLifecycle>,
+            >::new(world);
+            let mut event_reader = system_state.get_mut(world);
+            let results = lua.create_table()?;
+            let mut index = 1;
+            for event in event_reader.read() {
+                if let Ok(event_value) = bevy_lua_ecs::reflection_to_lua(
+                    lua,
+                    event as &dyn bevy::reflect::PartialReflect,
+                    &type_registry,
+                ) {
+                    results.set(index, event_value)?;
+                    index += 1;
+                }
+            }
+            Ok(mlua::Value::Table(results))
+        }
+        "KeyboardInput"
+        | "bevy_input::keyboard::KeyboardInput"
+        | "bevy::input::keyboard::KeyboardInput" => {
+            let mut system_state = bevy::ecs::system::SystemState::<
+                bevy::prelude::EventReader<bevy::input::keyboard::KeyboardInput>,
+            >::new(world);
+            let mut event_reader = system_state.get_mut(world);
+            let results = lua.create_table()?;
+            let mut index = 1;
+            for event in event_reader.read() {
+                if let Ok(event_value) = bevy_lua_ecs::reflection_to_lua(
+                    lua,
+                    event as &dyn bevy::reflect::PartialReflect,
+                    &type_registry,
+                ) {
+                    results.set(index, event_value)?;
+                    index += 1;
+                }
+            }
+            Ok(mlua::Value::Table(results))
+        }
+        "KeyboardFocusLost"
+        | "bevy_input::keyboard::KeyboardFocusLost"
+        | "bevy::input::keyboard::KeyboardFocusLost" => {
+            let mut system_state = bevy::ecs::system::SystemState::<
+                bevy::prelude::EventReader<bevy::input::keyboard::KeyboardFocusLost>,
+            >::new(world);
+            let mut event_reader = system_state.get_mut(world);
+            let results = lua.create_table()?;
+            let mut index = 1;
+            for event in event_reader.read() {
+                if let Ok(event_value) = bevy_lua_ecs::reflection_to_lua(
+                    lua,
+                    event as &dyn bevy::reflect::PartialReflect,
+                    &type_registry,
+                ) {
+                    results.set(index, event_value)?;
+                    index += 1;
+                }
+            }
+            Ok(mlua::Value::Table(results))
+        }
+        "MouseButtonInput"
+        | "bevy_input::mouse::MouseButtonInput"
+        | "bevy::input::mouse::MouseButtonInput" => {
+            let mut system_state = bevy::ecs::system::SystemState::<
+                bevy::prelude::EventReader<bevy::input::mouse::MouseButtonInput>,
+            >::new(world);
+            let mut event_reader = system_state.get_mut(world);
+            let results = lua.create_table()?;
+            let mut index = 1;
+            for event in event_reader.read() {
+                if let Ok(event_value) = bevy_lua_ecs::reflection_to_lua(
+                    lua,
+                    event as &dyn bevy::reflect::PartialReflect,
+                    &type_registry,
+                ) {
+                    results.set(index, event_value)?;
+                    index += 1;
+                }
+            }
+            Ok(mlua::Value::Table(results))
+        }
+        "MouseMotion" | "bevy_input::mouse::MouseMotion" | "bevy::input::mouse::MouseMotion" => {
+            let mut system_state = bevy::ecs::system::SystemState::<
+                bevy::prelude::EventReader<bevy::input::mouse::MouseMotion>,
+            >::new(world);
+            let mut event_reader = system_state.get_mut(world);
+            let results = lua.create_table()?;
+            let mut index = 1;
+            for event in event_reader.read() {
+                if let Ok(event_value) = bevy_lua_ecs::reflection_to_lua(
+                    lua,
+                    event as &dyn bevy::reflect::PartialReflect,
+                    &type_registry,
+                ) {
+                    results.set(index, event_value)?;
+                    index += 1;
+                }
+            }
+            Ok(mlua::Value::Table(results))
+        }
+        "MouseWheel" | "bevy_input::mouse::MouseWheel" | "bevy::input::mouse::MouseWheel" => {
+            let mut system_state = bevy::ecs::system::SystemState::<
+                bevy::prelude::EventReader<bevy::input::mouse::MouseWheel>,
+            >::new(world);
+            let mut event_reader = system_state.get_mut(world);
+            let results = lua.create_table()?;
+            let mut index = 1;
+            for event in event_reader.read() {
+                if let Ok(event_value) = bevy_lua_ecs::reflection_to_lua(
+                    lua,
+                    event as &dyn bevy::reflect::PartialReflect,
+                    &type_registry,
+                ) {
+                    results.set(index, event_value)?;
+                    index += 1;
+                }
+            }
+            Ok(mlua::Value::Table(results))
+        }
+        "PointerInput"
+        | "bevy_picking::pointer::PointerInput"
+        | "bevy::picking::pointer::PointerInput" => {
+            let mut system_state = bevy::ecs::system::SystemState::<
+                bevy::prelude::EventReader<bevy::picking::pointer::PointerInput>,
+            >::new(world);
+            let mut event_reader = system_state.get_mut(world);
+            let results = lua.create_table()?;
+            let mut index = 1;
+            for event in event_reader.read() {
+                if let Ok(event_value) = bevy_lua_ecs::reflection_to_lua(
+                    lua,
+                    event as &dyn bevy::reflect::PartialReflect,
+                    &type_registry,
+                ) {
+                    results.set(index, event_value)?;
+                    index += 1;
+                }
+            }
+            Ok(mlua::Value::Table(results))
+        }
+        "AssetDeleteEvent"
+        | "hello::asset_events::AssetDeleteEvent"
+        | "hello::asset_events::AssetDeleteEvent" => {
+            let mut system_state = bevy::ecs::system::SystemState::<
+                bevy::prelude::MessageReader<crate::asset_events::AssetDeleteEvent>,
+            >::new(world);
+            let mut message_reader = system_state.get_mut(world);
+            let results = lua.create_table()?;
+            let mut index = 1;
+            for message in message_reader.read() {
+                if let Ok(message_value) = bevy_lua_ecs::reflection_to_lua(
+                    lua,
+                    message as &dyn bevy::reflect::PartialReflect,
+                    &type_registry,
+                ) {
+                    results.set(index, message_value)?;
+                    index += 1;
+                }
+            }
+            Ok(mlua::Value::Table(results))
+        }
+        "AssetDirectoryListingEvent"
+        | "hello::asset_events::AssetDirectoryListingEvent"
+        | "hello::asset_events::AssetDirectoryListingEvent" => {
+            let mut system_state = bevy::ecs::system::SystemState::<
+                bevy::prelude::MessageReader<crate::asset_events::AssetDirectoryListingEvent>,
+            >::new(world);
+            let mut message_reader = system_state.get_mut(world);
+            let results = lua.create_table()?;
+            let mut index = 1;
+            for message in message_reader.read() {
+                if let Ok(message_value) = bevy_lua_ecs::reflection_to_lua(
+                    lua,
+                    message as &dyn bevy::reflect::PartialReflect,
+                    &type_registry,
+                ) {
+                    results.set(index, message_value)?;
+                    index += 1;
+                }
+            }
+            Ok(mlua::Value::Table(results))
+        }
+        "AssetLocalNewerEvent"
+        | "hello::asset_events::AssetLocalNewerEvent"
+        | "hello::asset_events::AssetLocalNewerEvent" => {
+            let mut system_state = bevy::ecs::system::SystemState::<
+                bevy::prelude::MessageReader<crate::asset_events::AssetLocalNewerEvent>,
+            >::new(world);
+            let mut message_reader = system_state.get_mut(world);
+            let results = lua.create_table()?;
+            let mut index = 1;
+            for message in message_reader.read() {
+                if let Ok(message_value) = bevy_lua_ecs::reflection_to_lua(
+                    lua,
+                    message as &dyn bevy::reflect::PartialReflect,
+                    &type_registry,
+                ) {
+                    results.set(index, message_value)?;
+                    index += 1;
+                }
+            }
+            Ok(mlua::Value::Table(results))
+        }
+        "AssetRenameEvent"
+        | "hello::asset_events::AssetRenameEvent"
+        | "hello::asset_events::AssetRenameEvent" => {
+            let mut system_state = bevy::ecs::system::SystemState::<
+                bevy::prelude::MessageReader<crate::asset_events::AssetRenameEvent>,
+            >::new(world);
+            let mut message_reader = system_state.get_mut(world);
+            let results = lua.create_table()?;
+            let mut index = 1;
+            for message in message_reader.read() {
+                if let Ok(message_value) = bevy_lua_ecs::reflection_to_lua(
+                    lua,
+                    message as &dyn bevy::reflect::PartialReflect,
+                    &type_registry,
+                ) {
+                    results.set(index, message_value)?;
+                    index += 1;
+                }
+            }
+            Ok(mlua::Value::Table(results))
+        }
+        "AssetUploadProgressEvent"
+        | "hello::asset_events::AssetUploadProgressEvent"
+        | "hello::asset_events::AssetUploadProgressEvent" => {
+            let mut system_state = bevy::ecs::system::SystemState::<
+                bevy::prelude::MessageReader<crate::asset_events::AssetUploadProgressEvent>,
+            >::new(world);
+            let mut message_reader = system_state.get_mut(world);
+            let results = lua.create_table()?;
+            let mut index = 1;
+            for message in message_reader.read() {
+                if let Ok(message_value) = bevy_lua_ecs::reflection_to_lua(
+                    lua,
+                    message as &dyn bevy::reflect::PartialReflect,
+                    &type_registry,
+                ) {
+                    results.set(index, message_value)?;
+                    index += 1;
+                }
+            }
+            Ok(mlua::Value::Table(results))
+        }
+        "PointerInput"
+        | "bevy_picking::pointer::PointerInput"
+        | "bevy::picking::pointer::PointerInput" => {
+            let mut system_state = bevy::ecs::system::SystemState::<
+                bevy::prelude::MessageReader<bevy::picking::pointer::PointerInput>,
+            >::new(world);
+            let mut message_reader = system_state.get_mut(world);
+            let results = lua.create_table()?;
+            let mut index = 1;
+            for message in message_reader.read() {
+                if let Ok(message_value) = bevy_lua_ecs::reflection_to_lua(
+                    lua,
+                    message as &dyn bevy::reflect::PartialReflect,
+                    &type_registry,
+                ) {
+                    results.set(index, message_value)?;
+                    index += 1;
+                }
+            }
+            Ok(mlua::Value::Table(results))
+        }
+        _ => Err(mlua::Error::RuntimeError(format!(
+            "Unknown event type: '{}'. Available types include Bevy events and Message types.",
+            event_type
+        ))),
+    }
 }
 #[doc = r" Dispatch write_events call for a specific event type"]
 #[doc = r" Constructs the event from a Lua table using reflection and sends via EventWriter"]
@@ -5003,7 +5612,7 @@ pub fn dispatch_write_events(
     event_type: &str,
     data: &mlua::Table,
 ) -> Result<(), String> {
-    match event_type { "WindowResized" | "bevy_window::event::WindowResized" | "bevy::window::WindowResized" => { let type_registry = world . resource :: < bevy :: ecs :: reflect :: AppTypeRegistry > () . clone () ; let registry = type_registry . read () ; if let Some (type_registration) = registry . get_with_type_path ("bevy::window::WindowResized") { let type_info = type_registration . type_info () ; let dynamic = bevy_lua_ecs :: lua_table_to_dynamic (lua , data , type_info , & type_registry) . map_err (| e | format ! ("Failed to build event '{}': {}" , "bevy::window::WindowResized" , e)) ? ; if let Some (concrete_event) = < bevy :: window :: WindowResized as bevy :: reflect :: FromReflect > :: from_reflect (& dynamic) { drop (registry) ; let mut system_state = bevy :: ecs :: system :: SystemState :: < bevy :: prelude :: EventWriter < bevy :: window :: WindowResized >> :: new (world) ; let mut event_writer = system_state . get_mut (world) ; event_writer . write (concrete_event) ; bevy :: log :: debug ! ("[EVENT_WRITE] Sent event: {}" , "bevy::window::WindowResized") ; return Ok (()) ; } return Err (format ! ("Failed to construct event '{}' via FromReflect" , "bevy::window::WindowResized")) ; } else { return Err (format ! ("Event type '{}' not found in TypeRegistry" , "bevy::window::WindowResized")) ; } } , "RequestRedraw" | "bevy_window::event::RequestRedraw" | "bevy::window::RequestRedraw" => { let type_registry = world . resource :: < bevy :: ecs :: reflect :: AppTypeRegistry > () . clone () ; let registry = type_registry . read () ; if let Some (type_registration) = registry . get_with_type_path ("bevy::window::RequestRedraw") { let type_info = type_registration . type_info () ; let dynamic = bevy_lua_ecs :: lua_table_to_dynamic (lua , data , type_info , & type_registry) . map_err (| e | format ! ("Failed to build event '{}': {}" , "bevy::window::RequestRedraw" , e)) ? ; if let Some (concrete_event) = < bevy :: window :: RequestRedraw as bevy :: reflect :: FromReflect > :: from_reflect (& dynamic) { drop (registry) ; let mut system_state = bevy :: ecs :: system :: SystemState :: < bevy :: prelude :: EventWriter < bevy :: window :: RequestRedraw >> :: new (world) ; let mut event_writer = system_state . get_mut (world) ; event_writer . write (concrete_event) ; bevy :: log :: debug ! ("[EVENT_WRITE] Sent event: {}" , "bevy::window::RequestRedraw") ; return Ok (()) ; } return Err (format ! ("Failed to construct event '{}' via FromReflect" , "bevy::window::RequestRedraw")) ; } else { return Err (format ! ("Event type '{}' not found in TypeRegistry" , "bevy::window::RequestRedraw")) ; } } , "WindowCreated" | "bevy_window::event::WindowCreated" | "bevy::window::WindowCreated" => { let type_registry = world . resource :: < bevy :: ecs :: reflect :: AppTypeRegistry > () . clone () ; let registry = type_registry . read () ; if let Some (type_registration) = registry . get_with_type_path ("bevy::window::WindowCreated") { let type_info = type_registration . type_info () ; let dynamic = bevy_lua_ecs :: lua_table_to_dynamic (lua , data , type_info , & type_registry) . map_err (| e | format ! ("Failed to build event '{}': {}" , "bevy::window::WindowCreated" , e)) ? ; if let Some (concrete_event) = < bevy :: window :: WindowCreated as bevy :: reflect :: FromReflect > :: from_reflect (& dynamic) { drop (registry) ; let mut system_state = bevy :: ecs :: system :: SystemState :: < bevy :: prelude :: EventWriter < bevy :: window :: WindowCreated >> :: new (world) ; let mut event_writer = system_state . get_mut (world) ; event_writer . write (concrete_event) ; bevy :: log :: debug ! ("[EVENT_WRITE] Sent event: {}" , "bevy::window::WindowCreated") ; return Ok (()) ; } return Err (format ! ("Failed to construct event '{}' via FromReflect" , "bevy::window::WindowCreated")) ; } else { return Err (format ! ("Event type '{}' not found in TypeRegistry" , "bevy::window::WindowCreated")) ; } } , "WindowCloseRequested" | "bevy_window::event::WindowCloseRequested" | "bevy::window::WindowCloseRequested" => { let type_registry = world . resource :: < bevy :: ecs :: reflect :: AppTypeRegistry > () . clone () ; let registry = type_registry . read () ; if let Some (type_registration) = registry . get_with_type_path ("bevy::window::WindowCloseRequested") { let type_info = type_registration . type_info () ; let dynamic = bevy_lua_ecs :: lua_table_to_dynamic (lua , data , type_info , & type_registry) . map_err (| e | format ! ("Failed to build event '{}': {}" , "bevy::window::WindowCloseRequested" , e)) ? ; if let Some (concrete_event) = < bevy :: window :: WindowCloseRequested as bevy :: reflect :: FromReflect > :: from_reflect (& dynamic) { drop (registry) ; let mut system_state = bevy :: ecs :: system :: SystemState :: < bevy :: prelude :: EventWriter < bevy :: window :: WindowCloseRequested >> :: new (world) ; let mut event_writer = system_state . get_mut (world) ; event_writer . write (concrete_event) ; bevy :: log :: debug ! ("[EVENT_WRITE] Sent event: {}" , "bevy::window::WindowCloseRequested") ; return Ok (()) ; } return Err (format ! ("Failed to construct event '{}' via FromReflect" , "bevy::window::WindowCloseRequested")) ; } else { return Err (format ! ("Event type '{}' not found in TypeRegistry" , "bevy::window::WindowCloseRequested")) ; } } , "WindowClosed" | "bevy_window::event::WindowClosed" | "bevy::window::WindowClosed" => { let type_registry = world . resource :: < bevy :: ecs :: reflect :: AppTypeRegistry > () . clone () ; let registry = type_registry . read () ; if let Some (type_registration) = registry . get_with_type_path ("bevy::window::WindowClosed") { let type_info = type_registration . type_info () ; let dynamic = bevy_lua_ecs :: lua_table_to_dynamic (lua , data , type_info , & type_registry) . map_err (| e | format ! ("Failed to build event '{}': {}" , "bevy::window::WindowClosed" , e)) ? ; if let Some (concrete_event) = < bevy :: window :: WindowClosed as bevy :: reflect :: FromReflect > :: from_reflect (& dynamic) { drop (registry) ; let mut system_state = bevy :: ecs :: system :: SystemState :: < bevy :: prelude :: EventWriter < bevy :: window :: WindowClosed >> :: new (world) ; let mut event_writer = system_state . get_mut (world) ; event_writer . write (concrete_event) ; bevy :: log :: debug ! ("[EVENT_WRITE] Sent event: {}" , "bevy::window::WindowClosed") ; return Ok (()) ; } return Err (format ! ("Failed to construct event '{}' via FromReflect" , "bevy::window::WindowClosed")) ; } else { return Err (format ! ("Event type '{}' not found in TypeRegistry" , "bevy::window::WindowClosed")) ; } } , "WindowClosing" | "bevy_window::event::WindowClosing" | "bevy::window::WindowClosing" => { let type_registry = world . resource :: < bevy :: ecs :: reflect :: AppTypeRegistry > () . clone () ; let registry = type_registry . read () ; if let Some (type_registration) = registry . get_with_type_path ("bevy::window::WindowClosing") { let type_info = type_registration . type_info () ; let dynamic = bevy_lua_ecs :: lua_table_to_dynamic (lua , data , type_info , & type_registry) . map_err (| e | format ! ("Failed to build event '{}': {}" , "bevy::window::WindowClosing" , e)) ? ; if let Some (concrete_event) = < bevy :: window :: WindowClosing as bevy :: reflect :: FromReflect > :: from_reflect (& dynamic) { drop (registry) ; let mut system_state = bevy :: ecs :: system :: SystemState :: < bevy :: prelude :: EventWriter < bevy :: window :: WindowClosing >> :: new (world) ; let mut event_writer = system_state . get_mut (world) ; event_writer . write (concrete_event) ; bevy :: log :: debug ! ("[EVENT_WRITE] Sent event: {}" , "bevy::window::WindowClosing") ; return Ok (()) ; } return Err (format ! ("Failed to construct event '{}' via FromReflect" , "bevy::window::WindowClosing")) ; } else { return Err (format ! ("Event type '{}' not found in TypeRegistry" , "bevy::window::WindowClosing")) ; } } , "WindowDestroyed" | "bevy_window::event::WindowDestroyed" | "bevy::window::WindowDestroyed" => { let type_registry = world . resource :: < bevy :: ecs :: reflect :: AppTypeRegistry > () . clone () ; let registry = type_registry . read () ; if let Some (type_registration) = registry . get_with_type_path ("bevy::window::WindowDestroyed") { let type_info = type_registration . type_info () ; let dynamic = bevy_lua_ecs :: lua_table_to_dynamic (lua , data , type_info , & type_registry) . map_err (| e | format ! ("Failed to build event '{}': {}" , "bevy::window::WindowDestroyed" , e)) ? ; if let Some (concrete_event) = < bevy :: window :: WindowDestroyed as bevy :: reflect :: FromReflect > :: from_reflect (& dynamic) { drop (registry) ; let mut system_state = bevy :: ecs :: system :: SystemState :: < bevy :: prelude :: EventWriter < bevy :: window :: WindowDestroyed >> :: new (world) ; let mut event_writer = system_state . get_mut (world) ; event_writer . write (concrete_event) ; bevy :: log :: debug ! ("[EVENT_WRITE] Sent event: {}" , "bevy::window::WindowDestroyed") ; return Ok (()) ; } return Err (format ! ("Failed to construct event '{}' via FromReflect" , "bevy::window::WindowDestroyed")) ; } else { return Err (format ! ("Event type '{}' not found in TypeRegistry" , "bevy::window::WindowDestroyed")) ; } } , "CursorMoved" | "bevy_window::event::CursorMoved" | "bevy::window::CursorMoved" => { let type_registry = world . resource :: < bevy :: ecs :: reflect :: AppTypeRegistry > () . clone () ; let registry = type_registry . read () ; if let Some (type_registration) = registry . get_with_type_path ("bevy::window::CursorMoved") { let type_info = type_registration . type_info () ; let dynamic = bevy_lua_ecs :: lua_table_to_dynamic (lua , data , type_info , & type_registry) . map_err (| e | format ! ("Failed to build event '{}': {}" , "bevy::window::CursorMoved" , e)) ? ; if let Some (concrete_event) = < bevy :: window :: CursorMoved as bevy :: reflect :: FromReflect > :: from_reflect (& dynamic) { drop (registry) ; let mut system_state = bevy :: ecs :: system :: SystemState :: < bevy :: prelude :: EventWriter < bevy :: window :: CursorMoved >> :: new (world) ; let mut event_writer = system_state . get_mut (world) ; event_writer . write (concrete_event) ; bevy :: log :: debug ! ("[EVENT_WRITE] Sent event: {}" , "bevy::window::CursorMoved") ; return Ok (()) ; } return Err (format ! ("Failed to construct event '{}' via FromReflect" , "bevy::window::CursorMoved")) ; } else { return Err (format ! ("Event type '{}' not found in TypeRegistry" , "bevy::window::CursorMoved")) ; } } , "CursorEntered" | "bevy_window::event::CursorEntered" | "bevy::window::CursorEntered" => { let type_registry = world . resource :: < bevy :: ecs :: reflect :: AppTypeRegistry > () . clone () ; let registry = type_registry . read () ; if let Some (type_registration) = registry . get_with_type_path ("bevy::window::CursorEntered") { let type_info = type_registration . type_info () ; let dynamic = bevy_lua_ecs :: lua_table_to_dynamic (lua , data , type_info , & type_registry) . map_err (| e | format ! ("Failed to build event '{}': {}" , "bevy::window::CursorEntered" , e)) ? ; if let Some (concrete_event) = < bevy :: window :: CursorEntered as bevy :: reflect :: FromReflect > :: from_reflect (& dynamic) { drop (registry) ; let mut system_state = bevy :: ecs :: system :: SystemState :: < bevy :: prelude :: EventWriter < bevy :: window :: CursorEntered >> :: new (world) ; let mut event_writer = system_state . get_mut (world) ; event_writer . write (concrete_event) ; bevy :: log :: debug ! ("[EVENT_WRITE] Sent event: {}" , "bevy::window::CursorEntered") ; return Ok (()) ; } return Err (format ! ("Failed to construct event '{}' via FromReflect" , "bevy::window::CursorEntered")) ; } else { return Err (format ! ("Event type '{}' not found in TypeRegistry" , "bevy::window::CursorEntered")) ; } } , "CursorLeft" | "bevy_window::event::CursorLeft" | "bevy::window::CursorLeft" => { let type_registry = world . resource :: < bevy :: ecs :: reflect :: AppTypeRegistry > () . clone () ; let registry = type_registry . read () ; if let Some (type_registration) = registry . get_with_type_path ("bevy::window::CursorLeft") { let type_info = type_registration . type_info () ; let dynamic = bevy_lua_ecs :: lua_table_to_dynamic (lua , data , type_info , & type_registry) . map_err (| e | format ! ("Failed to build event '{}': {}" , "bevy::window::CursorLeft" , e)) ? ; if let Some (concrete_event) = < bevy :: window :: CursorLeft as bevy :: reflect :: FromReflect > :: from_reflect (& dynamic) { drop (registry) ; let mut system_state = bevy :: ecs :: system :: SystemState :: < bevy :: prelude :: EventWriter < bevy :: window :: CursorLeft >> :: new (world) ; let mut event_writer = system_state . get_mut (world) ; event_writer . write (concrete_event) ; bevy :: log :: debug ! ("[EVENT_WRITE] Sent event: {}" , "bevy::window::CursorLeft") ; return Ok (()) ; } return Err (format ! ("Failed to construct event '{}' via FromReflect" , "bevy::window::CursorLeft")) ; } else { return Err (format ! ("Event type '{}' not found in TypeRegistry" , "bevy::window::CursorLeft")) ; } } , "WindowFocused" | "bevy_window::event::WindowFocused" | "bevy::window::WindowFocused" => { let type_registry = world . resource :: < bevy :: ecs :: reflect :: AppTypeRegistry > () . clone () ; let registry = type_registry . read () ; if let Some (type_registration) = registry . get_with_type_path ("bevy::window::WindowFocused") { let type_info = type_registration . type_info () ; let dynamic = bevy_lua_ecs :: lua_table_to_dynamic (lua , data , type_info , & type_registry) . map_err (| e | format ! ("Failed to build event '{}': {}" , "bevy::window::WindowFocused" , e)) ? ; if let Some (concrete_event) = < bevy :: window :: WindowFocused as bevy :: reflect :: FromReflect > :: from_reflect (& dynamic) { drop (registry) ; let mut system_state = bevy :: ecs :: system :: SystemState :: < bevy :: prelude :: EventWriter < bevy :: window :: WindowFocused >> :: new (world) ; let mut event_writer = system_state . get_mut (world) ; event_writer . write (concrete_event) ; bevy :: log :: debug ! ("[EVENT_WRITE] Sent event: {}" , "bevy::window::WindowFocused") ; return Ok (()) ; } return Err (format ! ("Failed to construct event '{}' via FromReflect" , "bevy::window::WindowFocused")) ; } else { return Err (format ! ("Event type '{}' not found in TypeRegistry" , "bevy::window::WindowFocused")) ; } } , "WindowOccluded" | "bevy_window::event::WindowOccluded" | "bevy::window::WindowOccluded" => { let type_registry = world . resource :: < bevy :: ecs :: reflect :: AppTypeRegistry > () . clone () ; let registry = type_registry . read () ; if let Some (type_registration) = registry . get_with_type_path ("bevy::window::WindowOccluded") { let type_info = type_registration . type_info () ; let dynamic = bevy_lua_ecs :: lua_table_to_dynamic (lua , data , type_info , & type_registry) . map_err (| e | format ! ("Failed to build event '{}': {}" , "bevy::window::WindowOccluded" , e)) ? ; if let Some (concrete_event) = < bevy :: window :: WindowOccluded as bevy :: reflect :: FromReflect > :: from_reflect (& dynamic) { drop (registry) ; let mut system_state = bevy :: ecs :: system :: SystemState :: < bevy :: prelude :: EventWriter < bevy :: window :: WindowOccluded >> :: new (world) ; let mut event_writer = system_state . get_mut (world) ; event_writer . write (concrete_event) ; bevy :: log :: debug ! ("[EVENT_WRITE] Sent event: {}" , "bevy::window::WindowOccluded") ; return Ok (()) ; } return Err (format ! ("Failed to construct event '{}' via FromReflect" , "bevy::window::WindowOccluded")) ; } else { return Err (format ! ("Event type '{}' not found in TypeRegistry" , "bevy::window::WindowOccluded")) ; } } , "WindowScaleFactorChanged" | "bevy_window::event::WindowScaleFactorChanged" | "bevy::window::WindowScaleFactorChanged" => { let type_registry = world . resource :: < bevy :: ecs :: reflect :: AppTypeRegistry > () . clone () ; let registry = type_registry . read () ; if let Some (type_registration) = registry . get_with_type_path ("bevy::window::WindowScaleFactorChanged") { let type_info = type_registration . type_info () ; let dynamic = bevy_lua_ecs :: lua_table_to_dynamic (lua , data , type_info , & type_registry) . map_err (| e | format ! ("Failed to build event '{}': {}" , "bevy::window::WindowScaleFactorChanged" , e)) ? ; if let Some (concrete_event) = < bevy :: window :: WindowScaleFactorChanged as bevy :: reflect :: FromReflect > :: from_reflect (& dynamic) { drop (registry) ; let mut system_state = bevy :: ecs :: system :: SystemState :: < bevy :: prelude :: EventWriter < bevy :: window :: WindowScaleFactorChanged >> :: new (world) ; let mut event_writer = system_state . get_mut (world) ; event_writer . write (concrete_event) ; bevy :: log :: debug ! ("[EVENT_WRITE] Sent event: {}" , "bevy::window::WindowScaleFactorChanged") ; return Ok (()) ; } return Err (format ! ("Failed to construct event '{}' via FromReflect" , "bevy::window::WindowScaleFactorChanged")) ; } else { return Err (format ! ("Event type '{}' not found in TypeRegistry" , "bevy::window::WindowScaleFactorChanged")) ; } } , "WindowBackendScaleFactorChanged" | "bevy_window::event::WindowBackendScaleFactorChanged" | "bevy::window::WindowBackendScaleFactorChanged" => { let type_registry = world . resource :: < bevy :: ecs :: reflect :: AppTypeRegistry > () . clone () ; let registry = type_registry . read () ; if let Some (type_registration) = registry . get_with_type_path ("bevy::window::WindowBackendScaleFactorChanged") { let type_info = type_registration . type_info () ; let dynamic = bevy_lua_ecs :: lua_table_to_dynamic (lua , data , type_info , & type_registry) . map_err (| e | format ! ("Failed to build event '{}': {}" , "bevy::window::WindowBackendScaleFactorChanged" , e)) ? ; if let Some (concrete_event) = < bevy :: window :: WindowBackendScaleFactorChanged as bevy :: reflect :: FromReflect > :: from_reflect (& dynamic) { drop (registry) ; let mut system_state = bevy :: ecs :: system :: SystemState :: < bevy :: prelude :: EventWriter < bevy :: window :: WindowBackendScaleFactorChanged >> :: new (world) ; let mut event_writer = system_state . get_mut (world) ; event_writer . write (concrete_event) ; bevy :: log :: debug ! ("[EVENT_WRITE] Sent event: {}" , "bevy::window::WindowBackendScaleFactorChanged") ; return Ok (()) ; } return Err (format ! ("Failed to construct event '{}' via FromReflect" , "bevy::window::WindowBackendScaleFactorChanged")) ; } else { return Err (format ! ("Event type '{}' not found in TypeRegistry" , "bevy::window::WindowBackendScaleFactorChanged")) ; } } , "WindowMoved" | "bevy_window::event::WindowMoved" | "bevy::window::WindowMoved" => { let type_registry = world . resource :: < bevy :: ecs :: reflect :: AppTypeRegistry > () . clone () ; let registry = type_registry . read () ; if let Some (type_registration) = registry . get_with_type_path ("bevy::window::WindowMoved") { let type_info = type_registration . type_info () ; let dynamic = bevy_lua_ecs :: lua_table_to_dynamic (lua , data , type_info , & type_registry) . map_err (| e | format ! ("Failed to build event '{}': {}" , "bevy::window::WindowMoved" , e)) ? ; if let Some (concrete_event) = < bevy :: window :: WindowMoved as bevy :: reflect :: FromReflect > :: from_reflect (& dynamic) { drop (registry) ; let mut system_state = bevy :: ecs :: system :: SystemState :: < bevy :: prelude :: EventWriter < bevy :: window :: WindowMoved >> :: new (world) ; let mut event_writer = system_state . get_mut (world) ; event_writer . write (concrete_event) ; bevy :: log :: debug ! ("[EVENT_WRITE] Sent event: {}" , "bevy::window::WindowMoved") ; return Ok (()) ; } return Err (format ! ("Failed to construct event '{}' via FromReflect" , "bevy::window::WindowMoved")) ; } else { return Err (format ! ("Event type '{}' not found in TypeRegistry" , "bevy::window::WindowMoved")) ; } } , "WindowThemeChanged" | "bevy_window::event::WindowThemeChanged" | "bevy::window::WindowThemeChanged" => { let type_registry = world . resource :: < bevy :: ecs :: reflect :: AppTypeRegistry > () . clone () ; let registry = type_registry . read () ; if let Some (type_registration) = registry . get_with_type_path ("bevy::window::WindowThemeChanged") { let type_info = type_registration . type_info () ; let dynamic = bevy_lua_ecs :: lua_table_to_dynamic (lua , data , type_info , & type_registry) . map_err (| e | format ! ("Failed to build event '{}': {}" , "bevy::window::WindowThemeChanged" , e)) ? ; if let Some (concrete_event) = < bevy :: window :: WindowThemeChanged as bevy :: reflect :: FromReflect > :: from_reflect (& dynamic) { drop (registry) ; let mut system_state = bevy :: ecs :: system :: SystemState :: < bevy :: prelude :: EventWriter < bevy :: window :: WindowThemeChanged >> :: new (world) ; let mut event_writer = system_state . get_mut (world) ; event_writer . write (concrete_event) ; bevy :: log :: debug ! ("[EVENT_WRITE] Sent event: {}" , "bevy::window::WindowThemeChanged") ; return Ok (()) ; } return Err (format ! ("Failed to construct event '{}' via FromReflect" , "bevy::window::WindowThemeChanged")) ; } else { return Err (format ! ("Event type '{}' not found in TypeRegistry" , "bevy::window::WindowThemeChanged")) ; } } , "KeyboardInput" | "bevy_input::keyboard::KeyboardInput" | "bevy::input::keyboard::KeyboardInput" => { let type_registry = world . resource :: < bevy :: ecs :: reflect :: AppTypeRegistry > () . clone () ; let registry = type_registry . read () ; if let Some (type_registration) = registry . get_with_type_path ("bevy::input::keyboard::KeyboardInput") { let type_info = type_registration . type_info () ; let dynamic = bevy_lua_ecs :: lua_table_to_dynamic (lua , data , type_info , & type_registry) . map_err (| e | format ! ("Failed to build event '{}': {}" , "bevy::input::keyboard::KeyboardInput" , e)) ? ; if let Some (concrete_event) = < bevy :: input :: keyboard :: KeyboardInput as bevy :: reflect :: FromReflect > :: from_reflect (& dynamic) { drop (registry) ; let mut system_state = bevy :: ecs :: system :: SystemState :: < bevy :: prelude :: EventWriter < bevy :: input :: keyboard :: KeyboardInput >> :: new (world) ; let mut event_writer = system_state . get_mut (world) ; event_writer . write (concrete_event) ; bevy :: log :: debug ! ("[EVENT_WRITE] Sent event: {}" , "bevy::input::keyboard::KeyboardInput") ; return Ok (()) ; } return Err (format ! ("Failed to construct event '{}' via FromReflect" , "bevy::input::keyboard::KeyboardInput")) ; } else { return Err (format ! ("Event type '{}' not found in TypeRegistry" , "bevy::input::keyboard::KeyboardInput")) ; } } , "KeyboardFocusLost" | "bevy_input::keyboard::KeyboardFocusLost" | "bevy::input::keyboard::KeyboardFocusLost" => { let type_registry = world . resource :: < bevy :: ecs :: reflect :: AppTypeRegistry > () . clone () ; let registry = type_registry . read () ; if let Some (type_registration) = registry . get_with_type_path ("bevy::input::keyboard::KeyboardFocusLost") { let type_info = type_registration . type_info () ; let dynamic = bevy_lua_ecs :: lua_table_to_dynamic (lua , data , type_info , & type_registry) . map_err (| e | format ! ("Failed to build event '{}': {}" , "bevy::input::keyboard::KeyboardFocusLost" , e)) ? ; if let Some (concrete_event) = < bevy :: input :: keyboard :: KeyboardFocusLost as bevy :: reflect :: FromReflect > :: from_reflect (& dynamic) { drop (registry) ; let mut system_state = bevy :: ecs :: system :: SystemState :: < bevy :: prelude :: EventWriter < bevy :: input :: keyboard :: KeyboardFocusLost >> :: new (world) ; let mut event_writer = system_state . get_mut (world) ; event_writer . write (concrete_event) ; bevy :: log :: debug ! ("[EVENT_WRITE] Sent event: {}" , "bevy::input::keyboard::KeyboardFocusLost") ; return Ok (()) ; } return Err (format ! ("Failed to construct event '{}' via FromReflect" , "bevy::input::keyboard::KeyboardFocusLost")) ; } else { return Err (format ! ("Event type '{}' not found in TypeRegistry" , "bevy::input::keyboard::KeyboardFocusLost")) ; } } , "MouseButtonInput" | "bevy_input::mouse::MouseButtonInput" | "bevy::input::mouse::MouseButtonInput" => { let type_registry = world . resource :: < bevy :: ecs :: reflect :: AppTypeRegistry > () . clone () ; let registry = type_registry . read () ; if let Some (type_registration) = registry . get_with_type_path ("bevy::input::mouse::MouseButtonInput") { let type_info = type_registration . type_info () ; let dynamic = bevy_lua_ecs :: lua_table_to_dynamic (lua , data , type_info , & type_registry) . map_err (| e | format ! ("Failed to build event '{}': {}" , "bevy::input::mouse::MouseButtonInput" , e)) ? ; if let Some (concrete_event) = < bevy :: input :: mouse :: MouseButtonInput as bevy :: reflect :: FromReflect > :: from_reflect (& dynamic) { drop (registry) ; let mut system_state = bevy :: ecs :: system :: SystemState :: < bevy :: prelude :: EventWriter < bevy :: input :: mouse :: MouseButtonInput >> :: new (world) ; let mut event_writer = system_state . get_mut (world) ; event_writer . write (concrete_event) ; bevy :: log :: debug ! ("[EVENT_WRITE] Sent event: {}" , "bevy::input::mouse::MouseButtonInput") ; return Ok (()) ; } return Err (format ! ("Failed to construct event '{}' via FromReflect" , "bevy::input::mouse::MouseButtonInput")) ; } else { return Err (format ! ("Event type '{}' not found in TypeRegistry" , "bevy::input::mouse::MouseButtonInput")) ; } } , "MouseMotion" | "bevy_input::mouse::MouseMotion" | "bevy::input::mouse::MouseMotion" => { let type_registry = world . resource :: < bevy :: ecs :: reflect :: AppTypeRegistry > () . clone () ; let registry = type_registry . read () ; if let Some (type_registration) = registry . get_with_type_path ("bevy::input::mouse::MouseMotion") { let type_info = type_registration . type_info () ; let dynamic = bevy_lua_ecs :: lua_table_to_dynamic (lua , data , type_info , & type_registry) . map_err (| e | format ! ("Failed to build event '{}': {}" , "bevy::input::mouse::MouseMotion" , e)) ? ; if let Some (concrete_event) = < bevy :: input :: mouse :: MouseMotion as bevy :: reflect :: FromReflect > :: from_reflect (& dynamic) { drop (registry) ; let mut system_state = bevy :: ecs :: system :: SystemState :: < bevy :: prelude :: EventWriter < bevy :: input :: mouse :: MouseMotion >> :: new (world) ; let mut event_writer = system_state . get_mut (world) ; event_writer . write (concrete_event) ; bevy :: log :: debug ! ("[EVENT_WRITE] Sent event: {}" , "bevy::input::mouse::MouseMotion") ; return Ok (()) ; } return Err (format ! ("Failed to construct event '{}' via FromReflect" , "bevy::input::mouse::MouseMotion")) ; } else { return Err (format ! ("Event type '{}' not found in TypeRegistry" , "bevy::input::mouse::MouseMotion")) ; } } , "MouseWheel" | "bevy_input::mouse::MouseWheel" | "bevy::input::mouse::MouseWheel" => { let type_registry = world . resource :: < bevy :: ecs :: reflect :: AppTypeRegistry > () . clone () ; let registry = type_registry . read () ; if let Some (type_registration) = registry . get_with_type_path ("bevy::input::mouse::MouseWheel") { let type_info = type_registration . type_info () ; let dynamic = bevy_lua_ecs :: lua_table_to_dynamic (lua , data , type_info , & type_registry) . map_err (| e | format ! ("Failed to build event '{}': {}" , "bevy::input::mouse::MouseWheel" , e)) ? ; if let Some (concrete_event) = < bevy :: input :: mouse :: MouseWheel as bevy :: reflect :: FromReflect > :: from_reflect (& dynamic) { drop (registry) ; let mut system_state = bevy :: ecs :: system :: SystemState :: < bevy :: prelude :: EventWriter < bevy :: input :: mouse :: MouseWheel >> :: new (world) ; let mut event_writer = system_state . get_mut (world) ; event_writer . write (concrete_event) ; bevy :: log :: debug ! ("[EVENT_WRITE] Sent event: {}" , "bevy::input::mouse::MouseWheel") ; return Ok (()) ; } return Err (format ! ("Failed to construct event '{}' via FromReflect" , "bevy::input::mouse::MouseWheel")) ; } else { return Err (format ! ("Event type '{}' not found in TypeRegistry" , "bevy::input::mouse::MouseWheel")) ; } } , "PointerInput" | "bevy_picking::pointer::PointerInput" | "bevy::picking::pointer::PointerInput" => { let type_registry = world . resource :: < bevy :: ecs :: reflect :: AppTypeRegistry > () . clone () ; let registry = type_registry . read () ; if let Some (type_registration) = registry . get_with_type_path ("bevy::picking::pointer::PointerInput") { let type_info = type_registration . type_info () ; let dynamic = bevy_lua_ecs :: lua_table_to_dynamic (lua , data , type_info , & type_registry) . map_err (| e | format ! ("Failed to build event '{}': {}" , "bevy::picking::pointer::PointerInput" , e)) ? ; if let Some (concrete_event) = < bevy :: picking :: pointer :: PointerInput as bevy :: reflect :: FromReflect > :: from_reflect (& dynamic) { drop (registry) ; let mut system_state = bevy :: ecs :: system :: SystemState :: < bevy :: prelude :: EventWriter < bevy :: picking :: pointer :: PointerInput >> :: new (world) ; let mut event_writer = system_state . get_mut (world) ; event_writer . write (concrete_event) ; bevy :: log :: debug ! ("[EVENT_WRITE] Sent event: {}" , "bevy::picking::pointer::PointerInput") ; return Ok (()) ; } return Err (format ! ("Failed to construct event '{}' via FromReflect" , "bevy::picking::pointer::PointerInput")) ; } else { return Err (format ! ("Event type '{}' not found in TypeRegistry" , "bevy::picking::pointer::PointerInput")) ; } } _ => Err (format ! ("Unknown event type: '{}'. Available events are discovered from bevy_window and bevy_input." , event_type)) }
+    match event_type { "WindowResized" | "bevy_window::event::WindowResized" | "bevy::window::WindowResized" => { let type_registry = world . resource :: < bevy :: ecs :: reflect :: AppTypeRegistry > () . clone () ; let registry = type_registry . read () ; if let Some (type_registration) = registry . get_with_type_path ("bevy::window::WindowResized") { let type_info = type_registration . type_info () ; let dynamic = bevy_lua_ecs :: lua_table_to_dynamic (lua , data , type_info , & type_registry) . map_err (| e | format ! ("Failed to build event '{}': {}" , "bevy::window::WindowResized" , e)) ? ; if let Some (concrete_event) = < bevy :: window :: WindowResized as bevy :: reflect :: FromReflect > :: from_reflect (& dynamic) { drop (registry) ; let mut system_state = bevy :: ecs :: system :: SystemState :: < bevy :: prelude :: EventWriter < bevy :: window :: WindowResized >> :: new (world) ; let mut event_writer = system_state . get_mut (world) ; event_writer . write (concrete_event) ; bevy :: log :: debug ! ("[EVENT_WRITE] Sent event: {}" , "bevy::window::WindowResized") ; return Ok (()) ; } return Err (format ! ("Failed to construct event '{}' via FromReflect" , "bevy::window::WindowResized")) ; } else { return Err (format ! ("Event type '{}' not found in TypeRegistry" , "bevy::window::WindowResized")) ; } } , "RequestRedraw" | "bevy_window::event::RequestRedraw" | "bevy::window::RequestRedraw" => { let type_registry = world . resource :: < bevy :: ecs :: reflect :: AppTypeRegistry > () . clone () ; let registry = type_registry . read () ; if let Some (type_registration) = registry . get_with_type_path ("bevy::window::RequestRedraw") { let type_info = type_registration . type_info () ; let dynamic = bevy_lua_ecs :: lua_table_to_dynamic (lua , data , type_info , & type_registry) . map_err (| e | format ! ("Failed to build event '{}': {}" , "bevy::window::RequestRedraw" , e)) ? ; if let Some (concrete_event) = < bevy :: window :: RequestRedraw as bevy :: reflect :: FromReflect > :: from_reflect (& dynamic) { drop (registry) ; let mut system_state = bevy :: ecs :: system :: SystemState :: < bevy :: prelude :: EventWriter < bevy :: window :: RequestRedraw >> :: new (world) ; let mut event_writer = system_state . get_mut (world) ; event_writer . write (concrete_event) ; bevy :: log :: debug ! ("[EVENT_WRITE] Sent event: {}" , "bevy::window::RequestRedraw") ; return Ok (()) ; } return Err (format ! ("Failed to construct event '{}' via FromReflect" , "bevy::window::RequestRedraw")) ; } else { return Err (format ! ("Event type '{}' not found in TypeRegistry" , "bevy::window::RequestRedraw")) ; } } , "WindowCreated" | "bevy_window::event::WindowCreated" | "bevy::window::WindowCreated" => { let type_registry = world . resource :: < bevy :: ecs :: reflect :: AppTypeRegistry > () . clone () ; let registry = type_registry . read () ; if let Some (type_registration) = registry . get_with_type_path ("bevy::window::WindowCreated") { let type_info = type_registration . type_info () ; let dynamic = bevy_lua_ecs :: lua_table_to_dynamic (lua , data , type_info , & type_registry) . map_err (| e | format ! ("Failed to build event '{}': {}" , "bevy::window::WindowCreated" , e)) ? ; if let Some (concrete_event) = < bevy :: window :: WindowCreated as bevy :: reflect :: FromReflect > :: from_reflect (& dynamic) { drop (registry) ; let mut system_state = bevy :: ecs :: system :: SystemState :: < bevy :: prelude :: EventWriter < bevy :: window :: WindowCreated >> :: new (world) ; let mut event_writer = system_state . get_mut (world) ; event_writer . write (concrete_event) ; bevy :: log :: debug ! ("[EVENT_WRITE] Sent event: {}" , "bevy::window::WindowCreated") ; return Ok (()) ; } return Err (format ! ("Failed to construct event '{}' via FromReflect" , "bevy::window::WindowCreated")) ; } else { return Err (format ! ("Event type '{}' not found in TypeRegistry" , "bevy::window::WindowCreated")) ; } } , "WindowCloseRequested" | "bevy_window::event::WindowCloseRequested" | "bevy::window::WindowCloseRequested" => { let type_registry = world . resource :: < bevy :: ecs :: reflect :: AppTypeRegistry > () . clone () ; let registry = type_registry . read () ; if let Some (type_registration) = registry . get_with_type_path ("bevy::window::WindowCloseRequested") { let type_info = type_registration . type_info () ; let dynamic = bevy_lua_ecs :: lua_table_to_dynamic (lua , data , type_info , & type_registry) . map_err (| e | format ! ("Failed to build event '{}': {}" , "bevy::window::WindowCloseRequested" , e)) ? ; if let Some (concrete_event) = < bevy :: window :: WindowCloseRequested as bevy :: reflect :: FromReflect > :: from_reflect (& dynamic) { drop (registry) ; let mut system_state = bevy :: ecs :: system :: SystemState :: < bevy :: prelude :: EventWriter < bevy :: window :: WindowCloseRequested >> :: new (world) ; let mut event_writer = system_state . get_mut (world) ; event_writer . write (concrete_event) ; bevy :: log :: debug ! ("[EVENT_WRITE] Sent event: {}" , "bevy::window::WindowCloseRequested") ; return Ok (()) ; } return Err (format ! ("Failed to construct event '{}' via FromReflect" , "bevy::window::WindowCloseRequested")) ; } else { return Err (format ! ("Event type '{}' not found in TypeRegistry" , "bevy::window::WindowCloseRequested")) ; } } , "WindowClosed" | "bevy_window::event::WindowClosed" | "bevy::window::WindowClosed" => { let type_registry = world . resource :: < bevy :: ecs :: reflect :: AppTypeRegistry > () . clone () ; let registry = type_registry . read () ; if let Some (type_registration) = registry . get_with_type_path ("bevy::window::WindowClosed") { let type_info = type_registration . type_info () ; let dynamic = bevy_lua_ecs :: lua_table_to_dynamic (lua , data , type_info , & type_registry) . map_err (| e | format ! ("Failed to build event '{}': {}" , "bevy::window::WindowClosed" , e)) ? ; if let Some (concrete_event) = < bevy :: window :: WindowClosed as bevy :: reflect :: FromReflect > :: from_reflect (& dynamic) { drop (registry) ; let mut system_state = bevy :: ecs :: system :: SystemState :: < bevy :: prelude :: EventWriter < bevy :: window :: WindowClosed >> :: new (world) ; let mut event_writer = system_state . get_mut (world) ; event_writer . write (concrete_event) ; bevy :: log :: debug ! ("[EVENT_WRITE] Sent event: {}" , "bevy::window::WindowClosed") ; return Ok (()) ; } return Err (format ! ("Failed to construct event '{}' via FromReflect" , "bevy::window::WindowClosed")) ; } else { return Err (format ! ("Event type '{}' not found in TypeRegistry" , "bevy::window::WindowClosed")) ; } } , "WindowClosing" | "bevy_window::event::WindowClosing" | "bevy::window::WindowClosing" => { let type_registry = world . resource :: < bevy :: ecs :: reflect :: AppTypeRegistry > () . clone () ; let registry = type_registry . read () ; if let Some (type_registration) = registry . get_with_type_path ("bevy::window::WindowClosing") { let type_info = type_registration . type_info () ; let dynamic = bevy_lua_ecs :: lua_table_to_dynamic (lua , data , type_info , & type_registry) . map_err (| e | format ! ("Failed to build event '{}': {}" , "bevy::window::WindowClosing" , e)) ? ; if let Some (concrete_event) = < bevy :: window :: WindowClosing as bevy :: reflect :: FromReflect > :: from_reflect (& dynamic) { drop (registry) ; let mut system_state = bevy :: ecs :: system :: SystemState :: < bevy :: prelude :: EventWriter < bevy :: window :: WindowClosing >> :: new (world) ; let mut event_writer = system_state . get_mut (world) ; event_writer . write (concrete_event) ; bevy :: log :: debug ! ("[EVENT_WRITE] Sent event: {}" , "bevy::window::WindowClosing") ; return Ok (()) ; } return Err (format ! ("Failed to construct event '{}' via FromReflect" , "bevy::window::WindowClosing")) ; } else { return Err (format ! ("Event type '{}' not found in TypeRegistry" , "bevy::window::WindowClosing")) ; } } , "WindowDestroyed" | "bevy_window::event::WindowDestroyed" | "bevy::window::WindowDestroyed" => { let type_registry = world . resource :: < bevy :: ecs :: reflect :: AppTypeRegistry > () . clone () ; let registry = type_registry . read () ; if let Some (type_registration) = registry . get_with_type_path ("bevy::window::WindowDestroyed") { let type_info = type_registration . type_info () ; let dynamic = bevy_lua_ecs :: lua_table_to_dynamic (lua , data , type_info , & type_registry) . map_err (| e | format ! ("Failed to build event '{}': {}" , "bevy::window::WindowDestroyed" , e)) ? ; if let Some (concrete_event) = < bevy :: window :: WindowDestroyed as bevy :: reflect :: FromReflect > :: from_reflect (& dynamic) { drop (registry) ; let mut system_state = bevy :: ecs :: system :: SystemState :: < bevy :: prelude :: EventWriter < bevy :: window :: WindowDestroyed >> :: new (world) ; let mut event_writer = system_state . get_mut (world) ; event_writer . write (concrete_event) ; bevy :: log :: debug ! ("[EVENT_WRITE] Sent event: {}" , "bevy::window::WindowDestroyed") ; return Ok (()) ; } return Err (format ! ("Failed to construct event '{}' via FromReflect" , "bevy::window::WindowDestroyed")) ; } else { return Err (format ! ("Event type '{}' not found in TypeRegistry" , "bevy::window::WindowDestroyed")) ; } } , "CursorMoved" | "bevy_window::event::CursorMoved" | "bevy::window::CursorMoved" => { let type_registry = world . resource :: < bevy :: ecs :: reflect :: AppTypeRegistry > () . clone () ; let registry = type_registry . read () ; if let Some (type_registration) = registry . get_with_type_path ("bevy::window::CursorMoved") { let type_info = type_registration . type_info () ; let dynamic = bevy_lua_ecs :: lua_table_to_dynamic (lua , data , type_info , & type_registry) . map_err (| e | format ! ("Failed to build event '{}': {}" , "bevy::window::CursorMoved" , e)) ? ; if let Some (concrete_event) = < bevy :: window :: CursorMoved as bevy :: reflect :: FromReflect > :: from_reflect (& dynamic) { drop (registry) ; let mut system_state = bevy :: ecs :: system :: SystemState :: < bevy :: prelude :: EventWriter < bevy :: window :: CursorMoved >> :: new (world) ; let mut event_writer = system_state . get_mut (world) ; event_writer . write (concrete_event) ; bevy :: log :: debug ! ("[EVENT_WRITE] Sent event: {}" , "bevy::window::CursorMoved") ; return Ok (()) ; } return Err (format ! ("Failed to construct event '{}' via FromReflect" , "bevy::window::CursorMoved")) ; } else { return Err (format ! ("Event type '{}' not found in TypeRegistry" , "bevy::window::CursorMoved")) ; } } , "CursorEntered" | "bevy_window::event::CursorEntered" | "bevy::window::CursorEntered" => { let type_registry = world . resource :: < bevy :: ecs :: reflect :: AppTypeRegistry > () . clone () ; let registry = type_registry . read () ; if let Some (type_registration) = registry . get_with_type_path ("bevy::window::CursorEntered") { let type_info = type_registration . type_info () ; let dynamic = bevy_lua_ecs :: lua_table_to_dynamic (lua , data , type_info , & type_registry) . map_err (| e | format ! ("Failed to build event '{}': {}" , "bevy::window::CursorEntered" , e)) ? ; if let Some (concrete_event) = < bevy :: window :: CursorEntered as bevy :: reflect :: FromReflect > :: from_reflect (& dynamic) { drop (registry) ; let mut system_state = bevy :: ecs :: system :: SystemState :: < bevy :: prelude :: EventWriter < bevy :: window :: CursorEntered >> :: new (world) ; let mut event_writer = system_state . get_mut (world) ; event_writer . write (concrete_event) ; bevy :: log :: debug ! ("[EVENT_WRITE] Sent event: {}" , "bevy::window::CursorEntered") ; return Ok (()) ; } return Err (format ! ("Failed to construct event '{}' via FromReflect" , "bevy::window::CursorEntered")) ; } else { return Err (format ! ("Event type '{}' not found in TypeRegistry" , "bevy::window::CursorEntered")) ; } } , "CursorLeft" | "bevy_window::event::CursorLeft" | "bevy::window::CursorLeft" => { let type_registry = world . resource :: < bevy :: ecs :: reflect :: AppTypeRegistry > () . clone () ; let registry = type_registry . read () ; if let Some (type_registration) = registry . get_with_type_path ("bevy::window::CursorLeft") { let type_info = type_registration . type_info () ; let dynamic = bevy_lua_ecs :: lua_table_to_dynamic (lua , data , type_info , & type_registry) . map_err (| e | format ! ("Failed to build event '{}': {}" , "bevy::window::CursorLeft" , e)) ? ; if let Some (concrete_event) = < bevy :: window :: CursorLeft as bevy :: reflect :: FromReflect > :: from_reflect (& dynamic) { drop (registry) ; let mut system_state = bevy :: ecs :: system :: SystemState :: < bevy :: prelude :: EventWriter < bevy :: window :: CursorLeft >> :: new (world) ; let mut event_writer = system_state . get_mut (world) ; event_writer . write (concrete_event) ; bevy :: log :: debug ! ("[EVENT_WRITE] Sent event: {}" , "bevy::window::CursorLeft") ; return Ok (()) ; } return Err (format ! ("Failed to construct event '{}' via FromReflect" , "bevy::window::CursorLeft")) ; } else { return Err (format ! ("Event type '{}' not found in TypeRegistry" , "bevy::window::CursorLeft")) ; } } , "WindowFocused" | "bevy_window::event::WindowFocused" | "bevy::window::WindowFocused" => { let type_registry = world . resource :: < bevy :: ecs :: reflect :: AppTypeRegistry > () . clone () ; let registry = type_registry . read () ; if let Some (type_registration) = registry . get_with_type_path ("bevy::window::WindowFocused") { let type_info = type_registration . type_info () ; let dynamic = bevy_lua_ecs :: lua_table_to_dynamic (lua , data , type_info , & type_registry) . map_err (| e | format ! ("Failed to build event '{}': {}" , "bevy::window::WindowFocused" , e)) ? ; if let Some (concrete_event) = < bevy :: window :: WindowFocused as bevy :: reflect :: FromReflect > :: from_reflect (& dynamic) { drop (registry) ; let mut system_state = bevy :: ecs :: system :: SystemState :: < bevy :: prelude :: EventWriter < bevy :: window :: WindowFocused >> :: new (world) ; let mut event_writer = system_state . get_mut (world) ; event_writer . write (concrete_event) ; bevy :: log :: debug ! ("[EVENT_WRITE] Sent event: {}" , "bevy::window::WindowFocused") ; return Ok (()) ; } return Err (format ! ("Failed to construct event '{}' via FromReflect" , "bevy::window::WindowFocused")) ; } else { return Err (format ! ("Event type '{}' not found in TypeRegistry" , "bevy::window::WindowFocused")) ; } } , "WindowOccluded" | "bevy_window::event::WindowOccluded" | "bevy::window::WindowOccluded" => { let type_registry = world . resource :: < bevy :: ecs :: reflect :: AppTypeRegistry > () . clone () ; let registry = type_registry . read () ; if let Some (type_registration) = registry . get_with_type_path ("bevy::window::WindowOccluded") { let type_info = type_registration . type_info () ; let dynamic = bevy_lua_ecs :: lua_table_to_dynamic (lua , data , type_info , & type_registry) . map_err (| e | format ! ("Failed to build event '{}': {}" , "bevy::window::WindowOccluded" , e)) ? ; if let Some (concrete_event) = < bevy :: window :: WindowOccluded as bevy :: reflect :: FromReflect > :: from_reflect (& dynamic) { drop (registry) ; let mut system_state = bevy :: ecs :: system :: SystemState :: < bevy :: prelude :: EventWriter < bevy :: window :: WindowOccluded >> :: new (world) ; let mut event_writer = system_state . get_mut (world) ; event_writer . write (concrete_event) ; bevy :: log :: debug ! ("[EVENT_WRITE] Sent event: {}" , "bevy::window::WindowOccluded") ; return Ok (()) ; } return Err (format ! ("Failed to construct event '{}' via FromReflect" , "bevy::window::WindowOccluded")) ; } else { return Err (format ! ("Event type '{}' not found in TypeRegistry" , "bevy::window::WindowOccluded")) ; } } , "WindowScaleFactorChanged" | "bevy_window::event::WindowScaleFactorChanged" | "bevy::window::WindowScaleFactorChanged" => { let type_registry = world . resource :: < bevy :: ecs :: reflect :: AppTypeRegistry > () . clone () ; let registry = type_registry . read () ; if let Some (type_registration) = registry . get_with_type_path ("bevy::window::WindowScaleFactorChanged") { let type_info = type_registration . type_info () ; let dynamic = bevy_lua_ecs :: lua_table_to_dynamic (lua , data , type_info , & type_registry) . map_err (| e | format ! ("Failed to build event '{}': {}" , "bevy::window::WindowScaleFactorChanged" , e)) ? ; if let Some (concrete_event) = < bevy :: window :: WindowScaleFactorChanged as bevy :: reflect :: FromReflect > :: from_reflect (& dynamic) { drop (registry) ; let mut system_state = bevy :: ecs :: system :: SystemState :: < bevy :: prelude :: EventWriter < bevy :: window :: WindowScaleFactorChanged >> :: new (world) ; let mut event_writer = system_state . get_mut (world) ; event_writer . write (concrete_event) ; bevy :: log :: debug ! ("[EVENT_WRITE] Sent event: {}" , "bevy::window::WindowScaleFactorChanged") ; return Ok (()) ; } return Err (format ! ("Failed to construct event '{}' via FromReflect" , "bevy::window::WindowScaleFactorChanged")) ; } else { return Err (format ! ("Event type '{}' not found in TypeRegistry" , "bevy::window::WindowScaleFactorChanged")) ; } } , "WindowBackendScaleFactorChanged" | "bevy_window::event::WindowBackendScaleFactorChanged" | "bevy::window::WindowBackendScaleFactorChanged" => { let type_registry = world . resource :: < bevy :: ecs :: reflect :: AppTypeRegistry > () . clone () ; let registry = type_registry . read () ; if let Some (type_registration) = registry . get_with_type_path ("bevy::window::WindowBackendScaleFactorChanged") { let type_info = type_registration . type_info () ; let dynamic = bevy_lua_ecs :: lua_table_to_dynamic (lua , data , type_info , & type_registry) . map_err (| e | format ! ("Failed to build event '{}': {}" , "bevy::window::WindowBackendScaleFactorChanged" , e)) ? ; if let Some (concrete_event) = < bevy :: window :: WindowBackendScaleFactorChanged as bevy :: reflect :: FromReflect > :: from_reflect (& dynamic) { drop (registry) ; let mut system_state = bevy :: ecs :: system :: SystemState :: < bevy :: prelude :: EventWriter < bevy :: window :: WindowBackendScaleFactorChanged >> :: new (world) ; let mut event_writer = system_state . get_mut (world) ; event_writer . write (concrete_event) ; bevy :: log :: debug ! ("[EVENT_WRITE] Sent event: {}" , "bevy::window::WindowBackendScaleFactorChanged") ; return Ok (()) ; } return Err (format ! ("Failed to construct event '{}' via FromReflect" , "bevy::window::WindowBackendScaleFactorChanged")) ; } else { return Err (format ! ("Event type '{}' not found in TypeRegistry" , "bevy::window::WindowBackendScaleFactorChanged")) ; } } , "FileDragAndDrop" | "bevy_window::event::FileDragAndDrop" | "bevy::window::FileDragAndDrop" => { let type_registry = world . resource :: < bevy :: ecs :: reflect :: AppTypeRegistry > () . clone () ; let registry = type_registry . read () ; if let Some (type_registration) = registry . get_with_type_path ("bevy::window::FileDragAndDrop") { let type_info = type_registration . type_info () ; let dynamic = bevy_lua_ecs :: lua_table_to_dynamic (lua , data , type_info , & type_registry) . map_err (| e | format ! ("Failed to build event '{}': {}" , "bevy::window::FileDragAndDrop" , e)) ? ; if let Some (concrete_event) = < bevy :: window :: FileDragAndDrop as bevy :: reflect :: FromReflect > :: from_reflect (& dynamic) { drop (registry) ; let mut system_state = bevy :: ecs :: system :: SystemState :: < bevy :: prelude :: EventWriter < bevy :: window :: FileDragAndDrop >> :: new (world) ; let mut event_writer = system_state . get_mut (world) ; event_writer . write (concrete_event) ; bevy :: log :: debug ! ("[EVENT_WRITE] Sent event: {}" , "bevy::window::FileDragAndDrop") ; return Ok (()) ; } return Err (format ! ("Failed to construct event '{}' via FromReflect" , "bevy::window::FileDragAndDrop")) ; } else { return Err (format ! ("Event type '{}' not found in TypeRegistry" , "bevy::window::FileDragAndDrop")) ; } } , "WindowMoved" | "bevy_window::event::WindowMoved" | "bevy::window::WindowMoved" => { let type_registry = world . resource :: < bevy :: ecs :: reflect :: AppTypeRegistry > () . clone () ; let registry = type_registry . read () ; if let Some (type_registration) = registry . get_with_type_path ("bevy::window::WindowMoved") { let type_info = type_registration . type_info () ; let dynamic = bevy_lua_ecs :: lua_table_to_dynamic (lua , data , type_info , & type_registry) . map_err (| e | format ! ("Failed to build event '{}': {}" , "bevy::window::WindowMoved" , e)) ? ; if let Some (concrete_event) = < bevy :: window :: WindowMoved as bevy :: reflect :: FromReflect > :: from_reflect (& dynamic) { drop (registry) ; let mut system_state = bevy :: ecs :: system :: SystemState :: < bevy :: prelude :: EventWriter < bevy :: window :: WindowMoved >> :: new (world) ; let mut event_writer = system_state . get_mut (world) ; event_writer . write (concrete_event) ; bevy :: log :: debug ! ("[EVENT_WRITE] Sent event: {}" , "bevy::window::WindowMoved") ; return Ok (()) ; } return Err (format ! ("Failed to construct event '{}' via FromReflect" , "bevy::window::WindowMoved")) ; } else { return Err (format ! ("Event type '{}' not found in TypeRegistry" , "bevy::window::WindowMoved")) ; } } , "WindowThemeChanged" | "bevy_window::event::WindowThemeChanged" | "bevy::window::WindowThemeChanged" => { let type_registry = world . resource :: < bevy :: ecs :: reflect :: AppTypeRegistry > () . clone () ; let registry = type_registry . read () ; if let Some (type_registration) = registry . get_with_type_path ("bevy::window::WindowThemeChanged") { let type_info = type_registration . type_info () ; let dynamic = bevy_lua_ecs :: lua_table_to_dynamic (lua , data , type_info , & type_registry) . map_err (| e | format ! ("Failed to build event '{}': {}" , "bevy::window::WindowThemeChanged" , e)) ? ; if let Some (concrete_event) = < bevy :: window :: WindowThemeChanged as bevy :: reflect :: FromReflect > :: from_reflect (& dynamic) { drop (registry) ; let mut system_state = bevy :: ecs :: system :: SystemState :: < bevy :: prelude :: EventWriter < bevy :: window :: WindowThemeChanged >> :: new (world) ; let mut event_writer = system_state . get_mut (world) ; event_writer . write (concrete_event) ; bevy :: log :: debug ! ("[EVENT_WRITE] Sent event: {}" , "bevy::window::WindowThemeChanged") ; return Ok (()) ; } return Err (format ! ("Failed to construct event '{}' via FromReflect" , "bevy::window::WindowThemeChanged")) ; } else { return Err (format ! ("Event type '{}' not found in TypeRegistry" , "bevy::window::WindowThemeChanged")) ; } } , "AppLifecycle" | "bevy_window::event::AppLifecycle" | "bevy::window::AppLifecycle" => { let type_registry = world . resource :: < bevy :: ecs :: reflect :: AppTypeRegistry > () . clone () ; let registry = type_registry . read () ; if let Some (type_registration) = registry . get_with_type_path ("bevy::window::AppLifecycle") { let type_info = type_registration . type_info () ; let dynamic = bevy_lua_ecs :: lua_table_to_dynamic (lua , data , type_info , & type_registry) . map_err (| e | format ! ("Failed to build event '{}': {}" , "bevy::window::AppLifecycle" , e)) ? ; if let Some (concrete_event) = < bevy :: window :: AppLifecycle as bevy :: reflect :: FromReflect > :: from_reflect (& dynamic) { drop (registry) ; let mut system_state = bevy :: ecs :: system :: SystemState :: < bevy :: prelude :: EventWriter < bevy :: window :: AppLifecycle >> :: new (world) ; let mut event_writer = system_state . get_mut (world) ; event_writer . write (concrete_event) ; bevy :: log :: debug ! ("[EVENT_WRITE] Sent event: {}" , "bevy::window::AppLifecycle") ; return Ok (()) ; } return Err (format ! ("Failed to construct event '{}' via FromReflect" , "bevy::window::AppLifecycle")) ; } else { return Err (format ! ("Event type '{}' not found in TypeRegistry" , "bevy::window::AppLifecycle")) ; } } , "KeyboardInput" | "bevy_input::keyboard::KeyboardInput" | "bevy::input::keyboard::KeyboardInput" => { let type_registry = world . resource :: < bevy :: ecs :: reflect :: AppTypeRegistry > () . clone () ; let registry = type_registry . read () ; if let Some (type_registration) = registry . get_with_type_path ("bevy::input::keyboard::KeyboardInput") { let type_info = type_registration . type_info () ; let dynamic = bevy_lua_ecs :: lua_table_to_dynamic (lua , data , type_info , & type_registry) . map_err (| e | format ! ("Failed to build event '{}': {}" , "bevy::input::keyboard::KeyboardInput" , e)) ? ; if let Some (concrete_event) = < bevy :: input :: keyboard :: KeyboardInput as bevy :: reflect :: FromReflect > :: from_reflect (& dynamic) { drop (registry) ; let mut system_state = bevy :: ecs :: system :: SystemState :: < bevy :: prelude :: EventWriter < bevy :: input :: keyboard :: KeyboardInput >> :: new (world) ; let mut event_writer = system_state . get_mut (world) ; event_writer . write (concrete_event) ; bevy :: log :: debug ! ("[EVENT_WRITE] Sent event: {}" , "bevy::input::keyboard::KeyboardInput") ; return Ok (()) ; } return Err (format ! ("Failed to construct event '{}' via FromReflect" , "bevy::input::keyboard::KeyboardInput")) ; } else { return Err (format ! ("Event type '{}' not found in TypeRegistry" , "bevy::input::keyboard::KeyboardInput")) ; } } , "KeyboardFocusLost" | "bevy_input::keyboard::KeyboardFocusLost" | "bevy::input::keyboard::KeyboardFocusLost" => { let type_registry = world . resource :: < bevy :: ecs :: reflect :: AppTypeRegistry > () . clone () ; let registry = type_registry . read () ; if let Some (type_registration) = registry . get_with_type_path ("bevy::input::keyboard::KeyboardFocusLost") { let type_info = type_registration . type_info () ; let dynamic = bevy_lua_ecs :: lua_table_to_dynamic (lua , data , type_info , & type_registry) . map_err (| e | format ! ("Failed to build event '{}': {}" , "bevy::input::keyboard::KeyboardFocusLost" , e)) ? ; if let Some (concrete_event) = < bevy :: input :: keyboard :: KeyboardFocusLost as bevy :: reflect :: FromReflect > :: from_reflect (& dynamic) { drop (registry) ; let mut system_state = bevy :: ecs :: system :: SystemState :: < bevy :: prelude :: EventWriter < bevy :: input :: keyboard :: KeyboardFocusLost >> :: new (world) ; let mut event_writer = system_state . get_mut (world) ; event_writer . write (concrete_event) ; bevy :: log :: debug ! ("[EVENT_WRITE] Sent event: {}" , "bevy::input::keyboard::KeyboardFocusLost") ; return Ok (()) ; } return Err (format ! ("Failed to construct event '{}' via FromReflect" , "bevy::input::keyboard::KeyboardFocusLost")) ; } else { return Err (format ! ("Event type '{}' not found in TypeRegistry" , "bevy::input::keyboard::KeyboardFocusLost")) ; } } , "MouseButtonInput" | "bevy_input::mouse::MouseButtonInput" | "bevy::input::mouse::MouseButtonInput" => { let type_registry = world . resource :: < bevy :: ecs :: reflect :: AppTypeRegistry > () . clone () ; let registry = type_registry . read () ; if let Some (type_registration) = registry . get_with_type_path ("bevy::input::mouse::MouseButtonInput") { let type_info = type_registration . type_info () ; let dynamic = bevy_lua_ecs :: lua_table_to_dynamic (lua , data , type_info , & type_registry) . map_err (| e | format ! ("Failed to build event '{}': {}" , "bevy::input::mouse::MouseButtonInput" , e)) ? ; if let Some (concrete_event) = < bevy :: input :: mouse :: MouseButtonInput as bevy :: reflect :: FromReflect > :: from_reflect (& dynamic) { drop (registry) ; let mut system_state = bevy :: ecs :: system :: SystemState :: < bevy :: prelude :: EventWriter < bevy :: input :: mouse :: MouseButtonInput >> :: new (world) ; let mut event_writer = system_state . get_mut (world) ; event_writer . write (concrete_event) ; bevy :: log :: debug ! ("[EVENT_WRITE] Sent event: {}" , "bevy::input::mouse::MouseButtonInput") ; return Ok (()) ; } return Err (format ! ("Failed to construct event '{}' via FromReflect" , "bevy::input::mouse::MouseButtonInput")) ; } else { return Err (format ! ("Event type '{}' not found in TypeRegistry" , "bevy::input::mouse::MouseButtonInput")) ; } } , "MouseMotion" | "bevy_input::mouse::MouseMotion" | "bevy::input::mouse::MouseMotion" => { let type_registry = world . resource :: < bevy :: ecs :: reflect :: AppTypeRegistry > () . clone () ; let registry = type_registry . read () ; if let Some (type_registration) = registry . get_with_type_path ("bevy::input::mouse::MouseMotion") { let type_info = type_registration . type_info () ; let dynamic = bevy_lua_ecs :: lua_table_to_dynamic (lua , data , type_info , & type_registry) . map_err (| e | format ! ("Failed to build event '{}': {}" , "bevy::input::mouse::MouseMotion" , e)) ? ; if let Some (concrete_event) = < bevy :: input :: mouse :: MouseMotion as bevy :: reflect :: FromReflect > :: from_reflect (& dynamic) { drop (registry) ; let mut system_state = bevy :: ecs :: system :: SystemState :: < bevy :: prelude :: EventWriter < bevy :: input :: mouse :: MouseMotion >> :: new (world) ; let mut event_writer = system_state . get_mut (world) ; event_writer . write (concrete_event) ; bevy :: log :: debug ! ("[EVENT_WRITE] Sent event: {}" , "bevy::input::mouse::MouseMotion") ; return Ok (()) ; } return Err (format ! ("Failed to construct event '{}' via FromReflect" , "bevy::input::mouse::MouseMotion")) ; } else { return Err (format ! ("Event type '{}' not found in TypeRegistry" , "bevy::input::mouse::MouseMotion")) ; } } , "MouseWheel" | "bevy_input::mouse::MouseWheel" | "bevy::input::mouse::MouseWheel" => { let type_registry = world . resource :: < bevy :: ecs :: reflect :: AppTypeRegistry > () . clone () ; let registry = type_registry . read () ; if let Some (type_registration) = registry . get_with_type_path ("bevy::input::mouse::MouseWheel") { let type_info = type_registration . type_info () ; let dynamic = bevy_lua_ecs :: lua_table_to_dynamic (lua , data , type_info , & type_registry) . map_err (| e | format ! ("Failed to build event '{}': {}" , "bevy::input::mouse::MouseWheel" , e)) ? ; if let Some (concrete_event) = < bevy :: input :: mouse :: MouseWheel as bevy :: reflect :: FromReflect > :: from_reflect (& dynamic) { drop (registry) ; let mut system_state = bevy :: ecs :: system :: SystemState :: < bevy :: prelude :: EventWriter < bevy :: input :: mouse :: MouseWheel >> :: new (world) ; let mut event_writer = system_state . get_mut (world) ; event_writer . write (concrete_event) ; bevy :: log :: debug ! ("[EVENT_WRITE] Sent event: {}" , "bevy::input::mouse::MouseWheel") ; return Ok (()) ; } return Err (format ! ("Failed to construct event '{}' via FromReflect" , "bevy::input::mouse::MouseWheel")) ; } else { return Err (format ! ("Event type '{}' not found in TypeRegistry" , "bevy::input::mouse::MouseWheel")) ; } } , "PointerInput" | "bevy_picking::pointer::PointerInput" | "bevy::picking::pointer::PointerInput" => { let type_registry = world . resource :: < bevy :: ecs :: reflect :: AppTypeRegistry > () . clone () ; let registry = type_registry . read () ; if let Some (type_registration) = registry . get_with_type_path ("bevy::picking::pointer::PointerInput") { let type_info = type_registration . type_info () ; let dynamic = bevy_lua_ecs :: lua_table_to_dynamic (lua , data , type_info , & type_registry) . map_err (| e | format ! ("Failed to build event '{}': {}" , "bevy::picking::pointer::PointerInput" , e)) ? ; if let Some (concrete_event) = < bevy :: picking :: pointer :: PointerInput as bevy :: reflect :: FromReflect > :: from_reflect (& dynamic) { drop (registry) ; let mut system_state = bevy :: ecs :: system :: SystemState :: < bevy :: prelude :: EventWriter < bevy :: picking :: pointer :: PointerInput >> :: new (world) ; let mut event_writer = system_state . get_mut (world) ; event_writer . write (concrete_event) ; bevy :: log :: debug ! ("[EVENT_WRITE] Sent event: {}" , "bevy::picking::pointer::PointerInput") ; return Ok (()) ; } return Err (format ! ("Failed to construct event '{}' via FromReflect" , "bevy::picking::pointer::PointerInput")) ; } else { return Err (format ! ("Event type '{}' not found in TypeRegistry" , "bevy::picking::pointer::PointerInput")) ; } } _ => Err (format ! ("Unknown event type: '{}'. Available events are discovered from bevy_window and bevy_input." , event_type)) }
 }
 #[doc = r" Dispatch write_message call for a specific message type"]
 #[doc = r" Uses MessageWriter<T> and lua_table_to_dynamic for reflection-based construction"]
@@ -5014,6 +5623,570 @@ pub fn dispatch_write_message(
     data: &mlua::Table,
 ) -> Result<(), String> {
     match message_type {
+        "AssetDeleteEvent"
+        | "hello::asset_events::AssetDeleteEvent"
+        | "hello::asset_events::AssetDeleteEvent" => {
+            let type_registry = world
+                .resource::<bevy::ecs::reflect::AppTypeRegistry>()
+                .clone();
+            let registry = type_registry.read();
+            let type_registration = registry
+                .get_with_type_path("hello::asset_events::AssetDeleteEvent")
+                .or_else(|| registry.get_with_type_path("hello::asset_events::AssetDeleteEvent"));
+            if let Some(type_registration) = type_registration {
+                let type_info = type_registration.type_info();
+                let asset_registry = world.get_resource::<bevy_lua_ecs::AssetRegistry>().cloned();
+                let dynamic = bevy_lua_ecs::lua_table_to_dynamic_with_assets(
+                    lua,
+                    data,
+                    type_info,
+                    &type_registry,
+                    asset_registry.as_ref(),
+                )
+                .map_err(|e| {
+                    format!(
+                        "Failed to build message '{}': {}",
+                        "hello::asset_events::AssetDeleteEvent", e
+                    )
+                })?;
+                use bevy::reflect::Struct;
+                for i in 0..dynamic.field_len() {
+                    let field_name = dynamic.name_at(i).unwrap_or("unknown");
+                    let field_value = dynamic
+                        .field_at(i)
+                        .map(|f| {
+                            format!("{} (kind: {:?})", f.reflect_type_path(), f.reflect_kind())
+                        })
+                        .unwrap_or("None".to_string());
+                    bevy::log::debug!(
+                        "[MESSAGE_CONSTRUCT] Field '{}': {}",
+                        field_name,
+                        field_value
+                    );
+                }
+                if let Some(reflect_default) =
+                    type_registration.data::<bevy::prelude::ReflectDefault>()
+                {
+                    let mut concrete_instance = reflect_default.default();
+                    match concrete_instance.try_apply(&dynamic) {
+                        Ok(()) => {
+                            if let Ok(concrete_message) =
+                                concrete_instance.take::<crate::asset_events::AssetDeleteEvent>()
+                            {
+                                drop(registry);
+                                let mut system_state = bevy::ecs::system::SystemState::<
+                                    bevy::prelude::MessageWriter<
+                                        crate::asset_events::AssetDeleteEvent,
+                                    >,
+                                >::new(world);
+                                let mut message_writer = system_state.get_mut(world);
+                                message_writer.write(concrete_message);
+                                bevy::log::debug!(
+                                    "[MESSAGE_WRITE] Sent message via try_apply: {}",
+                                    "hello::asset_events::AssetDeleteEvent"
+                                );
+                                return Ok(());
+                            } else {
+                                bevy :: log :: warn ! ("[MESSAGE_WRITE] try_apply succeeded but downcast failed for '{}'" , "hello::asset_events::AssetDeleteEvent");
+                            }
+                        }
+                        Err(e) => {
+                            bevy::log::debug!(
+                                "[MESSAGE_WRITE] try_apply failed for '{}': {:?}",
+                                "hello::asset_events::AssetDeleteEvent",
+                                e
+                            );
+                        }
+                    }
+                }
+                if let Some(reflect_from_reflect) =
+                    type_registration.data::<bevy::reflect::ReflectFromReflect>()
+                {
+                    if let Some(concrete_value) = reflect_from_reflect.from_reflect(&dynamic) {
+                        if let Ok(concrete_message) =
+                            concrete_value.take::<crate::asset_events::AssetDeleteEvent>()
+                        {
+                            drop(registry);
+                            let mut system_state = bevy::ecs::system::SystemState::<
+                                bevy::prelude::MessageWriter<crate::asset_events::AssetDeleteEvent>,
+                            >::new(world);
+                            let mut message_writer = system_state.get_mut(world);
+                            message_writer.write(concrete_message);
+                            bevy::log::debug!(
+                                "[MESSAGE_WRITE] Sent message via ReflectFromReflect: {}",
+                                "hello::asset_events::AssetDeleteEvent"
+                            );
+                            return Ok(());
+                        } else {
+                            bevy :: log :: warn ! ("[MESSAGE_WRITE] ReflectFromReflect succeeded but downcast failed for '{}'" , "hello::asset_events::AssetDeleteEvent");
+                        }
+                    } else {
+                        bevy :: log :: debug ! ("[MESSAGE_WRITE] ReflectFromReflect::from_reflect returned None for '{}'" , "hello::asset_events::AssetDeleteEvent");
+                    }
+                }
+                if let Some (concrete_value) = < crate :: asset_events :: AssetDeleteEvent as bevy :: reflect :: FromReflect > :: from_reflect (& dynamic) { drop (registry) ; let mut system_state = bevy :: ecs :: system :: SystemState :: < bevy :: prelude :: MessageWriter < crate :: asset_events :: AssetDeleteEvent >> :: new (world) ; let mut message_writer = system_state . get_mut (world) ; message_writer . write (concrete_value) ; bevy :: log :: debug ! ("[MESSAGE_WRITE] Sent message via FromReflect trait: {}" , "hello::asset_events::AssetDeleteEvent") ; return Ok (()) ; }
+                return Err (format ! ("Failed to construct message '{}' - all conversion strategies failed. This usually means a nested type doesn't implement FromReflect properly or a newtype wrapper is causing issues." , "hello::asset_events::AssetDeleteEvent")) ;
+            } else {
+                return Err(format!(
+                    "Message type '{}' not found in TypeRegistry",
+                    "hello::asset_events::AssetDeleteEvent"
+                ));
+            }
+        }
+        "AssetDirectoryListingEvent"
+        | "hello::asset_events::AssetDirectoryListingEvent"
+        | "hello::asset_events::AssetDirectoryListingEvent" => {
+            let type_registry = world
+                .resource::<bevy::ecs::reflect::AppTypeRegistry>()
+                .clone();
+            let registry = type_registry.read();
+            let type_registration = registry
+                .get_with_type_path("hello::asset_events::AssetDirectoryListingEvent")
+                .or_else(|| {
+                    registry.get_with_type_path("hello::asset_events::AssetDirectoryListingEvent")
+                });
+            if let Some(type_registration) = type_registration {
+                let type_info = type_registration.type_info();
+                let asset_registry = world.get_resource::<bevy_lua_ecs::AssetRegistry>().cloned();
+                let dynamic = bevy_lua_ecs::lua_table_to_dynamic_with_assets(
+                    lua,
+                    data,
+                    type_info,
+                    &type_registry,
+                    asset_registry.as_ref(),
+                )
+                .map_err(|e| {
+                    format!(
+                        "Failed to build message '{}': {}",
+                        "hello::asset_events::AssetDirectoryListingEvent", e
+                    )
+                })?;
+                use bevy::reflect::Struct;
+                for i in 0..dynamic.field_len() {
+                    let field_name = dynamic.name_at(i).unwrap_or("unknown");
+                    let field_value = dynamic
+                        .field_at(i)
+                        .map(|f| {
+                            format!("{} (kind: {:?})", f.reflect_type_path(), f.reflect_kind())
+                        })
+                        .unwrap_or("None".to_string());
+                    bevy::log::debug!(
+                        "[MESSAGE_CONSTRUCT] Field '{}': {}",
+                        field_name,
+                        field_value
+                    );
+                }
+                if let Some(reflect_default) =
+                    type_registration.data::<bevy::prelude::ReflectDefault>()
+                {
+                    let mut concrete_instance = reflect_default.default();
+                    match concrete_instance.try_apply(&dynamic) {
+                        Ok(()) => {
+                            if let Ok(concrete_message) =
+                                concrete_instance
+                                    .take::<crate::asset_events::AssetDirectoryListingEvent>()
+                            {
+                                drop(registry);
+                                let mut system_state = bevy::ecs::system::SystemState::<
+                                    bevy::prelude::MessageWriter<
+                                        crate::asset_events::AssetDirectoryListingEvent,
+                                    >,
+                                >::new(world);
+                                let mut message_writer = system_state.get_mut(world);
+                                message_writer.write(concrete_message);
+                                bevy::log::debug!(
+                                    "[MESSAGE_WRITE] Sent message via try_apply: {}",
+                                    "hello::asset_events::AssetDirectoryListingEvent"
+                                );
+                                return Ok(());
+                            } else {
+                                bevy :: log :: warn ! ("[MESSAGE_WRITE] try_apply succeeded but downcast failed for '{}'" , "hello::asset_events::AssetDirectoryListingEvent");
+                            }
+                        }
+                        Err(e) => {
+                            bevy::log::debug!(
+                                "[MESSAGE_WRITE] try_apply failed for '{}': {:?}",
+                                "hello::asset_events::AssetDirectoryListingEvent",
+                                e
+                            );
+                        }
+                    }
+                }
+                if let Some(reflect_from_reflect) =
+                    type_registration.data::<bevy::reflect::ReflectFromReflect>()
+                {
+                    if let Some(concrete_value) = reflect_from_reflect.from_reflect(&dynamic) {
+                        if let Ok(concrete_message) =
+                            concrete_value.take::<crate::asset_events::AssetDirectoryListingEvent>()
+                        {
+                            drop(registry);
+                            let mut system_state = bevy::ecs::system::SystemState::<
+                                bevy::prelude::MessageWriter<
+                                    crate::asset_events::AssetDirectoryListingEvent,
+                                >,
+                            >::new(world);
+                            let mut message_writer = system_state.get_mut(world);
+                            message_writer.write(concrete_message);
+                            bevy::log::debug!(
+                                "[MESSAGE_WRITE] Sent message via ReflectFromReflect: {}",
+                                "hello::asset_events::AssetDirectoryListingEvent"
+                            );
+                            return Ok(());
+                        } else {
+                            bevy :: log :: warn ! ("[MESSAGE_WRITE] ReflectFromReflect succeeded but downcast failed for '{}'" , "hello::asset_events::AssetDirectoryListingEvent");
+                        }
+                    } else {
+                        bevy :: log :: debug ! ("[MESSAGE_WRITE] ReflectFromReflect::from_reflect returned None for '{}'" , "hello::asset_events::AssetDirectoryListingEvent");
+                    }
+                }
+                if let Some (concrete_value) = < crate :: asset_events :: AssetDirectoryListingEvent as bevy :: reflect :: FromReflect > :: from_reflect (& dynamic) { drop (registry) ; let mut system_state = bevy :: ecs :: system :: SystemState :: < bevy :: prelude :: MessageWriter < crate :: asset_events :: AssetDirectoryListingEvent >> :: new (world) ; let mut message_writer = system_state . get_mut (world) ; message_writer . write (concrete_value) ; bevy :: log :: debug ! ("[MESSAGE_WRITE] Sent message via FromReflect trait: {}" , "hello::asset_events::AssetDirectoryListingEvent") ; return Ok (()) ; }
+                return Err (format ! ("Failed to construct message '{}' - all conversion strategies failed. This usually means a nested type doesn't implement FromReflect properly or a newtype wrapper is causing issues." , "hello::asset_events::AssetDirectoryListingEvent")) ;
+            } else {
+                return Err(format!(
+                    "Message type '{}' not found in TypeRegistry",
+                    "hello::asset_events::AssetDirectoryListingEvent"
+                ));
+            }
+        }
+        "AssetLocalNewerEvent"
+        | "hello::asset_events::AssetLocalNewerEvent"
+        | "hello::asset_events::AssetLocalNewerEvent" => {
+            let type_registry = world
+                .resource::<bevy::ecs::reflect::AppTypeRegistry>()
+                .clone();
+            let registry = type_registry.read();
+            let type_registration = registry
+                .get_with_type_path("hello::asset_events::AssetLocalNewerEvent")
+                .or_else(|| {
+                    registry.get_with_type_path("hello::asset_events::AssetLocalNewerEvent")
+                });
+            if let Some(type_registration) = type_registration {
+                let type_info = type_registration.type_info();
+                let asset_registry = world.get_resource::<bevy_lua_ecs::AssetRegistry>().cloned();
+                let dynamic = bevy_lua_ecs::lua_table_to_dynamic_with_assets(
+                    lua,
+                    data,
+                    type_info,
+                    &type_registry,
+                    asset_registry.as_ref(),
+                )
+                .map_err(|e| {
+                    format!(
+                        "Failed to build message '{}': {}",
+                        "hello::asset_events::AssetLocalNewerEvent", e
+                    )
+                })?;
+                use bevy::reflect::Struct;
+                for i in 0..dynamic.field_len() {
+                    let field_name = dynamic.name_at(i).unwrap_or("unknown");
+                    let field_value = dynamic
+                        .field_at(i)
+                        .map(|f| {
+                            format!("{} (kind: {:?})", f.reflect_type_path(), f.reflect_kind())
+                        })
+                        .unwrap_or("None".to_string());
+                    bevy::log::debug!(
+                        "[MESSAGE_CONSTRUCT] Field '{}': {}",
+                        field_name,
+                        field_value
+                    );
+                }
+                if let Some(reflect_default) =
+                    type_registration.data::<bevy::prelude::ReflectDefault>()
+                {
+                    let mut concrete_instance = reflect_default.default();
+                    match concrete_instance.try_apply(&dynamic) {
+                        Ok(()) => {
+                            if let Ok(concrete_message) = concrete_instance
+                                .take::<crate::asset_events::AssetLocalNewerEvent>(
+                            ) {
+                                drop(registry);
+                                let mut system_state = bevy::ecs::system::SystemState::<
+                                    bevy::prelude::MessageWriter<
+                                        crate::asset_events::AssetLocalNewerEvent,
+                                    >,
+                                >::new(world);
+                                let mut message_writer = system_state.get_mut(world);
+                                message_writer.write(concrete_message);
+                                bevy::log::debug!(
+                                    "[MESSAGE_WRITE] Sent message via try_apply: {}",
+                                    "hello::asset_events::AssetLocalNewerEvent"
+                                );
+                                return Ok(());
+                            } else {
+                                bevy :: log :: warn ! ("[MESSAGE_WRITE] try_apply succeeded but downcast failed for '{}'" , "hello::asset_events::AssetLocalNewerEvent");
+                            }
+                        }
+                        Err(e) => {
+                            bevy::log::debug!(
+                                "[MESSAGE_WRITE] try_apply failed for '{}': {:?}",
+                                "hello::asset_events::AssetLocalNewerEvent",
+                                e
+                            );
+                        }
+                    }
+                }
+                if let Some(reflect_from_reflect) =
+                    type_registration.data::<bevy::reflect::ReflectFromReflect>()
+                {
+                    if let Some(concrete_value) = reflect_from_reflect.from_reflect(&dynamic) {
+                        if let Ok(concrete_message) =
+                            concrete_value.take::<crate::asset_events::AssetLocalNewerEvent>()
+                        {
+                            drop(registry);
+                            let mut system_state = bevy::ecs::system::SystemState::<
+                                bevy::prelude::MessageWriter<
+                                    crate::asset_events::AssetLocalNewerEvent,
+                                >,
+                            >::new(world);
+                            let mut message_writer = system_state.get_mut(world);
+                            message_writer.write(concrete_message);
+                            bevy::log::debug!(
+                                "[MESSAGE_WRITE] Sent message via ReflectFromReflect: {}",
+                                "hello::asset_events::AssetLocalNewerEvent"
+                            );
+                            return Ok(());
+                        } else {
+                            bevy :: log :: warn ! ("[MESSAGE_WRITE] ReflectFromReflect succeeded but downcast failed for '{}'" , "hello::asset_events::AssetLocalNewerEvent");
+                        }
+                    } else {
+                        bevy :: log :: debug ! ("[MESSAGE_WRITE] ReflectFromReflect::from_reflect returned None for '{}'" , "hello::asset_events::AssetLocalNewerEvent");
+                    }
+                }
+                if let Some (concrete_value) = < crate :: asset_events :: AssetLocalNewerEvent as bevy :: reflect :: FromReflect > :: from_reflect (& dynamic) { drop (registry) ; let mut system_state = bevy :: ecs :: system :: SystemState :: < bevy :: prelude :: MessageWriter < crate :: asset_events :: AssetLocalNewerEvent >> :: new (world) ; let mut message_writer = system_state . get_mut (world) ; message_writer . write (concrete_value) ; bevy :: log :: debug ! ("[MESSAGE_WRITE] Sent message via FromReflect trait: {}" , "hello::asset_events::AssetLocalNewerEvent") ; return Ok (()) ; }
+                return Err (format ! ("Failed to construct message '{}' - all conversion strategies failed. This usually means a nested type doesn't implement FromReflect properly or a newtype wrapper is causing issues." , "hello::asset_events::AssetLocalNewerEvent")) ;
+            } else {
+                return Err(format!(
+                    "Message type '{}' not found in TypeRegistry",
+                    "hello::asset_events::AssetLocalNewerEvent"
+                ));
+            }
+        }
+        "AssetRenameEvent"
+        | "hello::asset_events::AssetRenameEvent"
+        | "hello::asset_events::AssetRenameEvent" => {
+            let type_registry = world
+                .resource::<bevy::ecs::reflect::AppTypeRegistry>()
+                .clone();
+            let registry = type_registry.read();
+            let type_registration = registry
+                .get_with_type_path("hello::asset_events::AssetRenameEvent")
+                .or_else(|| registry.get_with_type_path("hello::asset_events::AssetRenameEvent"));
+            if let Some(type_registration) = type_registration {
+                let type_info = type_registration.type_info();
+                let asset_registry = world.get_resource::<bevy_lua_ecs::AssetRegistry>().cloned();
+                let dynamic = bevy_lua_ecs::lua_table_to_dynamic_with_assets(
+                    lua,
+                    data,
+                    type_info,
+                    &type_registry,
+                    asset_registry.as_ref(),
+                )
+                .map_err(|e| {
+                    format!(
+                        "Failed to build message '{}': {}",
+                        "hello::asset_events::AssetRenameEvent", e
+                    )
+                })?;
+                use bevy::reflect::Struct;
+                for i in 0..dynamic.field_len() {
+                    let field_name = dynamic.name_at(i).unwrap_or("unknown");
+                    let field_value = dynamic
+                        .field_at(i)
+                        .map(|f| {
+                            format!("{} (kind: {:?})", f.reflect_type_path(), f.reflect_kind())
+                        })
+                        .unwrap_or("None".to_string());
+                    bevy::log::debug!(
+                        "[MESSAGE_CONSTRUCT] Field '{}': {}",
+                        field_name,
+                        field_value
+                    );
+                }
+                if let Some(reflect_default) =
+                    type_registration.data::<bevy::prelude::ReflectDefault>()
+                {
+                    let mut concrete_instance = reflect_default.default();
+                    match concrete_instance.try_apply(&dynamic) {
+                        Ok(()) => {
+                            if let Ok(concrete_message) =
+                                concrete_instance.take::<crate::asset_events::AssetRenameEvent>()
+                            {
+                                drop(registry);
+                                let mut system_state = bevy::ecs::system::SystemState::<
+                                    bevy::prelude::MessageWriter<
+                                        crate::asset_events::AssetRenameEvent,
+                                    >,
+                                >::new(world);
+                                let mut message_writer = system_state.get_mut(world);
+                                message_writer.write(concrete_message);
+                                bevy::log::debug!(
+                                    "[MESSAGE_WRITE] Sent message via try_apply: {}",
+                                    "hello::asset_events::AssetRenameEvent"
+                                );
+                                return Ok(());
+                            } else {
+                                bevy :: log :: warn ! ("[MESSAGE_WRITE] try_apply succeeded but downcast failed for '{}'" , "hello::asset_events::AssetRenameEvent");
+                            }
+                        }
+                        Err(e) => {
+                            bevy::log::debug!(
+                                "[MESSAGE_WRITE] try_apply failed for '{}': {:?}",
+                                "hello::asset_events::AssetRenameEvent",
+                                e
+                            );
+                        }
+                    }
+                }
+                if let Some(reflect_from_reflect) =
+                    type_registration.data::<bevy::reflect::ReflectFromReflect>()
+                {
+                    if let Some(concrete_value) = reflect_from_reflect.from_reflect(&dynamic) {
+                        if let Ok(concrete_message) =
+                            concrete_value.take::<crate::asset_events::AssetRenameEvent>()
+                        {
+                            drop(registry);
+                            let mut system_state = bevy::ecs::system::SystemState::<
+                                bevy::prelude::MessageWriter<crate::asset_events::AssetRenameEvent>,
+                            >::new(world);
+                            let mut message_writer = system_state.get_mut(world);
+                            message_writer.write(concrete_message);
+                            bevy::log::debug!(
+                                "[MESSAGE_WRITE] Sent message via ReflectFromReflect: {}",
+                                "hello::asset_events::AssetRenameEvent"
+                            );
+                            return Ok(());
+                        } else {
+                            bevy :: log :: warn ! ("[MESSAGE_WRITE] ReflectFromReflect succeeded but downcast failed for '{}'" , "hello::asset_events::AssetRenameEvent");
+                        }
+                    } else {
+                        bevy :: log :: debug ! ("[MESSAGE_WRITE] ReflectFromReflect::from_reflect returned None for '{}'" , "hello::asset_events::AssetRenameEvent");
+                    }
+                }
+                if let Some (concrete_value) = < crate :: asset_events :: AssetRenameEvent as bevy :: reflect :: FromReflect > :: from_reflect (& dynamic) { drop (registry) ; let mut system_state = bevy :: ecs :: system :: SystemState :: < bevy :: prelude :: MessageWriter < crate :: asset_events :: AssetRenameEvent >> :: new (world) ; let mut message_writer = system_state . get_mut (world) ; message_writer . write (concrete_value) ; bevy :: log :: debug ! ("[MESSAGE_WRITE] Sent message via FromReflect trait: {}" , "hello::asset_events::AssetRenameEvent") ; return Ok (()) ; }
+                return Err (format ! ("Failed to construct message '{}' - all conversion strategies failed. This usually means a nested type doesn't implement FromReflect properly or a newtype wrapper is causing issues." , "hello::asset_events::AssetRenameEvent")) ;
+            } else {
+                return Err(format!(
+                    "Message type '{}' not found in TypeRegistry",
+                    "hello::asset_events::AssetRenameEvent"
+                ));
+            }
+        }
+        "AssetUploadProgressEvent"
+        | "hello::asset_events::AssetUploadProgressEvent"
+        | "hello::asset_events::AssetUploadProgressEvent" => {
+            let type_registry = world
+                .resource::<bevy::ecs::reflect::AppTypeRegistry>()
+                .clone();
+            let registry = type_registry.read();
+            let type_registration = registry
+                .get_with_type_path("hello::asset_events::AssetUploadProgressEvent")
+                .or_else(|| {
+                    registry.get_with_type_path("hello::asset_events::AssetUploadProgressEvent")
+                });
+            if let Some(type_registration) = type_registration {
+                let type_info = type_registration.type_info();
+                let asset_registry = world.get_resource::<bevy_lua_ecs::AssetRegistry>().cloned();
+                let dynamic = bevy_lua_ecs::lua_table_to_dynamic_with_assets(
+                    lua,
+                    data,
+                    type_info,
+                    &type_registry,
+                    asset_registry.as_ref(),
+                )
+                .map_err(|e| {
+                    format!(
+                        "Failed to build message '{}': {}",
+                        "hello::asset_events::AssetUploadProgressEvent", e
+                    )
+                })?;
+                use bevy::reflect::Struct;
+                for i in 0..dynamic.field_len() {
+                    let field_name = dynamic.name_at(i).unwrap_or("unknown");
+                    let field_value = dynamic
+                        .field_at(i)
+                        .map(|f| {
+                            format!("{} (kind: {:?})", f.reflect_type_path(), f.reflect_kind())
+                        })
+                        .unwrap_or("None".to_string());
+                    bevy::log::debug!(
+                        "[MESSAGE_CONSTRUCT] Field '{}': {}",
+                        field_name,
+                        field_value
+                    );
+                }
+                if let Some(reflect_default) =
+                    type_registration.data::<bevy::prelude::ReflectDefault>()
+                {
+                    let mut concrete_instance = reflect_default.default();
+                    match concrete_instance.try_apply(&dynamic) {
+                        Ok(()) => {
+                            if let Ok(concrete_message) =
+                                concrete_instance
+                                    .take::<crate::asset_events::AssetUploadProgressEvent>()
+                            {
+                                drop(registry);
+                                let mut system_state = bevy::ecs::system::SystemState::<
+                                    bevy::prelude::MessageWriter<
+                                        crate::asset_events::AssetUploadProgressEvent,
+                                    >,
+                                >::new(world);
+                                let mut message_writer = system_state.get_mut(world);
+                                message_writer.write(concrete_message);
+                                bevy::log::debug!(
+                                    "[MESSAGE_WRITE] Sent message via try_apply: {}",
+                                    "hello::asset_events::AssetUploadProgressEvent"
+                                );
+                                return Ok(());
+                            } else {
+                                bevy :: log :: warn ! ("[MESSAGE_WRITE] try_apply succeeded but downcast failed for '{}'" , "hello::asset_events::AssetUploadProgressEvent");
+                            }
+                        }
+                        Err(e) => {
+                            bevy::log::debug!(
+                                "[MESSAGE_WRITE] try_apply failed for '{}': {:?}",
+                                "hello::asset_events::AssetUploadProgressEvent",
+                                e
+                            );
+                        }
+                    }
+                }
+                if let Some(reflect_from_reflect) =
+                    type_registration.data::<bevy::reflect::ReflectFromReflect>()
+                {
+                    if let Some(concrete_value) = reflect_from_reflect.from_reflect(&dynamic) {
+                        if let Ok(concrete_message) =
+                            concrete_value.take::<crate::asset_events::AssetUploadProgressEvent>()
+                        {
+                            drop(registry);
+                            let mut system_state = bevy::ecs::system::SystemState::<
+                                bevy::prelude::MessageWriter<
+                                    crate::asset_events::AssetUploadProgressEvent,
+                                >,
+                            >::new(world);
+                            let mut message_writer = system_state.get_mut(world);
+                            message_writer.write(concrete_message);
+                            bevy::log::debug!(
+                                "[MESSAGE_WRITE] Sent message via ReflectFromReflect: {}",
+                                "hello::asset_events::AssetUploadProgressEvent"
+                            );
+                            return Ok(());
+                        } else {
+                            bevy :: log :: warn ! ("[MESSAGE_WRITE] ReflectFromReflect succeeded but downcast failed for '{}'" , "hello::asset_events::AssetUploadProgressEvent");
+                        }
+                    } else {
+                        bevy :: log :: debug ! ("[MESSAGE_WRITE] ReflectFromReflect::from_reflect returned None for '{}'" , "hello::asset_events::AssetUploadProgressEvent");
+                    }
+                }
+                if let Some (concrete_value) = < crate :: asset_events :: AssetUploadProgressEvent as bevy :: reflect :: FromReflect > :: from_reflect (& dynamic) { drop (registry) ; let mut system_state = bevy :: ecs :: system :: SystemState :: < bevy :: prelude :: MessageWriter < crate :: asset_events :: AssetUploadProgressEvent >> :: new (world) ; let mut message_writer = system_state . get_mut (world) ; message_writer . write (concrete_value) ; bevy :: log :: debug ! ("[MESSAGE_WRITE] Sent message via FromReflect trait: {}" , "hello::asset_events::AssetUploadProgressEvent") ; return Ok (()) ; }
+                return Err (format ! ("Failed to construct message '{}' - all conversion strategies failed. This usually means a nested type doesn't implement FromReflect properly or a newtype wrapper is causing issues." , "hello::asset_events::AssetUploadProgressEvent")) ;
+            } else {
+                return Err(format!(
+                    "Message type '{}' not found in TypeRegistry",
+                    "hello::asset_events::AssetUploadProgressEvent"
+                ));
+            }
+        }
         "PointerInput"
         | "bevy::picking::pointer::PointerInput"
         | "bevy_picking::pointer::PointerInput" => {
@@ -5130,14 +6303,15 @@ pub fn dispatch_write_message(
         )),
     }
 }
-#[doc = r" Dispatch a Lua observer callback for an entity"]
-fn dispatch_lua_observer(
+#[doc = r" Dispatch a Lua observer callback for an entity with reflected event data"]
+#[doc = r" The entire event is converted to a Lua table via reflection, making all fields available"]
+fn dispatch_lua_observer_reflected<T: bevy::reflect::PartialReflect>(
     lua_ctx: &bevy_lua_ecs::LuaScriptContext,
     observer_registry: &bevy_lua_ecs::LuaObserverRegistry,
     update_queue: &bevy_lua_ecs::ComponentUpdateQueue,
     entity: bevy::prelude::Entity,
     event_type: &str,
-    position: Option<bevy::math::Vec2>,
+    event_data: &T,
 ) {
     let callbacks = observer_registry.callbacks().lock().unwrap();
     if let Some(observers) = callbacks.get(&entity) {
@@ -5150,11 +6324,25 @@ fn dispatch_lua_observer(
                         lua_components: std::collections::HashMap::new(),
                         update_queue: update_queue.clone(),
                     };
-                    let event_table = lua_ctx.lua.create_table().unwrap();
-                    if let Some(pos) = position {
-                        let _ = event_table.set("x", pos.x);
-                        let _ = event_table.set("y", pos.y);
-                    }
+                    let event_table = match bevy_lua_ecs::reflection::try_reflect_to_lua_value(
+                        &lua_ctx.lua,
+                        event_data,
+                    ) {
+                        Ok(mlua::Value::Table(table)) => table,
+                        Ok(other) => {
+                            let table = lua_ctx.lua.create_table().unwrap();
+                            let _ = table.set("value", other);
+                            table
+                        }
+                        Err(e) => {
+                            bevy::log::warn!(
+                                "[LUA_OBSERVER] Error reflecting event {}: {}",
+                                event_type,
+                                e
+                            );
+                            lua_ctx.lua.create_table().unwrap()
+                        }
+                    };
                     if let Err(e) = callback.call::<()>((entity_snapshot, event_table)) {
                         bevy::log::error!(
                             "[LUA_OBSERVER] Error calling {} callback: {}",
@@ -5168,221 +6356,259 @@ fn dispatch_lua_observer(
     }
 }
 fn on_pointer_cancel_lua(
-    event: bevy::prelude::On<bevy::prelude::Pointer<bevy::prelude::Cancel>>,
+    event: bevy::prelude::On<bevy::prelude::Pointer<bevy::picking::events::Cancel>>,
     lua_ctx: bevy::prelude::Res<bevy_lua_ecs::LuaScriptContext>,
     observer_registry: bevy::prelude::Res<bevy_lua_ecs::LuaObserverRegistry>,
     update_queue: bevy::prelude::Res<bevy_lua_ecs::ComponentUpdateQueue>,
 ) {
-    dispatch_lua_observer(
+    let event_data = event.event();
+    dispatch_lua_observer_reflected(
         &lua_ctx,
         &observer_registry,
         &update_queue,
-        event.event().entity,
+        event_data.entity,
         "Pointer<Cancel>",
-        None,
+        event_data,
     );
 }
 fn on_pointer_over_lua(
-    event: bevy::prelude::On<bevy::prelude::Pointer<bevy::prelude::Over>>,
+    event: bevy::prelude::On<bevy::prelude::Pointer<bevy::picking::events::Over>>,
     lua_ctx: bevy::prelude::Res<bevy_lua_ecs::LuaScriptContext>,
     observer_registry: bevy::prelude::Res<bevy_lua_ecs::LuaObserverRegistry>,
     update_queue: bevy::prelude::Res<bevy_lua_ecs::ComponentUpdateQueue>,
 ) {
-    dispatch_lua_observer(
+    let event_data = event.event();
+    dispatch_lua_observer_reflected(
         &lua_ctx,
         &observer_registry,
         &update_queue,
-        event.event().entity,
+        event_data.entity,
         "Pointer<Over>",
-        None,
+        event_data,
     );
 }
 fn on_pointer_out_lua(
-    event: bevy::prelude::On<bevy::prelude::Pointer<bevy::prelude::Out>>,
+    event: bevy::prelude::On<bevy::prelude::Pointer<bevy::picking::events::Out>>,
     lua_ctx: bevy::prelude::Res<bevy_lua_ecs::LuaScriptContext>,
     observer_registry: bevy::prelude::Res<bevy_lua_ecs::LuaObserverRegistry>,
     update_queue: bevy::prelude::Res<bevy_lua_ecs::ComponentUpdateQueue>,
 ) {
-    dispatch_lua_observer(
+    let event_data = event.event();
+    dispatch_lua_observer_reflected(
         &lua_ctx,
         &observer_registry,
         &update_queue,
-        event.event().entity,
+        event_data.entity,
         "Pointer<Out>",
-        None,
+        event_data,
     );
 }
-fn on_pointer_down_lua(
-    event: bevy::prelude::On<bevy::prelude::Pointer<bevy::prelude::Press>>,
+fn on_pointer_pressed_lua(
+    event: bevy::prelude::On<bevy::prelude::Pointer<bevy::picking::events::Press>>,
     lua_ctx: bevy::prelude::Res<bevy_lua_ecs::LuaScriptContext>,
     observer_registry: bevy::prelude::Res<bevy_lua_ecs::LuaObserverRegistry>,
     update_queue: bevy::prelude::Res<bevy_lua_ecs::ComponentUpdateQueue>,
 ) {
-    dispatch_lua_observer(
+    let event_data = event.event();
+    dispatch_lua_observer_reflected(
         &lua_ctx,
         &observer_registry,
         &update_queue,
-        event.event().entity,
-        "Pointer<Down>",
-        None,
+        event_data.entity,
+        "Pointer<Pressed>",
+        event_data,
     );
 }
-fn on_pointer_up_lua(
-    event: bevy::prelude::On<bevy::prelude::Pointer<bevy::prelude::Release>>,
+fn on_pointer_released_lua(
+    event: bevy::prelude::On<bevy::prelude::Pointer<bevy::picking::events::Release>>,
     lua_ctx: bevy::prelude::Res<bevy_lua_ecs::LuaScriptContext>,
     observer_registry: bevy::prelude::Res<bevy_lua_ecs::LuaObserverRegistry>,
     update_queue: bevy::prelude::Res<bevy_lua_ecs::ComponentUpdateQueue>,
 ) {
-    dispatch_lua_observer(
+    let event_data = event.event();
+    dispatch_lua_observer_reflected(
         &lua_ctx,
         &observer_registry,
         &update_queue,
-        event.event().entity,
-        "Pointer<Up>",
-        None,
+        event_data.entity,
+        "Pointer<Released>",
+        event_data,
     );
 }
 fn on_pointer_click_lua(
-    event: bevy::prelude::On<bevy::prelude::Pointer<bevy::prelude::Click>>,
+    event: bevy::prelude::On<bevy::prelude::Pointer<bevy::picking::events::Click>>,
     lua_ctx: bevy::prelude::Res<bevy_lua_ecs::LuaScriptContext>,
     observer_registry: bevy::prelude::Res<bevy_lua_ecs::LuaObserverRegistry>,
     update_queue: bevy::prelude::Res<bevy_lua_ecs::ComponentUpdateQueue>,
 ) {
-    dispatch_lua_observer(
+    let event_data = event.event();
+    dispatch_lua_observer_reflected(
         &lua_ctx,
         &observer_registry,
         &update_queue,
-        event.event().entity,
+        event_data.entity,
         "Pointer<Click>",
-        None,
+        event_data,
     );
 }
 fn on_pointer_move_lua(
-    event: bevy::prelude::On<bevy::prelude::Pointer<bevy::prelude::Move>>,
+    event: bevy::prelude::On<bevy::prelude::Pointer<bevy::picking::events::Move>>,
     lua_ctx: bevy::prelude::Res<bevy_lua_ecs::LuaScriptContext>,
     observer_registry: bevy::prelude::Res<bevy_lua_ecs::LuaObserverRegistry>,
     update_queue: bevy::prelude::Res<bevy_lua_ecs::ComponentUpdateQueue>,
 ) {
-    let pos = event.event().pointer_location.position;
-    dispatch_lua_observer(
+    let event_data = event.event();
+    dispatch_lua_observer_reflected(
         &lua_ctx,
         &observer_registry,
         &update_queue,
-        event.event().entity,
+        event_data.entity,
         "Pointer<Move>",
-        Some(pos),
+        event_data,
     );
 }
 fn on_pointer_dragstart_lua(
-    event: bevy::prelude::On<bevy::prelude::Pointer<bevy::prelude::DragStart>>,
+    event: bevy::prelude::On<bevy::prelude::Pointer<bevy::picking::events::DragStart>>,
     lua_ctx: bevy::prelude::Res<bevy_lua_ecs::LuaScriptContext>,
     observer_registry: bevy::prelude::Res<bevy_lua_ecs::LuaObserverRegistry>,
     update_queue: bevy::prelude::Res<bevy_lua_ecs::ComponentUpdateQueue>,
 ) {
-    let pos = event.event().pointer_location.position;
-    dispatch_lua_observer(
+    let event_data = event.event();
+    dispatch_lua_observer_reflected(
         &lua_ctx,
         &observer_registry,
         &update_queue,
-        event.event().entity,
+        event_data.entity,
         "Pointer<DragStart>",
-        Some(pos),
+        event_data,
     );
 }
 fn on_pointer_drag_lua(
-    event: bevy::prelude::On<bevy::prelude::Pointer<bevy::prelude::Drag>>,
+    event: bevy::prelude::On<bevy::prelude::Pointer<bevy::picking::events::Drag>>,
     lua_ctx: bevy::prelude::Res<bevy_lua_ecs::LuaScriptContext>,
     observer_registry: bevy::prelude::Res<bevy_lua_ecs::LuaObserverRegistry>,
     update_queue: bevy::prelude::Res<bevy_lua_ecs::ComponentUpdateQueue>,
 ) {
-    let pos = event.event().pointer_location.position;
-    dispatch_lua_observer(
+    let event_data = event.event();
+    dispatch_lua_observer_reflected(
         &lua_ctx,
         &observer_registry,
         &update_queue,
-        event.event().entity,
+        event_data.entity,
         "Pointer<Drag>",
-        Some(pos),
+        event_data,
     );
 }
 fn on_pointer_dragend_lua(
-    event: bevy::prelude::On<bevy::prelude::Pointer<bevy::prelude::DragEnd>>,
+    event: bevy::prelude::On<bevy::prelude::Pointer<bevy::picking::events::DragEnd>>,
     lua_ctx: bevy::prelude::Res<bevy_lua_ecs::LuaScriptContext>,
     observer_registry: bevy::prelude::Res<bevy_lua_ecs::LuaObserverRegistry>,
     update_queue: bevy::prelude::Res<bevy_lua_ecs::ComponentUpdateQueue>,
 ) {
-    let pos = event.event().pointer_location.position;
-    dispatch_lua_observer(
+    let event_data = event.event();
+    dispatch_lua_observer_reflected(
         &lua_ctx,
         &observer_registry,
         &update_queue,
-        event.event().entity,
+        event_data.entity,
         "Pointer<DragEnd>",
-        Some(pos),
+        event_data,
     );
 }
 fn on_pointer_dragenter_lua(
-    event: bevy::prelude::On<bevy::prelude::Pointer<bevy::prelude::DragEnter>>,
+    event: bevy::prelude::On<bevy::prelude::Pointer<bevy::picking::events::DragEnter>>,
     lua_ctx: bevy::prelude::Res<bevy_lua_ecs::LuaScriptContext>,
     observer_registry: bevy::prelude::Res<bevy_lua_ecs::LuaObserverRegistry>,
     update_queue: bevy::prelude::Res<bevy_lua_ecs::ComponentUpdateQueue>,
 ) {
-    let pos = event.event().pointer_location.position;
-    dispatch_lua_observer(
+    let event_data = event.event();
+    dispatch_lua_observer_reflected(
         &lua_ctx,
         &observer_registry,
         &update_queue,
-        event.event().entity,
+        event_data.entity,
         "Pointer<DragEnter>",
-        Some(pos),
+        event_data,
     );
 }
 fn on_pointer_dragover_lua(
-    event: bevy::prelude::On<bevy::prelude::Pointer<bevy::prelude::DragOver>>,
+    event: bevy::prelude::On<bevy::prelude::Pointer<bevy::picking::events::DragOver>>,
     lua_ctx: bevy::prelude::Res<bevy_lua_ecs::LuaScriptContext>,
     observer_registry: bevy::prelude::Res<bevy_lua_ecs::LuaObserverRegistry>,
     update_queue: bevy::prelude::Res<bevy_lua_ecs::ComponentUpdateQueue>,
 ) {
-    let pos = event.event().pointer_location.position;
-    dispatch_lua_observer(
+    let event_data = event.event();
+    dispatch_lua_observer_reflected(
         &lua_ctx,
         &observer_registry,
         &update_queue,
-        event.event().entity,
+        event_data.entity,
         "Pointer<DragOver>",
-        Some(pos),
+        event_data,
     );
 }
 fn on_pointer_dragleave_lua(
-    event: bevy::prelude::On<bevy::prelude::Pointer<bevy::prelude::DragLeave>>,
+    event: bevy::prelude::On<bevy::prelude::Pointer<bevy::picking::events::DragLeave>>,
     lua_ctx: bevy::prelude::Res<bevy_lua_ecs::LuaScriptContext>,
     observer_registry: bevy::prelude::Res<bevy_lua_ecs::LuaObserverRegistry>,
     update_queue: bevy::prelude::Res<bevy_lua_ecs::ComponentUpdateQueue>,
 ) {
-    let pos = event.event().pointer_location.position;
-    dispatch_lua_observer(
+    let event_data = event.event();
+    dispatch_lua_observer_reflected(
         &lua_ctx,
         &observer_registry,
         &update_queue,
-        event.event().entity,
+        event_data.entity,
         "Pointer<DragLeave>",
-        Some(pos),
+        event_data,
     );
 }
 fn on_pointer_dragdrop_lua(
-    event: bevy::prelude::On<bevy::prelude::Pointer<bevy::prelude::DragDrop>>,
+    event: bevy::prelude::On<bevy::prelude::Pointer<bevy::picking::events::DragDrop>>,
     lua_ctx: bevy::prelude::Res<bevy_lua_ecs::LuaScriptContext>,
     observer_registry: bevy::prelude::Res<bevy_lua_ecs::LuaObserverRegistry>,
     update_queue: bevy::prelude::Res<bevy_lua_ecs::ComponentUpdateQueue>,
 ) {
-    let pos = event.event().pointer_location.position;
-    dispatch_lua_observer(
+    let event_data = event.event();
+    dispatch_lua_observer_reflected(
         &lua_ctx,
         &observer_registry,
         &update_queue,
-        event.event().entity,
+        event_data.entity,
         "Pointer<DragDrop>",
-        Some(pos),
+        event_data,
+    );
+}
+fn on_pointer_dragentry_lua(
+    event: bevy::prelude::On<bevy::prelude::Pointer<bevy::picking::events::DragEntry>>,
+    lua_ctx: bevy::prelude::Res<bevy_lua_ecs::LuaScriptContext>,
+    observer_registry: bevy::prelude::Res<bevy_lua_ecs::LuaObserverRegistry>,
+    update_queue: bevy::prelude::Res<bevy_lua_ecs::ComponentUpdateQueue>,
+) {
+    let event_data = event.event();
+    dispatch_lua_observer_reflected(
+        &lua_ctx,
+        &observer_registry,
+        &update_queue,
+        event_data.entity,
+        "Pointer<DragEntry>",
+        event_data,
+    );
+}
+fn on_pointer_scroll_lua(
+    event: bevy::prelude::On<bevy::prelude::Pointer<bevy::picking::events::Scroll>>,
+    lua_ctx: bevy::prelude::Res<bevy_lua_ecs::LuaScriptContext>,
+    observer_registry: bevy::prelude::Res<bevy_lua_ecs::LuaObserverRegistry>,
+    update_queue: bevy::prelude::Res<bevy_lua_ecs::ComponentUpdateQueue>,
+) {
+    let event_data = event.event();
+    dispatch_lua_observer_reflected(
+        &lua_ctx,
+        &observer_registry,
+        &update_queue,
+        event_data.entity,
+        "Pointer<Scroll>",
+        event_data,
     );
 }
 #[doc = r" Attach a Lua observer to an entity by event type name"]
@@ -5402,11 +6628,11 @@ pub fn attach_observer_by_name(
         "Pointer<Out>" => {
             commands.entity(entity).observe(on_pointer_out_lua);
         }
-        "Pointer<Down>" => {
-            commands.entity(entity).observe(on_pointer_down_lua);
+        "Pointer<Pressed>" => {
+            commands.entity(entity).observe(on_pointer_pressed_lua);
         }
-        "Pointer<Up>" => {
-            commands.entity(entity).observe(on_pointer_up_lua);
+        "Pointer<Released>" => {
+            commands.entity(entity).observe(on_pointer_released_lua);
         }
         "Pointer<Click>" => {
             commands.entity(entity).observe(on_pointer_click_lua);
@@ -5434,6 +6660,12 @@ pub fn attach_observer_by_name(
         }
         "Pointer<DragDrop>" => {
             commands.entity(entity).observe(on_pointer_dragdrop_lua);
+        }
+        "Pointer<DragEntry>" => {
+            commands.entity(entity).observe(on_pointer_dragentry_lua);
+        }
+        "Pointer<Scroll>" => {
+            commands.entity(entity).observe(on_pointer_scroll_lua);
         }
         _ => bevy::log::warn!("[LUA_OBSERVER] Unknown observer type: {}", event_type),
     }
@@ -5564,6 +6796,12 @@ fn register_bevy_events(app: &mut bevy::prelude::App) {
     app.register_type::<bevy::window::WindowBackendScaleFactorChanged>();
     bevy::log::debug!(
         "[REGISTER_EVENTS] Adding event type: {}",
+        "bevy::window::FileDragAndDrop"
+    );
+    app.add_event::<bevy::window::FileDragAndDrop>();
+    app.register_type::<bevy::window::FileDragAndDrop>();
+    bevy::log::debug!(
+        "[REGISTER_EVENTS] Adding event type: {}",
         "bevy::window::WindowMoved"
     );
     app.add_event::<bevy::window::WindowMoved>();
@@ -5574,6 +6812,12 @@ fn register_bevy_events(app: &mut bevy::prelude::App) {
     );
     app.add_event::<bevy::window::WindowThemeChanged>();
     app.register_type::<bevy::window::WindowThemeChanged>();
+    bevy::log::debug!(
+        "[REGISTER_EVENTS] Adding event type: {}",
+        "bevy::window::AppLifecycle"
+    );
+    app.add_event::<bevy::window::AppLifecycle>();
+    app.register_type::<bevy::window::AppLifecycle>();
     bevy::log::debug!(
         "[REGISTER_EVENTS] Adding event type: {}",
         "bevy::input::keyboard::KeyboardInput"
@@ -5610,6 +6854,31 @@ fn register_bevy_events(app: &mut bevy::prelude::App) {
     );
     app.add_event::<bevy::picking::pointer::PointerInput>();
     app.register_type::<bevy::picking::pointer::PointerInput>();
+    app.register_type::<crate::asset_events::AssetDeleteEvent>();
+    bevy::log::debug!(
+        "[REGISTER_MESSAGES] Adding message type: {}",
+        "hello::asset_events::AssetDeleteEvent"
+    );
+    app.register_type::<crate::asset_events::AssetDirectoryListingEvent>();
+    bevy::log::debug!(
+        "[REGISTER_MESSAGES] Adding message type: {}",
+        "hello::asset_events::AssetDirectoryListingEvent"
+    );
+    app.register_type::<crate::asset_events::AssetLocalNewerEvent>();
+    bevy::log::debug!(
+        "[REGISTER_MESSAGES] Adding message type: {}",
+        "hello::asset_events::AssetLocalNewerEvent"
+    );
+    app.register_type::<crate::asset_events::AssetRenameEvent>();
+    bevy::log::debug!(
+        "[REGISTER_MESSAGES] Adding message type: {}",
+        "hello::asset_events::AssetRenameEvent"
+    );
+    app.register_type::<crate::asset_events::AssetUploadProgressEvent>();
+    bevy::log::debug!(
+        "[REGISTER_MESSAGES] Adding message type: {}",
+        "hello::asset_events::AssetUploadProgressEvent"
+    );
     app.register_type::<bevy::picking::pointer::PointerInput>();
     bevy::log::debug!(
         "[REGISTER_MESSAGES] Adding message type: {}",
@@ -5645,10 +6914,10 @@ fn register_asset_cloners(asset_registry: &bevy_lua_ecs::AssetRegistry) {
     bevy_lua_ecs::register_cloner_if_clone::<bevy::animation::AnimationClip>(&mut cloners);
     bevy_lua_ecs::register_cloner_if_clone::<bevy::audio::AudioSource>(&mut cloners);
     bevy_lua_ecs::register_cloner_if_clone::<bevy::gizmos::GizmoAsset>(&mut cloners);
-    bevy_lua_ecs::register_cloner_if_clone::<bevy::gltf::GltfMesh>(&mut cloners);
-    bevy_lua_ecs::register_cloner_if_clone::<bevy::gltf::GltfPrimitive>(&mut cloners);
-    bevy_lua_ecs::register_cloner_if_clone::<bevy::gltf::GltfNode>(&mut cloners);
     bevy_lua_ecs::register_cloner_if_clone::<bevy::gltf::GltfSkin>(&mut cloners);
+    bevy_lua_ecs::register_cloner_if_clone::<bevy::gltf::GltfMesh>(&mut cloners);
+    bevy_lua_ecs::register_cloner_if_clone::<bevy::gltf::GltfNode>(&mut cloners);
+    bevy_lua_ecs::register_cloner_if_clone::<bevy::gltf::GltfPrimitive>(&mut cloners);
     bevy_lua_ecs::register_cloner_if_clone::<bevy::prelude::Image>(&mut cloners);
     bevy_lua_ecs::register_cloner_if_clone::<bevy::prelude::Mesh>(&mut cloners);
     bevy_lua_ecs::register_cloner_if_clone::<bevy::prelude::StandardMaterial>(&mut cloners);
@@ -5709,11 +6978,11 @@ fn register_typed_path_loaders(
         bevy::asset::LoadedFolder,
         bevy::audio::AudioSource,
         bevy::gizmos::GizmoAsset,
+        bevy::gltf::GltfSkin,
         bevy::gltf::GltfMesh,
         bevy::gltf::Gltf,
-        bevy::gltf::GltfPrimitive,
         bevy::gltf::GltfNode,
-        bevy::gltf::GltfSkin,
+        bevy::gltf::GltfPrimitive,
         bevy::prelude::Image,
         bevy::prelude::Mesh,
         bevy::prelude::StandardMaterial,

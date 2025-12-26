@@ -54,8 +54,7 @@ fn main() {
     #[cfg(feature = "networking")]
     app.add_systems(PostStartup, renet_lua::setup_renet_lua_bindings.before(load_and_run_script));
     
-    app.add_systems(Startup, setup)
-        .add_systems(PostStartup, load_and_run_script)
+    app.add_systems(PostStartup, load_and_run_script)
         .run();
 }
 
@@ -67,10 +66,6 @@ fn register_networking_bindings(
     // Register networking constructors from library (generic infrastructure)
     networking::register_networking_constructors(&builder_registry);
     networking::register_networking_methods(&method_registry);
-}
-
-fn setup(mut commands: Commands) {
-    commands.spawn(Camera2d);
 }
 
 fn load_and_run_script(

@@ -16,8 +16,23 @@ use bevy_lua_ecs::LuaScriptContext;
 use crate::network_asset_client::{
     PendingAssetRequests, PendingCoroutines, PendingScriptCoroutine,
     AssetType, AssetSubscriptionMessage, AssetUpdateNotification, ASSET_CHANNEL,
-    decrypt_data,
+    decrypt_data, DirectoryListingRequest,
 };
+
+#[cfg(feature = "networking")]
+use crate::asset_events::{
+    AssetEventsPlugin, AssetDirectoryListingEvent, AssetUploadProgressEvent, 
+    AssetLocalNewerEvent, AssetFileInfo,
+};
+
+#[cfg(feature = "networking")]
+use crate::asset_server_delivery::{PendingDirectoryListings, PendingUploadResponses};
+
+#[cfg(feature = "networking")]
+use crate::upload_state::PendingUploads;
+
+#[cfg(feature = "networking")]
+use crate::server_hash_tracker::ServerFileHashes;
 
 /// Plugin that adds network asset downloading capabilities
 pub struct NetworkAssetPlugin;
@@ -25,14 +40,24 @@ pub struct NetworkAssetPlugin;
 #[cfg(feature = "networking")]
 impl Plugin for NetworkAssetPlugin {
     fn build(&self, app: &mut App) {
+        // Add asset events plugin (registers Message types for directory listing, upload, localnewer)
+        app.add_plugins(AssetEventsPlugin);
+        
         // Initialize client resources
         app.init_resource::<PendingAssetRequests>();
         app.init_resource::<crate::network_asset_client::PendingAssetUpdates>();
         app.init_resource::<PendingCoroutines>();
         
+        // Initialize asset browser resources
+        app.init_resource::<PendingDirectoryListings>();
+        app.init_resource::<PendingUploadResponses>();
+        app.init_resource::<PendingUploads>();
+        app.init_resource::<ServerFileHashes>();
+        
         // Initialize server resources (only created if running as server)
         app.init_resource::<crate::subscription_registry::AssetSubscriptionRegistry>();
         app.insert_resource(crate::subscription_registry::FileWatcherResource::new());
+        app.init_resource::<crate::upload_state::ServerPendingUploads>();
         
         // Enable network downloads in Lua context (set global flag)
         app.add_systems(PostStartup, enable_network_downloads);
@@ -67,6 +92,12 @@ impl Plugin for NetworkAssetPlugin {
             resume_pending_coroutines,
             // 11. Clean up expired debounce entries
             cleanup_reload_debounce,
+            // 12. Emit directory listing events from pending responses
+            emit_directory_listing_events,
+            // 13. Emit upload progress events from pending responses  
+            emit_upload_progress_events,
+            // 14. Detect local files newer than server (for upload prompts)
+            detect_local_newer_files,
         ).chain().after(crate::asset_server_delivery::handle_asset_requests_global));
     }
 }
@@ -121,17 +152,152 @@ fn cleanup_reload_debounce(mut debounce: ResMut<ReloadDebounce>) {
     debounce.cleanup();
 }
 
-/// System to enable network downloads in Lua by setting a global flag
+/// System to enable network downloads in Lua by setting a global flag and registering API functions
 #[cfg(feature = "networking")]
 pub fn enable_network_downloads(
     lua_ctx: Option<Res<LuaScriptContext>>,
+    pending_requests: Option<Res<PendingAssetRequests>>,
 ) {
     let Some(lua_ctx) = lua_ctx else { return };
+    let Some(pending_requests) = pending_requests else { return };
     
     if let Err(e) = lua_ctx.lua.globals().set("__NETWORK_DOWNLOAD_ENABLED__", true) {
         error!("Failed to set __NETWORK_DOWNLOAD_ENABLED__: {}", e);
     } else {
         debug!("✓ Network downloads enabled for Lua scripts");
+    }
+    
+    // Register list_server_directory function
+    let pending_for_list = Arc::new(pending_requests.clone());
+    let list_fn = lua_ctx.lua.create_function(move |_lua, (path, offset, limit): (String, Option<u32>, Option<u32>)| {
+        let offset = offset.unwrap_or(0);
+        let limit = limit.unwrap_or(100);
+        
+        debug!("📂 [LUA] list_server_directory('{}', offset={}, limit={})", path, offset, limit);
+        
+        // Queue the directory listing request
+        let request_id = pending_for_list.queue_directory_listing(path.clone(), offset, limit);
+        
+        // Return request_id so Lua can correlate with events if needed
+        Ok(request_id)
+    });
+    
+    match list_fn {
+        Ok(func) => {
+            if let Err(e) = lua_ctx.lua.globals().set("list_server_directory", func) {
+                error!("Failed to register list_server_directory: {}", e);
+            } else {
+                debug!("✓ Registered Lua function: list_server_directory");
+            }
+        }
+        Err(e) => error!("Failed to create list_server_directory function: {}", e),
+    }
+    
+    // Register upload_asset function
+    let pending_for_upload = pending_requests.clone();
+    let upload_fn = lua_ctx.lua.create_function(move |_lua, (local_path, server_path, force_overwrite): (String, Option<String>, Option<bool>)| {
+        use std::path::Path;
+        
+        let server_path = server_path.unwrap_or_else(|| local_path.clone());
+        let force_overwrite = force_overwrite.unwrap_or(false);
+        
+        debug!("📤 [LUA] upload_asset('{}', '{}', force={})", local_path, server_path, force_overwrite);
+        
+        // Determine if it's a file or directory
+        let full_local_path = Path::new("assets").join(&local_path);
+        
+        if !full_local_path.exists() {
+            return Err(mlua::Error::RuntimeError(format!(
+                "Path does not exist: {}", local_path
+            )));
+        }
+        
+        if full_local_path.is_dir() {
+            // Queue directory upload (all files recursively)
+            pending_for_upload.queue_directory_upload(
+                local_path.clone(),
+                server_path.clone(),
+                force_overwrite,
+            );
+        } else {
+            // Queue single file upload
+            pending_for_upload.queue_file_upload(
+                local_path.clone(),
+                server_path.clone(),
+                force_overwrite,
+            );
+        }
+        
+        Ok(mlua::Value::Boolean(true))
+    });
+    
+    match upload_fn {
+        Ok(func) => {
+            if let Err(e) = lua_ctx.lua.globals().set("upload_asset", func) {
+                error!("Failed to register upload_asset: {}", e);
+            } else {
+                debug!("✓ Registered Lua function: upload_asset");
+            }
+        }
+        Err(e) => error!("Failed to create upload_asset function: {}", e),
+    }
+    
+    // Register rename_asset(old_path, new_path) -> request_id
+    let pending_for_rename = pending_requests.clone();
+    let rename_fn = lua_ctx.lua.create_function(move |_lua, (old_path, new_path): (String, String)| {
+        debug!("📝 [LUA] rename_asset('{}' -> '{}')", old_path, new_path);
+        let request_id = pending_for_rename.queue_rename(old_path, new_path);
+        Ok(request_id)
+    });
+    
+    match rename_fn {
+        Ok(func) => {
+            if let Err(e) = lua_ctx.lua.globals().set("rename_asset", func) {
+                error!("Failed to register rename_asset: {}", e);
+            } else {
+                debug!("✓ Registered Lua function: rename_asset");
+            }
+        }
+        Err(e) => error!("Failed to create rename_asset function: {}", e),
+    }
+    
+    // Register delete_asset(path) -> request_id
+    let pending_for_delete = pending_requests.clone();
+    let delete_fn = lua_ctx.lua.create_function(move |_lua, path: String| {
+        debug!("🗑️ [LUA] delete_asset('{}')", path);
+        let request_id = pending_for_delete.queue_delete(path);
+        Ok(request_id)
+    });
+    
+    match delete_fn {
+        Ok(func) => {
+            if let Err(e) = lua_ctx.lua.globals().set("delete_asset", func) {
+                error!("Failed to register delete_asset: {}", e);
+            } else {
+                debug!("✓ Registered Lua function: delete_asset");
+            }
+        }
+        Err(e) => error!("Failed to create delete_asset function: {}", e),
+    }
+    
+    // Register request_server_file(path) -> request_id
+    // Used after LocalNewer cancel to explicitly download server version
+    let pending_for_server = pending_requests.clone();
+    let request_server_fn = lua_ctx.lua.create_function(move |_lua, path: String| {
+        debug!("📥 [LUA] request_server_file('{}')", path);
+        let request_id = pending_for_server.queue_request_server_file(path);
+        Ok(request_id)
+    });
+    
+    match request_server_fn {
+        Ok(func) => {
+            if let Err(e) = lua_ctx.lua.globals().set("request_server_file", func) {
+                error!("Failed to register request_server_file: {}", e);
+            } else {
+                debug!("✓ Registered Lua function: request_server_file");
+            }
+        }
+        Err(e) => error!("Failed to create request_server_file function: {}", e),
     }
 }
 
@@ -676,3 +842,129 @@ pub fn receive_asset_updates(
     }
 }
 
+// ============================================================================
+// Event Emission Systems
+// ============================================================================
+
+/// System to emit directory listing events from pending responses
+#[cfg(feature = "networking")]
+pub fn emit_directory_listing_events(
+    pending: Res<PendingDirectoryListings>,
+    mut events: MessageWriter<AssetDirectoryListingEvent>,
+) {
+    for response in pending.take_all() {
+        debug!("📂 [EVENT] Emitting directory listing event for path '{}'", response.path);
+        
+        events.write(AssetDirectoryListingEvent {
+            path: response.path,
+            files: response.files.iter().map(AssetFileInfo::from).collect(),
+            total_count: response.total_count,
+            offset: response.offset,
+            has_more: response.has_more,
+            error: response.error,
+        });
+    }
+}
+
+/// System to emit upload progress events from pending responses
+#[cfg(feature = "networking")]
+pub fn emit_upload_progress_events(
+    pending: Res<PendingUploadResponses>,
+    pending_uploads: Res<PendingUploads>,
+    mut events: MessageWriter<AssetUploadProgressEvent>,
+) {
+    use crate::network_asset_client::UploadStatus;
+    
+    for response in pending.take_all() {
+        // Get current upload info
+        let upload_info = pending_uploads.get_upload(response.request_id);
+        
+        let (status, chunks_sent, total_chunks, progress, error, server_hash) = match &response.status {
+            UploadStatus::ChunkReceived { chunk_index, total_chunks: total } => {
+                let acked = chunk_index + 1;
+                let prog = acked as f32 / *total as f32;
+                ("uploading".to_string(), acked, *total, prog, None, None)
+            }
+            UploadStatus::Complete { server_hash } => {
+                let total = upload_info.map(|i| i.total_chunks).unwrap_or(1);
+                ("complete".to_string(), total, total, 1.0, None, Some(server_hash.clone()))
+            }
+            UploadStatus::Error(msg) => {
+                let (sent, total) = upload_info.map(|i| (i.sent_chunks, i.total_chunks)).unwrap_or((0, 1));
+                let prog = sent as f32 / total as f32;
+                ("error".to_string(), sent, total, prog, Some(msg.clone()), None)
+            }
+            UploadStatus::Conflict { server_hash } => {
+                let (sent, total) = upload_info.map(|i| (i.sent_chunks, i.total_chunks)).unwrap_or((0, 1));
+                ("conflict".to_string(), sent, total, 0.0, None, Some(server_hash.clone()))
+            }
+        };
+        
+        debug!("📤 [EVENT] Emitting upload progress event for '{}': {} ({:.0}%)", 
+            response.path, status, progress * 100.0);
+        
+        events.write(AssetUploadProgressEvent {
+            path: response.path,
+            chunks_sent,
+            total_chunks,
+            progress,
+            status,
+            error,
+            server_hash,
+        });
+    }
+}
+
+/// System to detect when local files are newer than server versions
+/// 
+/// Monitors file change events and compares local hashes against stored server hashes.
+/// Emits AssetLocalNewerEvent when a local file differs from the server version.
+#[cfg(feature = "networking")]
+pub fn detect_local_newer_files(
+    mut file_events: bevy::prelude::MessageReader<bevy_lua_ecs::lua_file_watcher::LuaFileChangeEvent>,
+    server_hashes: Res<ServerFileHashes>,
+    mut local_newer_events: bevy::prelude::MessageWriter<AssetLocalNewerEvent>,
+) {
+    for event in file_events.read() {
+        // Convert file path to asset-relative path
+        let path_str = event.path.to_string_lossy().replace('\\', "/");
+        let asset_path = if path_str.starts_with("assets/") {
+            path_str.strip_prefix("assets/").unwrap_or(&path_str).to_string()
+        } else {
+            path_str.to_string()
+        };
+        
+        // Check if we have a server hash for this file
+        if let Some(server_hash) = server_hashes.get_hash(&asset_path) {
+            // Read local file and compute hash
+            let full_path = std::path::Path::new("assets").join(&asset_path);
+            
+            if let Ok(data) = std::fs::read(&full_path) {
+                let local_hash = crate::network_asset_client::compute_hash(&data);
+                
+                // Compare hashes
+                if local_hash != server_hash {
+                    // Get modification time
+                    let local_modified = std::fs::metadata(&full_path)
+                        .ok()
+                        .and_then(|m| m.modified().ok())
+                        .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
+                        .map(|d| d.as_secs())
+                        .unwrap_or(0);
+                    
+                    debug!(
+                        "🔄 [LOCAL_NEWER] Detected local change for '{}': local={} != server={}",
+                        asset_path, local_hash, server_hash
+                    );
+                    
+                    local_newer_events.write(AssetLocalNewerEvent {
+                        path: asset_path.clone(),
+                        local_hash,
+                        server_hash: server_hash.to_string(),
+                        local_modified,
+                    });
+                }
+            }
+        }
+    }
+}

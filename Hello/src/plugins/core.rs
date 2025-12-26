@@ -10,14 +10,11 @@ pub struct MainScript(pub String);
 
 /// Core Hello plugin - always required
 /// Wraps LuaBindingsPlugin (which includes LuaSpawnPlugin)
-pub struct HelloCorePlugin {
-    /// Whether to spawn a 2D camera on startup
-    pub spawn_camera_2d: bool,
-}
+pub struct HelloCorePlugin {}
 
 impl Default for HelloCorePlugin {
     fn default() -> Self {
-        Self { spawn_camera_2d: true }
+        Self {}
     }
 }
 
@@ -26,17 +23,8 @@ impl Plugin for HelloCorePlugin {
         // Use auto-generated LuaBindingsPlugin (includes LuaSpawnPlugin + all bindings)
         app.add_plugins(crate::auto_resource_bindings::LuaBindingsPlugin);
         
-        if self.spawn_camera_2d {
-            app.add_systems(Startup, spawn_camera_2d);
-        }
-        
         app.add_systems(PostStartup, run_initial_script.run_if(resource_exists::<MainScript>));
     }
-}
-
-fn spawn_camera_2d(mut commands: Commands) {
-    commands.spawn(Camera2d);
-    info!("✓ Camera2d spawned");
 }
 
 fn run_initial_script(

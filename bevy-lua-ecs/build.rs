@@ -355,6 +355,14 @@ fn generate_bindings_for_manifest(manifest_path: &Path) {
         }
     }
 
+    // Extract the package name from the manifest
+    let parent_crate_name = manifest
+        .get("package")
+        .and_then(|p| p.get("name"))
+        .and_then(|n| n.as_str())
+        .unwrap_or("unknown_crate")
+        .to_string();
+
     // Write generated code to parent crate's src directory
     // Now with simplified signature - asset_type_names for runtime registration
     write_bindings_to_parent_crate(
@@ -370,6 +378,7 @@ fn generate_bindings_for_manifest(manifest_path: &Path) {
         discovered_systemparam_methods,
         discovered_component_methods,
         &parent_src_dir,
+        &parent_crate_name,
     );
 
     //Write events to our own auto_bindings.rs
@@ -585,6 +594,275 @@ fn get_entity_components_from_metadata(manifest: &toml::Value) -> Vec<String> {
                 .collect()
         })
         .unwrap_or_default()
+}
+
+// =============================================================================
+// UNIFIED SOURCE SCANNER
+// Infrastructure for scanning both cargo registry crates and local/parent crates
+// =============================================================================
+
+/// A source location that can be scanned for type discoveries
+#[derive(Debug, Clone)]
+enum SourceLocation {
+    /// A crate in the cargo registry (e.g., bevy_window)
+    CargoRegistry {
+        crate_prefix: String,
+        files: Vec<String>,
+    },
+    /// A local crate (e.g., the consuming "hello" crate)
+    LocalCrate {
+        src_dir: PathBuf,
+        crate_name: String,
+    },
+}
+
+/// Result of scanning a source for a type with specific derives/traits
+#[derive(Debug, Clone)]
+struct DiscoveredDeriveType {
+    /// Short type name (e.g., "AssetUploadProgressEvent")
+    type_name: String,
+    /// Full type path for TypeRegistry lookup (e.g., "hello::asset_events::AssetUploadProgressEvent")
+    full_path: String,
+    /// Bevy-style path for imports (same as full_path for local crates)
+    bevy_path: String,
+    /// Rust type path for code generation (uses crate:: for local types)
+    rust_path: String,
+    /// Crate name (e.g., "hello" or "bevy_window")
+    crate_name: String,
+    /// Module name extracted from file (e.g., "asset_events")
+    module_name: String,
+    /// Whether this is from the local/consuming crate (vs cargo registry)
+    is_local_crate: bool,
+}
+
+/// Unified source scanner that can scan multiple locations
+struct SourceScanner {
+    locations: Vec<SourceLocation>,
+}
+
+impl SourceScanner {
+    fn new() -> Self {
+        Self { locations: Vec::new() }
+    }
+    
+    /// Add a cargo registry crate to scan
+    fn add_cargo_crate(&mut self, prefix: &str, files: Vec<&str>) {
+        self.locations.push(SourceLocation::CargoRegistry {
+            crate_prefix: prefix.to_string(),
+            files: files.into_iter().map(|s| s.to_string()).collect(),
+        });
+    }
+    
+    /// Add a local crate (parent crate) to scan
+    fn add_local_crate(&mut self, src_dir: &Path, crate_name: &str) {
+        self.locations.push(SourceLocation::LocalCrate {
+            src_dir: src_dir.to_path_buf(),
+            crate_name: crate_name.to_string(),
+        });
+    }
+    
+    /// Scan all locations for types with a specific derive (e.g., "Message", "Event", "Asset")
+    fn scan_for_derives(&self, derive_name: &str) -> Vec<DiscoveredDeriveType> {
+        let mut results = Vec::new();
+        
+        for location in &self.locations {
+            match location {
+                SourceLocation::CargoRegistry { crate_prefix, files } => {
+                    results.extend(self.scan_cargo_crate_for_derives(crate_prefix, files, derive_name));
+                }
+                SourceLocation::LocalCrate { src_dir, crate_name } => {
+                    results.extend(self.scan_local_crate_for_derives(src_dir, crate_name, derive_name));
+                }
+            }
+        }
+        
+        // Deduplicate by type_name
+        results.sort_by(|a, b| a.type_name.cmp(&b.type_name));
+        results.dedup_by(|a, b| a.type_name == b.type_name);
+        
+        results
+    }
+    
+    /// Scan a cargo registry crate for derives
+    fn scan_cargo_crate_for_derives(&self, crate_prefix: &str, files: &[String], derive_name: &str) -> Vec<DiscoveredDeriveType> {
+        let mut results = Vec::new();
+        
+        // Find cargo home
+        let cargo_home = env::var("CARGO_HOME")
+            .or_else(|_| env::var("HOME").map(|h| format!("{}/.cargo", h)))
+            .or_else(|_| env::var("USERPROFILE").map(|h| format!("{}/.cargo", h)))
+            .unwrap_or_default();
+        
+        if cargo_home.is_empty() {
+            return results;
+        }
+        
+        let registry_src = PathBuf::from(&cargo_home).join("registry").join("src");
+        if !registry_src.exists() {
+            return results;
+        }
+        
+        // Iterate through registry index directories
+        for index_entry in fs::read_dir(&registry_src).into_iter().flatten().flatten() {
+            let index_dir = index_entry.path();
+            if !index_dir.is_dir() { continue; }
+            
+            // Look for crate directories
+            for crate_entry in fs::read_dir(&index_dir).into_iter().flatten().flatten() {
+                let crate_dir = crate_entry.path();
+                if !crate_dir.is_dir() { continue; }
+                
+                let crate_name = crate_dir.file_name().and_then(|n| n.to_str()).unwrap_or("");
+                if !crate_name.starts_with(crate_prefix) { continue; }
+                
+                // Scan specified files
+                for file_name in files {
+                    let source_file = crate_dir.join("src").join(file_name);
+                    if !source_file.exists() { continue; }
+                    
+                    if let Ok(source) = fs::read_to_string(&source_file) {
+                        results.extend(self.parse_source_for_derives(
+                            &source, 
+                            derive_name, 
+                            crate_prefix, 
+                            file_name.trim_end_matches(".rs"),
+                            true, // is_bevy_crate
+                        ));
+                    }
+                }
+            }
+        }
+        
+        results
+    }
+    
+    /// Scan a local crate directory for derives
+    fn scan_local_crate_for_derives(&self, src_dir: &Path, crate_name: &str, derive_name: &str) -> Vec<DiscoveredDeriveType> {
+        let mut results = Vec::new();
+        
+        // Recursively find all .rs files
+        fn collect_rs_files(dir: &Path, files: &mut Vec<PathBuf>) {
+            if let Ok(entries) = fs::read_dir(dir) {
+                for entry in entries.flatten() {
+                    let path = entry.path();
+                    if path.is_dir() {
+                        collect_rs_files(&path, files);
+                    } else if path.extension().map_or(false, |ext| ext == "rs") {
+                        files.push(path);
+                    }
+                }
+            }
+        }
+        
+        let mut rs_files = Vec::new();
+        collect_rs_files(src_dir, &mut rs_files);
+        
+        for rs_file in rs_files {
+            if let Ok(source) = fs::read_to_string(&rs_file) {
+                // Quick contains check before parsing
+                if !source.contains(derive_name) { continue; }
+                
+                let module_name = rs_file.file_stem()
+                    .and_then(|s| s.to_str())
+                    .unwrap_or("");
+                    
+                results.extend(self.parse_source_for_derives(
+                    &source,
+                    derive_name,
+                    crate_name,
+                    module_name,
+                    false, // not a bevy crate
+                ));
+            }
+        }
+        
+        results
+    }
+    
+    /// Parse source code and find structs with the specified derive
+    fn parse_source_for_derives(
+        &self,
+        source: &str,
+        derive_name: &str,
+        crate_name: &str,
+        module_name: &str,
+        is_bevy_crate: bool,
+    ) -> Vec<DiscoveredDeriveType> {
+        let mut results = Vec::new();
+        
+        let Ok(syntax_tree) = syn::parse_file(source) else { return results };
+        
+        for item in &syntax_tree.items {
+            if let Item::Struct(item_struct) = item {
+                // Check if struct has the specified derive
+                let has_derive = item_struct.attrs.iter().any(|attr| {
+                    if attr.path().is_ident("derive") {
+                        if let Ok(meta) = attr.meta.require_list() {
+                            let tokens = meta.tokens.to_string();
+                            return tokens.contains(derive_name);
+                        }
+                    }
+                    false
+                });
+                
+                if has_derive {
+                    let type_name = item_struct.ident.to_string();
+                    
+                    // Build full path
+                    let full_path = if module_name == "lib" || module_name == "main" {
+                        format!("{}::{}", crate_name, type_name)
+                    } else {
+                        format!("{}::{}::{}", crate_name, module_name, type_name)
+                    };
+                    
+                    // Build bevy path (for bevy crates, replace bevy_X with bevy::X)
+                    let bevy_path = if is_bevy_crate && crate_name.starts_with("bevy_") {
+                        let bevy_module = crate_name.strip_prefix("bevy_").unwrap_or(crate_name);
+                        if module_name == "lib" || module_name == "main" {
+                            format!("bevy::{}::{}", bevy_module, type_name)
+                        } else {
+                            format!("bevy::{}::{}::{}", bevy_module, module_name, type_name)
+                        }
+                    } else {
+                        full_path.clone()
+                    };
+                    
+                    // Build rust path for code generation (local crate uses crate::)
+                    let rust_path = if !is_bevy_crate {
+                        // Local crate types use crate:: prefix instead of crate name
+                        if module_name == "lib" || module_name == "main" {
+                            format!("crate::{}", type_name)
+                        } else {
+                            format!("crate::{}::{}", module_name, type_name)
+                        }
+                    } else {
+                        bevy_path.clone()
+                    };
+                    
+                    results.push(DiscoveredDeriveType {
+                        type_name,
+                        full_path,
+                        bevy_path,
+                        rust_path,
+                        crate_name: crate_name.to_string(),
+                        module_name: module_name.to_string(),
+                        is_local_crate: !is_bevy_crate,
+                    });
+                }
+            }
+        }
+        
+        results
+    }
+}
+
+/// Get the cargo home directory
+fn get_cargo_home() -> Option<PathBuf> {
+    env::var("CARGO_HOME")
+        .or_else(|_| env::var("HOME").map(|h| format!("{}/.cargo", h)))
+        .or_else(|_| env::var("USERPROFILE").map(|h| format!("{}/.cargo", h)))
+        .ok()
+        .map(PathBuf::from)
 }
 
 // =============================================================================
@@ -3252,8 +3530,6 @@ struct ObservableEventSpec {
     lua_suffix: String,
     /// Rust event type name (e.g., "Over", "Press", "Release")  
     event_type: String,
-    /// Whether this event has position data
-    has_position: bool,
 }
 
 /// Specification for a Bevy Event type (for Lua read_events)
@@ -3273,104 +3549,45 @@ struct BevyEventSpec {
 struct BevyMessageSpec {
     /// Short type name (e.g., "PointerInput")
     type_name: String,
-    /// Full type path (e.g., "bevy_picking::pointer::PointerInput")
+    /// Full type path for TypeRegistry lookup (e.g., "bevy_picking::pointer::PointerInput")
     full_path: String,
     /// Bevy re-export path (e.g., "bevy::picking::pointer::PointerInput")
     bevy_path: String,
+    /// Rust type path for code generation (uses crate:: for local types)
+    rust_path: String,
     /// Crate name (e.g., "bevy_picking")
     crate_name: String,
 }
 
-/// Discover message types by scanning bevy_picking crate
-/// Message types are those that use MessageWriter<T> for dispatch (e.g., PointerInput)
-fn discover_bevy_messages() -> Vec<BevyMessageSpec> {
-    let mut messages = Vec::new();
-
-    // Find cargo home
-    let cargo_home = env::var("CARGO_HOME")
-        .or_else(|_| env::var("HOME").map(|h| format!("{}/.cargo", h)))
-        .or_else(|_| env::var("USERPROFILE").map(|h| format!("{}/.cargo", h)))
-        .unwrap_or_else(|_| String::new());
-
-    if cargo_home.is_empty() {
-        println!("cargo:warning=  ⚠ Cannot find CARGO_HOME for message discovery");
-        return messages;
+/// Discover message types by scanning bevy_picking crate AND parent crate sources
+/// Message types are those that derive Message for dispatch via MessageReader/MessageWriter
+fn discover_bevy_messages(parent_src_dir: Option<&Path>, parent_crate_name: Option<&str>) -> Vec<BevyMessageSpec> {
+    // Create scanner and configure sources
+    let mut scanner = SourceScanner::new();
+    
+    // Add Bevy crates that contain Message types
+    scanner.add_cargo_crate("bevy_picking", vec!["pointer.rs"]);
+    
+    // Add parent crate if provided
+    if let (Some(src_dir), Some(crate_name)) = (parent_src_dir, parent_crate_name) {
+        println!("cargo:warning=  🔍 Scanning parent crate '{}' for Message types...", crate_name);
+        scanner.add_local_crate(src_dir, crate_name);
     }
-
-    let registry_src = PathBuf::from(&cargo_home).join("registry").join("src");
-
-    if !registry_src.exists() {
-        println!("cargo:warning=  ⚠ Registry source not found for message discovery");
-        return messages;
-    }
-
-    // Message types to discover and their locations
-    // These types use MessageWriter<T> instead of EventWriter<T>
-    let message_types = [("bevy_picking", "pointer.rs", "PointerInput")];
-
-    'type_loop: for (crate_prefix, file_name, type_name) in &message_types {
-        // Check if we already found this type
-        if messages.iter().any(|m| m.type_name == *type_name) {
-            continue;
+    
+    // Scan for types with #[derive(Message)]
+    let discovered = scanner.scan_for_derives("Message");
+    
+    // Convert to BevyMessageSpec
+    let messages: Vec<BevyMessageSpec> = discovered.into_iter().map(|d| {
+        println!("cargo:warning=    - Message: {} ({}::{})", d.type_name, d.crate_name, d.module_name);
+        BevyMessageSpec {
+            type_name: d.type_name,
+            full_path: d.full_path,
+            bevy_path: d.bevy_path,
+            rust_path: d.rust_path,
+            crate_name: d.crate_name,
         }
-
-        // Iterate through registry index directories
-        for index_entry in fs::read_dir(&registry_src).into_iter().flatten().flatten() {
-            let index_dir = index_entry.path();
-            if !index_dir.is_dir() {
-                continue;
-            }
-
-            // Look for crate directories (e.g., bevy_picking-0.3.0)
-            for crate_entry in fs::read_dir(&index_dir).into_iter().flatten().flatten() {
-                let crate_dir = crate_entry.path();
-                if !crate_dir.is_dir() {
-                    continue;
-                }
-
-                let crate_name = crate_dir.file_name().and_then(|n| n.to_str()).unwrap_or("");
-
-                // Check if this is the target crate
-                if !crate_name.starts_with(crate_prefix) {
-                    continue;
-                }
-
-                // Found the crate - look for the type
-                let source_file = crate_dir.join("src").join(file_name);
-                if source_file.exists() {
-                    if let Ok(source) = fs::read_to_string(&source_file) {
-                        // Verify the type exists in the file with Event derive
-                        if source.contains(&format!("pub struct {}", type_name))
-                            && source.contains("#[derive(")
-                            && source.contains("Event")
-                        {
-                            let module_name = file_name.trim_end_matches(".rs");
-                            let full_path =
-                                format!("{}::{}::{}", crate_prefix, module_name, type_name);
-                            let bevy_path = full_path.replace("bevy_picking::", "bevy::picking::");
-
-                            messages.push(BevyMessageSpec {
-                                type_name: type_name.to_string(),
-                                full_path,
-                                bevy_path,
-                                crate_name: crate_prefix.to_string(),
-                            });
-
-                            println!(
-                                "cargo:warning=    - Message: {} ({})",
-                                type_name, crate_prefix
-                            );
-                            continue 'type_loop; // Found it, move to next type
-                        }
-                    }
-                }
-            }
-        }
-    }
-
-    // Deduplicate by type_name (in case of multiple crate versions)
-    messages.sort_by(|a, b| a.type_name.cmp(&b.type_name));
-    messages.dedup_by(|a, b| a.type_name == b.type_name);
+    }).collect();
 
     println!(
         "cargo:warning=  ✓ Discovered {} Message types for Lua write_message()",
@@ -3379,6 +3596,7 @@ fn discover_bevy_messages() -> Vec<BevyMessageSpec> {
 
     messages
 }
+
 
 /// Discover Bevy Event types by scanning bevy_window and bevy_input crates
 fn discover_bevy_events() -> Vec<BevyEventSpec> {
@@ -3474,7 +3692,7 @@ fn scan_crate_for_events(
     events
 }
 
-/// Parse a source file for structs with #[derive(Event)]
+/// Parse a source file for structs/enums with #[derive(Event)]
 fn parse_events_from_source(source: &str, crate_name: &str, file_name: &str) -> Vec<BevyEventSpec> {
     let mut events = Vec::new();
 
@@ -3486,7 +3704,8 @@ fn parse_events_from_source(source: &str, crate_name: &str, file_name: &str) -> 
     let module_name = file_name.trim_end_matches(".rs");
 
     for item in file.items {
-        if let syn::Item::Struct(item_struct) = item {
+        // Check structs
+        if let syn::Item::Struct(item_struct) = &item {
             // Check if public
             if !matches!(item_struct.vis, syn::Visibility::Public(_)) {
                 continue;
@@ -3509,6 +3728,34 @@ fn parse_events_from_source(source: &str, crate_name: &str, file_name: &str) -> 
                 events.push(BevyEventSpec {
                     type_name: struct_name.clone(),
                     full_path: format!("{}::{}::{}", crate_name, module_name, struct_name),
+                    crate_name: crate_name.to_string(),
+                });
+            }
+        }
+        
+        // Check enums (for events like FileDragAndDrop which are enums)
+        if let syn::Item::Enum(item_enum) = &item {
+            // Check if public
+            if !matches!(item_enum.vis, syn::Visibility::Public(_)) {
+                continue;
+            }
+
+            let enum_name = item_enum.ident.to_string();
+
+            // Check if it has #[derive(...Event...)]
+            let has_event_derive = item_enum.attrs.iter().any(|attr| {
+                if attr.path().is_ident("derive") {
+                    if let Ok(meta) = attr.parse_args::<proc_macro2::TokenStream>() {
+                        return meta.to_string().contains("Event");
+                    }
+                }
+                false
+            });
+
+            if has_event_derive {
+                events.push(BevyEventSpec {
+                    type_name: enum_name.clone(),
+                    full_path: format!("{}::{}::{}", crate_name, module_name, enum_name),
                     crate_name: crate_name.to_string(),
                 });
             }
@@ -3550,8 +3797,8 @@ fn discover_observable_events() -> Vec<ObservableEventSpec> {
     );
     for event in &events {
         println!(
-            "cargo:warning=    - {} (rust_type: {}, has_position: {})",
-            event.lua_name, event.event_type, event.has_position
+            "cargo:warning=    - {} (rust_type: {})",
+            event.lua_name, event.event_type
         );
     }
 
@@ -3652,20 +3899,14 @@ fn parse_picking_events(source: &str) -> Vec<ObservableEventSpec> {
                 continue;
             }
 
-            // Determine if this event has position data by checking for common position-related fields
-            // Events with position typically have delta, distance, or are Move/Drag related
-            let has_position = struct_name.contains("Move")
-                || struct_name.contains("Drag")
-                || struct_name.contains("Scroll");
-
             // Create the event spec
-            // bevy_picking source has Down/Up, but bevy::prelude exports Press/Release
-            // So we need to map the source struct names to bevy::prelude types:
-            // - source: Down -> bevy::prelude::Press (lua name stays "Down")
-            // - source: Up -> bevy::prelude::Release (lua name stays "Up")
+            // bevy_picking source may have Down/Up/Pressed/Released, but the actual event types are Press/Release
+            // So we need to map the source struct names to the correct event types:
+            // - source: Down/Pressed -> Press (lua name stays "Down" or "Pressed")
+            // - source: Up/Released -> Release (lua name stays "Up" or "Released")
             let (lua_suffix, rust_type) = match struct_name.as_str() {
-                "Down" => ("Down".to_string(), "Press".to_string()),
-                "Up" => ("Up".to_string(), "Release".to_string()),
+                "Down" | "Pressed" => (struct_name.clone(), "Press".to_string()),
+                "Up" | "Released" => (struct_name.clone(), "Release".to_string()),
                 _ => (struct_name.clone(), struct_name.clone()),
             };
 
@@ -3673,7 +3914,6 @@ fn parse_picking_events(source: &str) -> Vec<ObservableEventSpec> {
                 lua_name: format!("Pointer<{}>", lua_suffix),
                 lua_suffix: lua_suffix.to_lowercase(),
                 event_type: rust_type,
-                has_position,
             });
         }
     }
@@ -3687,6 +3927,7 @@ fn parse_picking_events(source: &str) -> Vec<ObservableEventSpec> {
 }
 
 /// Generate observer handler code for all discovered events
+/// All events are now passed to Lua via reflection - any event fields are automatically available
 fn generate_observer_handlers(events: &[ObservableEventSpec]) -> proc_macro2::TokenStream {
     let handlers: Vec<proc_macro2::TokenStream> = events.iter().map(|event| {
         let event_type_ident: syn::Ident = syn::parse_str(&event.event_type)
@@ -3695,31 +3936,21 @@ fn generate_observer_handlers(events: &[ObservableEventSpec]) -> proc_macro2::To
         let fn_ident: syn::Ident = syn::parse_str(&fn_name).unwrap();
         let lua_name = &event.lua_name;
         
-        if event.has_position {
-            quote::quote! {
-                fn #fn_ident(
-                    event: bevy::prelude::On<bevy::prelude::Pointer<bevy::prelude::#event_type_ident>>,
-                    lua_ctx: bevy::prelude::Res<bevy_lua_ecs::LuaScriptContext>,
-                    observer_registry: bevy::prelude::Res<bevy_lua_ecs::LuaObserverRegistry>,
-                    update_queue: bevy::prelude::Res<bevy_lua_ecs::ComponentUpdateQueue>,
-                ) {
-                    let pos = event.event().pointer_location.position;
-                    dispatch_lua_observer(&lua_ctx, &observer_registry, &update_queue, event.event().entity, #lua_name, Some(pos));
-                }
-            }
-        } else {
-            quote::quote! {
-                fn #fn_ident(
-                    event: bevy::prelude::On<bevy::prelude::Pointer<bevy::prelude::#event_type_ident>>,
-                    lua_ctx: bevy::prelude::Res<bevy_lua_ecs::LuaScriptContext>,
-                    observer_registry: bevy::prelude::Res<bevy_lua_ecs::LuaObserverRegistry>,
-                    update_queue: bevy::prelude::Res<bevy_lua_ecs::ComponentUpdateQueue>,
-                ) {
-                    dispatch_lua_observer(&lua_ctx, &observer_registry, &update_queue, event.event().entity, #lua_name, None);
-                }
+        // All handlers use reflection to convert entire event to Lua table
+        quote::quote! {
+            fn #fn_ident(
+                event: bevy::prelude::On<bevy::prelude::Pointer<bevy::picking::events::#event_type_ident>>,
+                lua_ctx: bevy::prelude::Res<bevy_lua_ecs::LuaScriptContext>,
+                observer_registry: bevy::prelude::Res<bevy_lua_ecs::LuaObserverRegistry>,
+                update_queue: bevy::prelude::Res<bevy_lua_ecs::ComponentUpdateQueue>,
+            ) {
+                // Convert entire event to Lua table via reflection
+                let event_data = event.event();
+                dispatch_lua_observer_reflected(&lua_ctx, &observer_registry, &update_queue, event_data.entity, #lua_name, event_data);
             }
         }
     }).collect();
+
 
     quote::quote! {
         #(#handlers)*
@@ -4174,6 +4405,7 @@ fn write_bindings_to_parent_crate(
     discovered_systemparam_methods: Vec<DiscoveredSystemParamMethod>, // Methods on SystemParam types
     discovered_component_methods: Vec<DiscoveredComponentMethod>, // Methods on Component types (e.g., Transform::looking_at)
     parent_src_dir: &Path,
+    parent_crate_name: &str,
 ) {
     let generated_file = parent_src_dir.join("auto_resource_bindings.rs");
 
@@ -4459,7 +4691,8 @@ fn write_bindings_to_parent_crate(
     let bevy_events = discover_bevy_events();
 
     // Discover Bevy Message types for Lua write_message() (uses MessageWriter<T>)
-    let bevy_messages = discover_bevy_messages();
+    // Also scan parent crate for #[derive(Message)] types using passed crate name from Cargo.toml
+    let bevy_messages = discover_bevy_messages(Some(parent_src_dir), Some(parent_crate_name));
 
     // Deprecated/removed types to skip
     let deprecated_types = ["ReceivedCharacter", "Ime"];
@@ -4474,8 +4707,9 @@ fn write_bindings_to_parent_crate(
     let message_write_match_arms: Vec<_> = bevy_messages.iter().filter_map(|msg| {
         let short_name = &msg.type_name;
         let bevy_path_str = &msg.bevy_path;
-        let full_path_str = &msg.full_path; // Original crate path (e.g., bevy_picking::pointer::PointerInput)
-        let type_path: syn::Path = syn::parse_str(bevy_path_str).ok()?;
+        let full_path_str = &msg.full_path; // Original crate path (e.g., bevy_picking::pointer::PointerInput or hello::asset_events::AssetDeleteEvent)
+        let rust_path_str = &msg.rust_path; // For Rust type paths (uses crate:: for local types)
+        let type_path: syn::Path = syn::parse_str(rust_path_str).ok()?;
         
         Some(quote::quote! {
             #short_name | #bevy_path_str | #full_path_str => {
@@ -4575,12 +4809,48 @@ fn write_bindings_to_parent_crate(
         message_write_match_arms.len()
     );
 
+    // Generate message READ match arms using MessageReader (similar to event_match_arms but for Messages)
+    let message_read_match_arms: Vec<_> = bevy_messages.iter().filter_map(|msg| {
+        let short_name = &msg.type_name;
+        let full_path_str = &msg.full_path;
+        let bevy_path_str = &msg.bevy_path;
+        let rust_path_str = &msg.rust_path;
+        let type_path: syn::Path = syn::parse_str(rust_path_str).ok()?;
+
+        Some(quote::quote! {
+            #short_name | #full_path_str | #bevy_path_str => {
+                // Read messages using MessageReader
+                let mut system_state = bevy::ecs::system::SystemState::<bevy::prelude::MessageReader<#type_path>>::new(world);
+                let mut message_reader = system_state.get_mut(world);
+                
+                let results = lua.create_table()?;
+                let mut index = 1;
+                
+                for message in message_reader.read() {
+                    // Convert message to Lua via reflection
+                    if let Ok(message_value) = bevy_lua_ecs::reflection_to_lua(lua, message as &dyn bevy::reflect::PartialReflect, &type_registry) {
+                        results.set(index, message_value)?;
+                        index += 1;
+                    }
+                }
+                
+                Ok(mlua::Value::Table(results))
+            }
+        })
+    }).collect();
+
+    println!(
+        "cargo:warning=  ✓ Generated {} message read match arms",
+        message_read_match_arms.len()
+    );
+
     // Generate message type registrations (for TypeRegistry)
     let message_registrations: Vec<_> = bevy_messages
         .iter()
         .filter_map(|msg| {
             let bevy_path_str = &msg.bevy_path;
-            let type_path: syn::Path = syn::parse_str(bevy_path_str).ok()?;
+            let rust_path_str = &msg.rust_path; // For Rust type paths (uses crate:: for local types)
+            let type_path: syn::Path = syn::parse_str(rust_path_str).ok()?;
 
             Some(quote::quote! {
                 app.register_type::<#type_path>();
@@ -5366,6 +5636,7 @@ fn write_bindings_to_parent_crate(
         }
 
         /// Returns a Lua table of events converted via reflection
+        /// Also supports reading Message types (uses MessageReader instead of EventReader)
         pub fn dispatch_read_events(
             lua: &mlua::Lua,
             world: &mut bevy::prelude::World,
@@ -5374,9 +5645,12 @@ fn write_bindings_to_parent_crate(
             let type_registry = world.resource::<bevy::ecs::reflect::AppTypeRegistry>().clone();
 
             match event_type {
+                // Event types (use EventReader)
                 #(#event_match_arms),*
+                // Message types (use MessageReader)
+                #(#message_read_match_arms),*
                 _ => Err(mlua::Error::RuntimeError(format!(
-                    "Unknown event type: '{}'. Available events are discovered from bevy_window and bevy_input.", event_type
+                    "Unknown event type: '{}'. Available types include Bevy events and Message types.", event_type
                 )))
             }
         }
@@ -5417,14 +5691,15 @@ fn write_bindings_to_parent_crate(
         // Auto-generated Lua Observer Handlers
         // ========================================
 
-        /// Dispatch a Lua observer callback for an entity
-        fn dispatch_lua_observer(
+        /// Dispatch a Lua observer callback for an entity with reflected event data
+        /// The entire event is converted to a Lua table via reflection, making all fields available
+        fn dispatch_lua_observer_reflected<T: bevy::reflect::PartialReflect>(
             lua_ctx: &bevy_lua_ecs::LuaScriptContext,
             observer_registry: &bevy_lua_ecs::LuaObserverRegistry,
             update_queue: &bevy_lua_ecs::ComponentUpdateQueue,
             entity: bevy::prelude::Entity,
             event_type: &str,
-            position: Option<bevy::math::Vec2>,
+            event_data: &T,
         ) {
             let callbacks = observer_registry.callbacks().lock().unwrap();
 
@@ -5439,11 +5714,20 @@ fn write_bindings_to_parent_crate(
                                 update_queue: update_queue.clone(),
                             };
 
-                            let event_table = lua_ctx.lua.create_table().unwrap();
-                            if let Some(pos) = position {
-                                let _ = event_table.set("x", pos.x);
-                                let _ = event_table.set("y", pos.y);
-                            }
+                            // Convert entire event to Lua table via reflection
+                            let event_table = match bevy_lua_ecs::reflection::try_reflect_to_lua_value(&lua_ctx.lua, event_data) {
+                                Ok(mlua::Value::Table(table)) => table,
+                                Ok(other) => {
+                                    // Wrap non-table values in a table with a "value" key
+                                    let table = lua_ctx.lua.create_table().unwrap();
+                                    let _ = table.set("value", other);
+                                    table
+                                }
+                                Err(e) => {
+                                    bevy::log::warn!("[LUA_OBSERVER] Error reflecting event {}: {}", event_type, e);
+                                    lua_ctx.lua.create_table().unwrap()
+                                }
+                            };
 
                             if let Err(e) = callback.call::<()>((entity_snapshot, event_table)) {
                                 bevy::log::error!("[LUA_OBSERVER] Error calling {} callback: {}", event_type, e);
@@ -5723,11 +6007,13 @@ fn write_empty_bindings_with_events(event_types: Vec<String>) {
         .collect();
 
     // Discover message types and generate match arms for MessageWriter<T> dispatch
-    let bevy_messages = discover_bevy_messages();
+    // Discover Bevy Message types for Lua write_message() (no parent crate available)
+    let bevy_messages = discover_bevy_messages(None, None);
     let message_write_match_arms: Vec<_> = bevy_messages.iter().filter_map(|msg| {
         let short_name = &msg.type_name;
         let bevy_path_str = &msg.bevy_path;
-        let type_path: syn::Path = syn::parse_str(bevy_path_str).ok()?;
+        let rust_path_str = &msg.rust_path; // For Rust type paths (uses crate:: for local types)
+        let type_path: syn::Path = syn::parse_str(rust_path_str).ok()?;
         
         Some(quote::quote! {
             #short_name | #bevy_path_str => {
@@ -5760,7 +6046,8 @@ fn write_empty_bindings_with_events(event_types: Vec<String>) {
         .iter()
         .filter_map(|msg| {
             let bevy_path_str = &msg.bevy_path;
-            let type_path: syn::Path = syn::parse_str(bevy_path_str).ok()?;
+            let rust_path_str = &msg.rust_path; // For Rust type paths (uses crate:: for local types)
+            let type_path: syn::Path = syn::parse_str(rust_path_str).ok()?;
 
             Some(quote::quote! {
                 app.register_type::<#type_path>();

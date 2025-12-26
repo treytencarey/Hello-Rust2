@@ -49,6 +49,12 @@ pub enum AssetRequestStatus {
     UpToDate,
     /// Download failed with error message
     Error(String),
+    /// Local file is newer than server version (needs upload)
+    LocalNewer {
+        local_hash: String,
+        server_hash: String,
+        local_modified: u64,  // Unix timestamp
+    },
 }
 
 impl AssetRequestStatus {
@@ -67,6 +73,7 @@ impl AssetRequestStatus {
             Self::Complete => 1.0,
             Self::UpToDate => 1.0,
             Self::Error(_) => 0.0,
+            Self::LocalNewer { .. } => 1.0,  // Local file is complete, just needs upload
         }
     }
     
@@ -77,7 +84,12 @@ impl AssetRequestStatus {
     
     /// Check if asset is available (complete or up-to-date)
     pub fn is_available(&self) -> bool {
-        matches!(self, Self::Complete | Self::UpToDate)
+        matches!(self, Self::Complete | Self::UpToDate | Self::LocalNewer { .. })
+    }
+    
+    /// Check if local version is newer than server
+    pub fn is_local_newer(&self) -> bool {
+        matches!(self, Self::LocalNewer { .. })
     }
 }
 
@@ -145,6 +157,171 @@ pub enum AssetSubscriptionMessage {
     UnsubscribeAll { instance_id: u64 },
 }
 
+// ============================================================================
+// Directory Listing Messages
+// ============================================================================
+
+/// Directory listing request (client → server)
+#[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
+pub struct DirectoryListingRequest {
+    /// Request ID for matching response
+    pub request_id: u64,
+    /// Directory path relative to assets/
+    pub path: String,
+    /// Pagination offset (0-based)
+    pub offset: u32,
+    /// Maximum items to return
+    pub limit: u32,
+}
+
+/// File information for directory listing
+#[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
+pub struct FileInfo {
+    /// File name (basename only)
+    pub name: String,
+    /// Full relative path from assets/
+    pub path: String,
+    /// File size in bytes (0 for directories)
+    pub size: u64,
+    /// Last modified time as Unix timestamp
+    pub modified: u64,
+    /// Whether this is a directory
+    pub is_directory: bool,
+}
+
+/// Directory listing response (server → client)
+#[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
+pub struct DirectoryListingResponse {
+    /// Request ID matching the original request
+    pub request_id: u64,
+    /// Directory path that was listed
+    pub path: String,
+    /// Files/directories in this page
+    pub files: Vec<FileInfo>,
+    /// Total count of items in directory
+    pub total_count: u32,
+    /// Offset used for this response
+    pub offset: u32,
+    /// Whether there are more items after this page
+    pub has_more: bool,
+    /// Error message if listing failed
+    pub error: Option<String>,
+}
+
+// ============================================================================
+// File Upload Messages
+// ============================================================================
+
+/// File upload request (client → server, chunked)
+#[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
+pub struct AssetUploadRequest {
+    /// Request ID for tracking upload
+    pub request_id: u64,
+    /// Destination path on server (relative to assets/)
+    pub path: String,
+    /// Current chunk index (0-based)
+    pub chunk_index: u32,
+    /// Total number of chunks
+    pub total_chunks: u32,
+    /// Total file size in bytes
+    pub total_size: usize,
+    /// Encrypted chunk data
+    pub data: Vec<u8>,
+    /// Hash of the complete file (for conflict detection)
+    pub file_hash: String,
+    /// Skip conflict check and overwrite existing file
+    pub force_overwrite: bool,
+}
+
+/// Upload status for response
+#[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
+pub enum UploadStatus {
+    /// Chunk received successfully
+    ChunkReceived { chunk_index: u32, total_chunks: u32 },
+    /// All chunks received, file saved
+    Complete { server_hash: String },
+    /// File exists with different content (needs user confirmation)
+    Conflict { server_hash: String },
+    /// Upload failed
+    Error(String),
+}
+
+/// File upload response (server → client)
+#[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
+pub struct AssetUploadResponse {
+    /// Request ID matching the original request
+    pub request_id: u64,
+    /// Path being uploaded
+    pub path: String,
+    /// Upload status
+    pub status: UploadStatus,
+}
+
+// ============================================================================
+// Rename/Delete/RequestServerFile Messages
+// ============================================================================
+
+/// Request to rename/move an asset (client → server)
+#[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
+pub struct AssetRenameRequest {
+    /// Request ID for tracking
+    pub request_id: u64,
+    /// Current path (relative to assets/)
+    pub old_path: String,
+    /// New path (relative to assets/)
+    pub new_path: String,
+}
+
+/// Request to delete an asset (client → server)
+#[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
+pub struct AssetDeleteRequest {
+    /// Request ID for tracking
+    pub request_id: u64,
+    /// Path to delete (relative to assets/)
+    pub path: String,
+}
+
+/// Request server version of file (after LocalNewer cancel)
+#[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
+pub struct RequestServerFile {
+    /// Request ID for tracking
+    pub request_id: u64,
+    /// Path to request (relative to assets/)
+    pub path: String,
+}
+
+/// Rename/move response (server → client)
+#[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
+pub struct AssetRenameResponse {
+    /// Request ID matching the original request
+    pub request_id: u64,
+    /// Old path
+    pub old_path: String,
+    /// New path
+    pub new_path: String,
+    /// Whether operation succeeded
+    pub success: bool,
+    /// Error message if failed
+    pub error: Option<String>,
+}
+
+/// Delete response (server → client)
+#[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
+pub struct AssetDeleteResponse {
+    /// Request ID matching the original request
+    pub request_id: u64,
+    /// Deleted path
+    pub path: String,
+    /// Whether operation succeeded
+    pub success: bool,
+    /// Error message if failed
+    pub error: Option<String>,
+}
+
+// ============================================================================
+// Wrapper Enums for Network Transport
+// ============================================================================
+
 /// Wrapper enum for all client-to-server messages
 /// This ensures proper type discrimination when deserializing with bincode
 #[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
@@ -153,6 +330,16 @@ pub enum ClientToServerMessage {
     Request(AssetRequestMessage),
     /// Subscription control
     Subscription(AssetSubscriptionMessage),
+    /// Directory listing request
+    DirectoryListing(DirectoryListingRequest),
+    /// File upload
+    Upload(AssetUploadRequest),
+    /// Rename/move asset
+    Rename(AssetRenameRequest),
+    /// Delete asset
+    Delete(AssetDeleteRequest),
+    /// Request server version of file (after LocalNewer cancel)
+    RequestServerFile(RequestServerFile),
 }
 
 /// Server pushes file update to client when a subscribed file changes
@@ -180,6 +367,14 @@ pub enum ServerToClientMessage {
     Response(AssetResponseMessage),
     /// File update notification (push)
     Update(AssetUpdateNotification),
+    /// Directory listing response
+    DirectoryListing(DirectoryListingResponse),
+    /// Upload response (progress, completion, conflict, error)
+    UploadResponse(AssetUploadResponse),
+    /// Rename/move response
+    RenameResponse(AssetRenameResponse),
+    /// Delete response
+    DeleteResponse(AssetDeleteResponse),
 }
 
 /// Resource to queue pending file update notifications
@@ -278,6 +473,16 @@ pub struct PendingAssetRequests {
     completed_assets: Arc<Mutex<HashMap<String, Vec<u8>>>>,
     /// Pending subscription messages to send to server
     pending_subscriptions: Arc<Mutex<Vec<AssetSubscriptionMessage>>>,
+    /// Pending directory listing requests
+    pending_directory_listings: Arc<Mutex<Vec<DirectoryListingRequest>>>,
+    /// Pending file upload requests (local_path, server_path, force_overwrite)
+    pending_file_uploads: Arc<Mutex<Vec<(String, String, bool)>>>,
+    /// Pending rename requests
+    pending_renames: Arc<Mutex<Vec<AssetRenameRequest>>>,
+    /// Pending delete requests
+    pending_deletes: Arc<Mutex<Vec<AssetDeleteRequest>>>,
+    /// Pending server file requests (after LocalNewer cancel)
+    pending_server_file_requests: Arc<Mutex<Vec<RequestServerFile>>>,
 }
 
 impl PendingAssetRequests {
@@ -477,6 +682,119 @@ impl PendingAssetRequests {
     /// Drain pending subscription messages for sending
     pub fn drain_pending_subscriptions(&self) -> Vec<AssetSubscriptionMessage> {
         std::mem::take(&mut *self.pending_subscriptions.lock().unwrap())
+    }
+    
+    /// Queue a directory listing request, returns the request ID
+    pub fn queue_directory_listing(&self, path: String, offset: u32, limit: u32) -> u64 {
+        let request_id = self.next_request_id.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+        let request = DirectoryListingRequest {
+            request_id,
+            path,
+            offset,
+            limit,
+        };
+        self.pending_directory_listings.lock().unwrap().push(request);
+        request_id
+    }
+    
+    /// Drain pending directory listing requests for sending
+    pub fn drain_pending_directory_listings(&self) -> Vec<DirectoryListingRequest> {
+        std::mem::take(&mut *self.pending_directory_listings.lock().unwrap())
+    }
+    
+    /// Queue a single file upload
+    pub fn queue_file_upload(&self, local_path: String, server_path: String, force_overwrite: bool) {
+        self.pending_file_uploads.lock().unwrap().push((local_path, server_path, force_overwrite));
+    }
+    
+    /// Queue a directory upload (enumerates all files recursively)
+    pub fn queue_directory_upload(&self, local_path: String, server_path: String, force_overwrite: bool) {
+        use std::path::Path;
+        
+        let full_path = Path::new("assets").join(&local_path);
+        
+        // Recursively enumerate all files
+        fn collect_files(dir: &std::path::Path, base: &std::path::Path, files: &mut Vec<(String, String)>) {
+            if let Ok(entries) = std::fs::read_dir(dir) {
+                for entry in entries.flatten() {
+                    let path = entry.path();
+                    if path.is_dir() {
+                        collect_files(&path, base, files);
+                    } else if path.is_file() {
+                        // Get relative path from assets/
+                        if let Ok(rel_path) = path.strip_prefix(base) {
+                            let local = rel_path.to_string_lossy().replace('\\', "/");
+                            files.push((local.clone(), local));
+                        }
+                    }
+                }
+            }
+        }
+        
+        let mut files = Vec::new();
+        collect_files(&full_path, Path::new("assets"), &mut files);
+        
+        let mut uploads = self.pending_file_uploads.lock().unwrap();
+        for (local, _) in files {
+            // Map local path to server path (replace prefix)
+            let server = if local.starts_with(&local_path) {
+                local.replacen(&local_path, &server_path, 1)
+            } else {
+                format!("{}/{}", server_path, local)
+            };
+            uploads.push((local, server, force_overwrite));
+        }
+    }
+    
+    /// Drain pending file upload requests for processing
+    pub fn drain_pending_file_uploads(&self) -> Vec<(String, String, bool)> {
+        std::mem::take(&mut *self.pending_file_uploads.lock().unwrap())
+    }
+    
+    /// Queue a rename/move request
+    pub fn queue_rename(&self, old_path: String, new_path: String) -> u64 {
+        let request_id = self.next_request_id.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+        self.pending_renames.lock().unwrap().push(AssetRenameRequest {
+            request_id,
+            old_path,
+            new_path,
+        });
+        request_id
+    }
+    
+    /// Drain pending rename requests
+    pub fn drain_pending_renames(&self) -> Vec<AssetRenameRequest> {
+        std::mem::take(&mut *self.pending_renames.lock().unwrap())
+    }
+    
+    /// Queue a delete request
+    pub fn queue_delete(&self, path: String) -> u64 {
+        let request_id = self.next_request_id.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+        self.pending_deletes.lock().unwrap().push(AssetDeleteRequest {
+            request_id,
+            path,
+        });
+        request_id
+    }
+    
+    /// Drain pending delete requests
+    pub fn drain_pending_deletes(&self) -> Vec<AssetDeleteRequest> {
+        std::mem::take(&mut *self.pending_deletes.lock().unwrap())
+    }
+    
+    /// Queue a request for server version of file (after LocalNewer cancel)
+    pub fn queue_request_server_file(&self, path: String) -> u64 {
+        let request_id = self.next_request_id.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+        self.pending_server_file_requests.lock().unwrap().push(RequestServerFile {
+            request_id,
+            path,
+        });
+        request_id
+    }
+    
+    /// Drain pending server file requests
+    pub fn drain_pending_server_file_requests(&self) -> Vec<RequestServerFile> {
+        std::mem::take(&mut *self.pending_server_file_requests.lock().unwrap())
     }
 }
 

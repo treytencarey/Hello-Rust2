@@ -8,6 +8,9 @@ pub mod plugins;
 // Auto-generated Lua bindings - always required for LuaBindingsPlugin
 pub mod auto_resource_bindings;
 
+// Text input wrapper for Lua spawning
+pub mod text_input;
+
 #[cfg(feature = "physics")]
 pub mod rapier;
 
@@ -29,3 +32,11 @@ pub mod network_asset_integration;
 #[cfg(feature = "networking")]
 pub mod subscription_registry;
 
+#[cfg(feature = "networking")]
+pub mod asset_events;
+
+#[cfg(feature = "networking")]
+pub mod server_hash_tracker;
+
+#[cfg(feature = "networking")]
+pub mod upload_state;

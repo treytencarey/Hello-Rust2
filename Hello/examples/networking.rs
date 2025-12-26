@@ -34,7 +34,6 @@ fn main() {
     
     app.add_plugins(LuaSpawnPlugin)
         .add_systems(PreStartup, setup_networking_registries)
-        .add_systems(Startup, setup)
         .add_systems(PostStartup, load_and_run_script)
         .run();
 }
@@ -57,10 +56,6 @@ fn setup_networking_registries(
     // Register networking method bindings (send_message, receive_message, etc.)
     #[cfg(feature = "networking")]
     networking::register_networking_methods(&method_registry);
-}
-
-fn setup(mut commands: Commands) {
-    commands.spawn(Camera2d);
 }
 
 fn load_and_run_script(

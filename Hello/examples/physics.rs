@@ -16,14 +16,8 @@ fn main() {
         .add_plugins(DefaultPlugins)
         .add_plugins(rapier::RapierIntegrationPlugin) // Add Rapier physics plugins
         .add_plugins(LuaSpawnPlugin)
-        .add_systems(Startup, setup)
         .add_systems(PostStartup, load_and_run_script)
         .run();
-}
-
-fn setup(mut commands: Commands) {
-    commands.spawn(Camera2d);
-    info!("Camera spawned");
 }
 
 fn load_and_run_script(
