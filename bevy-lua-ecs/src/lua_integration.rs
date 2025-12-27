@@ -188,6 +188,17 @@ impl LuaScriptContext {
                 Ok(())
             })?;
 
+        // Create create_directory function to create directories
+        let create_directory =
+            lua_clone.create_function(|_lua_ctx, path: String| {
+                use std::fs;
+
+                fs::create_dir_all(&path).map_err(|e| {
+                    LuaError::RuntimeError(format!("Failed to create directory: {}", e))
+                })?;
+                Ok(())
+            })?;
+
         // OS Utilities for networking and other low-level operations
 
         // Bind UDP socket
@@ -636,6 +647,9 @@ impl LuaScriptContext {
         lua_clone
             .globals()
             .set("write_file_bytes", write_file_bytes)?;
+        lua_clone
+            .globals()
+            .set("create_directory", create_directory)?;
 
         // OS utilities
         lua_clone

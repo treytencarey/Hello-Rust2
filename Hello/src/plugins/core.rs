@@ -3,6 +3,7 @@
 
 use bevy::prelude::*;
 use bevy_lua_ecs::{LuaScriptContext, ScriptInstance, ScriptRegistry};
+use mlua::prelude::*;
 
 /// Resource to specify which script to run on startup
 #[derive(Resource, Clone)]
@@ -23,7 +24,48 @@ impl Plugin for HelloCorePlugin {
         // Use auto-generated LuaBindingsPlugin (includes LuaSpawnPlugin + all bindings)
         app.add_plugins(crate::auto_resource_bindings::LuaBindingsPlugin);
         
-        app.add_systems(PostStartup, run_initial_script.run_if(resource_exists::<MainScript>));
+        // Register application-specific Lua functions (run in PostStartup before initial script)
+        app.add_systems(PostStartup, (
+            register_hello_lua_functions,
+            run_initial_script.run_if(resource_exists::<MainScript>),
+        ).chain());
+    }
+}
+
+/// Register Hello-specific Lua functions (like file picker)
+fn register_hello_lua_functions(lua_ctx: Res<LuaScriptContext>) {
+    let lua = &lua_ctx.lua;
+    
+    // Create file picker dialog function (uses rfd crate for native dialogs)
+    let pick_files_dialog = match lua.create_function(|lua_ctx, ()| {
+        use rfd::FileDialog;
+        
+        let files = FileDialog::new()
+            .set_title("Select files to upload")
+            .pick_files();
+        
+        if let Some(paths) = files {
+            // Convert paths to Lua table of strings
+            let table = lua_ctx.create_table()?;
+            for (i, path) in paths.iter().enumerate() {
+                table.set(i + 1, path.to_string_lossy().to_string())?;
+            }
+            Ok(Some(table))
+        } else {
+            Ok(None)
+        }
+    }) {
+        Ok(f) => f,
+        Err(e) => {
+            error!("Failed to create pick_files_dialog function: {:?}", e);
+            return;
+        }
+    };
+    
+    if let Err(e) = lua.globals().set("pick_files_dialog", pick_files_dialog) {
+        error!("Failed to register pick_files_dialog: {:?}", e);
+    } else {
+        info!("✓ Registered pick_files_dialog Lua function");
     }
 }
 

@@ -29,7 +29,7 @@ function FileBrowser.new()
     -- Data state
     self.current_path = ""  -- Root
     self.folders = {}  -- path -> { expanded, loading, items, has_more, offset }
-    self.selected_path = nil
+    self.selected_paths = {}  -- Table used as set: path -> true for selected items
     
     -- Drag drop state
     self.drag_target = nil  -- Current drop target folder path
@@ -39,6 +39,9 @@ function FileBrowser.new()
     self.drag_folder_handled = false  -- Flag to prevent scroll/panel from overriding folder target
     self.panel_hovered = false  -- Track if mouse is over panel (for external drops)
     self.drop_overlay = nil  -- Drop overlay entity
+    self.hover_folder = ""  -- Currently hovered folder (for external drop targeting)
+    self.pending_external_drops = {}  -- Queue of external files to process in Update
+    self.ctrl_held = false  -- Track Ctrl key state via keyboard events
     
     -- Pending move (for confirmation modal)
     self.pending_move = nil  -- { source = item, target_folder = path }
@@ -82,6 +85,7 @@ function FileBrowser.new()
         browser:process_pending_rename(world)
         browser:process_pending_create_file(world)
         browser:process_pending_create_folder(world)
+        browser:process_pending_external_drops(world)
     end)
     
     return self
@@ -131,7 +135,7 @@ function FileBrowser:spawn_panel()
         :observe("Pointer<DragOver>", function(entity, event)
             -- When dragging over panel (but not a folder), set root as target
             -- Only if folder didn't already handle it (prevents bubbling override)
-            if self.dragging_item and not self.drag_folder_handled then
+            if self.dragging_items and not self.drag_folder_handled then
                 -- Unhighlight previous folder target
                 if self.drag_target_entity then
                     self.drag_target_entity:set({ BackgroundColor = { color = {r = 0, g = 0, b = 0, a = 0} } })
@@ -258,7 +262,6 @@ function FileBrowser:spawn_panel()
         :observe("Pointer<Scroll>", function(entity, event)
             -- Handle scroll wheel events
             local scroll = event.event
-            print("Scroll y: " .. tostring(scroll.y) .. " current offset: " .. tostring(self.scroll_offset))
             self.scroll_offset = self.scroll_offset - scroll.y * 2
             if self.scroll_offset < 0 then
                 self.scroll_offset = 0
@@ -269,7 +272,7 @@ function FileBrowser:spawn_panel()
         :observe("Pointer<DragOver>", function(entity, event)
             -- Scroll container as root drop target
             -- Only set root target if folder didn't already handle it (prevents bubbling override)
-            if self.dragging_item and not self.drag_folder_handled then
+            if self.dragging_items and not self.drag_folder_handled then
                 -- Unhighlight any folder target
                 if self.drag_target_entity then
                     self.drag_target_entity:set({ BackgroundColor = { color = {r = 0, g = 0, b = 0, a = 0} } })
@@ -295,28 +298,40 @@ function FileBrowser:spawn_panel()
                 self.drag_target_entity = nil
             end
             
-            if self.dragging_item then
-                local source = self.dragging_item
+            if self.dragging_items and #self.dragging_items > 0 then
                 local target = self.drag_target
                 
-                if target == "" then
-                    -- Drop to root directory
-                    if source.path:find("/") then  -- Only move if not already in root
-                        -- Show confirmation modal
-                        self.pending_move = { source = source, target_folder = "", new_path = source.name }
-                        self:show_move_confirmation()
+                if target then
+                    -- Move all dragging items to target folder
+                    for _, item in ipairs(self.dragging_items) do
+                        -- Get parent folder from path
+                        local source_folder = item.path:match("(.+)/[^/]+$") or ""
+                        
+                        -- Don't move if already in target folder
+                        if target ~= source_folder then
+                            local item_name = item.path:match("([^/]+)$") or item.path
+                            local new_path = (target == "") and item_name or (target .. "/" .. item_name)
+                            
+                            -- Queue the move (use first item for confirmation, move all)
+                            if not self.pending_moves then
+                                self.pending_moves = {}
+                            end
+                            table.insert(self.pending_moves, { 
+                                source_path = item.path, 
+                                target_folder = target, 
+                                new_path = new_path 
+                            })
+                        end
                     end
-                elseif target and target ~= source.path then
-                    -- Drop to folder
-                    local new_path = target .. "/" .. source.name
-                    -- Show confirmation modal
-                    print("Showing move confirmation: " .. source.path .. " -> " .. target)
-                    self.pending_move = { source = source, target_folder = target, new_path = new_path }
-                    self:show_move_confirmation()
+                    
+                    -- Show confirmation if there are moves
+                    if self.pending_moves and #self.pending_moves > 0 then
+                        self:show_move_multiple_confirmation()
+                    end
                 end
             end
             -- Clear drag state
-            self.dragging_item = nil
+            self.dragging_items = nil
             self.drag_target = nil
         end)
         :observe("Pointer<Click>", function(entity, event)
@@ -476,7 +491,7 @@ end
 --- Render a single row
 function FileBrowser:render_row(item, depth)
     local indent = depth * INDENT_SIZE + 8
-    local is_selected = self.selected_path == item.path
+    local is_selected = self.selected_paths[item.path] ~= nil
     
     local row = spawn({
         Button = {},
@@ -489,6 +504,8 @@ function FileBrowser:render_row(item, depth)
             padding = { left = {Px = indent}, right = {Px = 8} },
         },
         BackgroundColor = { color = is_selected and self.colors.row_selected or {r = 0, g = 0, b = 0, a = 0} },
+        -- Custom Lua component for querying rows in Update system
+        LuaRowData = { path = item.path, is_directory = item.is_directory or false },
     })
         :with_parent(self.scroll_container)
         :observe("Pointer<Click>", function(entity, event)
@@ -496,10 +513,16 @@ function FileBrowser:render_row(item, depth)
             local click = event.event
             local is_right_click = click and click.button and click.button.variant == "Secondary"
             
+            -- Use tracked Ctrl state from keyboard events
+            local ctrl_held = self.ctrl_held
+            
             if is_right_click then
-                -- Right-click: only select the item, don't toggle folder
-                -- (toggling would trigger render_tree which despawns this row mid-click)
-                self.selected_path = item.path
+                -- Right-click: add to selection if not already selected, show context menu
+                if not self.selected_paths[item.path] then
+                    -- Clear selection and select only this item
+                    self.selected_paths = {}
+                    self.selected_paths[item.path] = true
+                end
                 -- Get position for context menu from event.pointer_location.position
                 local x = 100
                 local y = 100
@@ -511,12 +534,12 @@ function FileBrowser:render_row(item, depth)
                 self.context_menu_handled = true
                 self:on_row_right_click(item, x, y)
             else
-                self:on_row_click(item)
+                self:on_row_click(item, ctrl_held)
             end
         end)
         :observe("Pointer<Over>", function(entity, event)
             -- Subtle hover highlight (only if not selected)
-            if self.selected_path ~= item.path then
+            if not self.selected_paths[item.path] then
                 entity:set({ BackgroundColor = { color = {r = 0.18, g = 0.18, b = 0.22, a = 1.0} } })
             end
             -- Track hovered item for external drop targeting
@@ -529,13 +552,23 @@ function FileBrowser:render_row(item, depth)
         end)
         :observe("Pointer<Out>", function(entity, event)
             -- Restore background (only if not selected and not drag target)
-            if self.selected_path ~= item.path and self.drag_target ~= item.path then
+            if not self.selected_paths[item.path] and self.drag_target ~= item.path then
                 entity:set({ BackgroundColor = { color = {r = 0, g = 0, b = 0, a = 0} } })
             end
         end)
         :observe("Pointer<DragStart>", function(entity, event)
-            -- Start dragging this item
-            self.dragging_item = item
+            -- If dragging a selected item, drag ALL selected items
+            -- Otherwise, drag just this item
+            if self.selected_paths[item.path] then
+                -- Collect all selected items
+                self.dragging_items = {}
+                for path, _ in pairs(self.selected_paths) do
+                    table.insert(self.dragging_items, { path = path })
+                end
+            else
+                -- Dragging unselected item - just drag this one
+                self.dragging_items = { item }
+            end
             
             -- Create visual ghost that follows mouse
             local start_x = 100
@@ -543,6 +576,12 @@ function FileBrowser:render_row(item, depth)
             if event.pointer_location and event.pointer_location.position then
                 start_x = event.pointer_location.position.x or 100
                 start_y = event.pointer_location.position.y or 100
+            end
+            
+            -- Ghost text shows count if multiple items
+            local ghost_text = item.name
+            if #self.dragging_items > 1 then
+                ghost_text = "Moving " .. #self.dragging_items .. " items"
             end
             
             -- Store both entity object (for :set()) and ID (for despawn/with_parent)
@@ -561,7 +600,7 @@ function FileBrowser:render_row(item, depth)
             self.drag_ghost_id = ghost_entity:id()  -- Store ID for despawn/with_parent
             
             spawn({
-                Text = { text = item.name },
+                Text = { text = ghost_text },
                 TextFont = { font_size = 12 },
                 TextColor = { color = {r = 1, g = 1, b = 1, a = 1} },
             }):with_parent(self.drag_ghost_id)
@@ -578,7 +617,7 @@ function FileBrowser:render_row(item, depth)
         end)
         :observe("Pointer<DragOver>", function(entity, event)
             -- Handle as drop target if dragging and not the same item
-            if self.dragging_item and self.dragging_item.path ~= item.path then
+            if self.dragging_items and #self.dragging_items > 0 then
                 local target_folder
                 if item.is_directory then
                     -- Directory: drop into this folder
@@ -725,15 +764,28 @@ function FileBrowser:render_load_more(path, depth)
 end
 
 --- Handle row click
-function FileBrowser:on_row_click(item)
-    self.selected_path = item.path
-    
-    if item.is_directory then
-        -- toggle_folder sets needs_render flag
-        self:toggle_folder(item.path)
-    else
-        -- For files, mark for re-render to update selection highlighting
+function FileBrowser:on_row_click(item, ctrl_held)
+    if ctrl_held then
+        -- Ctrl+click: toggle item in selection
+        if self.selected_paths[item.path] then
+            self.selected_paths[item.path] = nil
+        else
+            self.selected_paths[item.path] = true
+        end
+        -- Don't toggle folder on Ctrl+click, just add/remove from selection
         self.needs_render = true
+    else
+        -- Regular click: clear selection and select only this item
+        self.selected_paths = {}
+        self.selected_paths[item.path] = true
+        
+        if item.is_directory then
+            -- toggle_folder sets needs_render flag
+            self:toggle_folder(item.path)
+        else
+            -- For files, mark for re-render to update selection highlighting
+            self.needs_render = true
+        end
     end
 end
 
@@ -773,6 +825,21 @@ end
 function FileBrowser:update(world)
     if not self.is_visible then return end
     
+    -- Track keyboard modifier state via keyboard events
+    local keyboard_events = world:read_events("bevy_input::keyboard::KeyboardInput")
+    for _, e in ipairs(keyboard_events) do
+        -- Check for Ctrl key (ControlLeft or ControlRight)
+        local key = e.key_code
+        if key and (key.ControlLeft or key.ControlRight) then
+            local state = e.state
+            if state and state.Pressed then
+                self.ctrl_held = true
+            elseif state and state.Released then
+                self.ctrl_held = false
+            end
+        end
+    end
+    
     -- Process directory listing events
     local events = world:read_events("hello::asset_events::AssetDirectoryListingEvent")
     for _, e in ipairs(events) do
@@ -792,7 +859,6 @@ function FileBrowser:update(world)
             self:show_drop_overlay()
         elseif e.HoveredFileCanceled then
             -- Note: Bevy 0.11+ uses "HoveredFileCanceled" (American spelling with one 'l')
-            print("HoveredFileCanceled - hiding overlay")
             self:hide_drop_overlay()
         end
     end
@@ -845,19 +911,45 @@ function FileBrowser:on_file_drop(event)
     if event.DroppedFile then
         local source_path = event.DroppedFile.path_buf
         
-        -- Debug: inspect event structure for position info
-        print("DEBUG: DroppedFile event fields:")
-        for k, v in pairs(event) do
-            print("  ." .. tostring(k) .. " = " .. tostring(v))
+        -- Queue the drop for processing in Update system
+        -- where we can query for the currently hovered folder via Interaction component
+        local source_path_clean = source_path:gsub('^"', ''):gsub('"$', '')
+        table.insert(self.pending_external_drops, {
+            source_path = source_path_clean,
+        })
+    end
+end
+
+--- Process pending external drops (called from Update system with world access)
+function FileBrowser:process_pending_external_drops(world)
+    if #self.pending_external_drops == 0 then return end
+    
+    -- Query for hovered folder row using Interaction component
+    -- First, find all rows with Interaction = Hovered
+    local target_folder = ""
+    
+    -- Query entities with our row marker and Interaction component
+    local rows = world:query({"LuaRowData", "Interaction"}, nil)
+    for _, row_entity in ipairs(rows) do
+        local interaction = row_entity:get("Interaction")
+        local row_data = row_entity:get("LuaRowData")
+        -- Check for Hovered state (table format: {Hovered = true} or {None = true})
+        if interaction and interaction.Hovered then
+            if row_data then
+                if row_data.is_directory then
+                    target_folder = row_data.path or ""
+                else
+                    -- Non-directory: use parent folder
+                    target_folder = (row_data.path or ""):match("(.+)/[^/]+$") or ""
+                end
+                break
+            end
         end
-        
-        -- Use hover_folder (tracked from Pointer<Over> events on rows)
-        -- This allows external drops to target the folder under the mouse cursor
-        local target_folder = self.hover_folder or ""
-        print("DEBUG: hover_folder = '" .. tostring(self.hover_folder) .. "', target_folder = '" .. target_folder .. "'")
-        -- Extract filename from source path
-        -- Strip surrounding quotes if present (Windows sometimes adds them)
-        source_path = source_path:gsub('^"', ''):gsub('"$', '')
+    end
+    
+    -- Process all queued drops
+    for _, drop in ipairs(self.pending_external_drops) do
+        local source_path = drop.source_path
         local filename = source_path:match("([^/\\]+)$") or "DroppedFile"
         
         -- Build destination path in assets folder
@@ -906,6 +998,9 @@ function FileBrowser:on_file_drop(event)
             print("Failed to copy file: " .. tostring(err))
         end
     end
+    
+    -- Clear the queue
+    self.pending_external_drops = {}
 end
 
 --- Format file size
@@ -1011,16 +1106,30 @@ function FileBrowser:show_context_menu(item, x, y)
     
     -- Only show rename/delete if we have an item with a real path (not root)
     if item and item.path and item.path ~= "" then
-        -- Rename option
-        self:add_context_menu_item("Rename", function()
-            self:close_context_menu()
-            self:show_rename_dialog(item)
-        end)
+        -- Count selected items
+        local selected_count = 0
+        for _ in pairs(self.selected_paths) do
+            selected_count = selected_count + 1
+        end
         
-        -- Delete option
-        self:add_context_menu_item("Delete", function()
+        -- Rename option - only show for single selection
+        if selected_count <= 1 then
+            self:add_context_menu_item("Rename", function()
+                self:close_context_menu()
+                self:show_rename_dialog(item)
+            end)
+        end
+        
+        -- Delete option - deletes all selected items
+        local delete_text = selected_count > 1 and ("Delete " .. selected_count .. " items") or "Delete"
+        self:add_context_menu_item(delete_text, function()
             self:close_context_menu()
-            self:show_delete_confirmation(item)
+            if selected_count > 1 then
+                -- Delete all selected items
+                self:show_delete_multiple_confirmation()
+            else
+                self:show_delete_confirmation(item)
+            end
         end, true)  -- is_danger
     end
 end
@@ -1259,16 +1368,12 @@ function FileBrowser:process_pending_rename(world)
     -- Read text from the input entity's LuaTextInputValue component
     -- Just get the first one - there should only be one active text input at a time
     local entities = world:query({"LuaTextInputValue"}, nil)
-    print("Found " .. #entities .. " entities with LuaTextInputValue")
     if #entities > 0 then
         local entity = entities[1]
         local value = entity:get("LuaTextInputValue")
-        print("Got LuaTextInputValue: " .. tostring(value))
         if value then
-            print("Value has text: " .. tostring(value.text))
             if value.text then
                 new_name = value.text
-                print("Read text from input: '" .. new_name .. "'")
             end
         end
     end
@@ -1475,6 +1580,166 @@ function FileBrowser:do_delete(item)
     self.needs_render = true
 end
 
+--- Show delete confirmation for multiple items
+function FileBrowser:show_delete_multiple_confirmation()
+    self:close_delete_dialog()
+    
+    -- Count selected items
+    local count = 0
+    for _ in pairs(self.selected_paths) do
+        count = count + 1
+    end
+    
+    if count == 0 then return end
+    
+    local dialog_width = 300
+    
+    -- Dialog backdrop
+    self.delete_backdrop = spawn({
+        Button = {},
+        Node = {
+            position_type = "Absolute",
+            left = {Px = 0}, right = {Px = 0},
+            top = {Px = 0}, bottom = {Px = 0},
+        },
+        BackgroundColor = { color = {r = 0, g = 0, b = 0, a = 0.5} },
+        GlobalZIndex = { value = 700 },
+    })
+        :observe("Pointer<Click>", function(entity, event)
+            self:close_delete_dialog()
+        end)
+        :id()
+    
+    -- Dialog container
+    self.delete_dialog = spawn({
+        Node = {
+            position_type = "Absolute",
+            left = {Percent = 50},
+            top = {Percent = 50},
+            width = {Px = dialog_width},
+            margin = { left = {Px = -dialog_width/2}, top = {Px = -75} },
+            flex_direction = "Column",
+            padding = { top = {Px = 16}, bottom = {Px = 16}, left = {Px = 16}, right = {Px = 16} },
+            align_items = "Center",
+        },
+        BackgroundColor = { color = self.colors.bg },
+        BorderRadius = { 
+            top_left = {Px = 8}, top_right = {Px = 8}, 
+            bottom_left = {Px = 8}, bottom_right = {Px = 8} 
+        },
+        GlobalZIndex = { value = 701 },
+    }):id()
+    
+    local dialog = self.delete_dialog
+    
+    -- Title
+    spawn({
+        Text = { text = "Delete " .. count .. " items?" },
+        TextFont = { font_size = 16 },
+        TextColor = { color = self.colors.text },
+    }):with_parent(dialog)
+    
+    -- Warning text
+    spawn({
+        Text = { text = "This action cannot be undone." },
+        TextFont = { font_size = 12 },
+        TextColor = { color = self.colors.danger },
+        Node = { margin = { top = {Px = 8}, bottom = {Px = 16} } },
+    }):with_parent(dialog)
+    
+    -- Button row
+    local button_row = spawn({
+        Node = {
+            flex_direction = "Row",
+            justify_content = "Center",
+            column_gap = {Px = 12},
+        },
+    }):with_parent(dialog):id()
+    
+    -- Cancel button
+    local cancel_btn = spawn({
+        Button = {},
+        Node = {
+            width = {Px = 80},
+            height = {Px = 32},
+            justify_content = "Center",
+            align_items = "Center",
+        },
+        BackgroundColor = { color = self.colors.row_hover },
+        BorderRadius = { top_left = {Px = 4}, top_right = {Px = 4}, bottom_left = {Px = 4}, bottom_right = {Px = 4} },
+    })
+        :with_parent(button_row)
+        :observe("Pointer<Click>", function(entity, event)
+            self:close_delete_dialog()
+        end)
+        :id()
+    
+    spawn({
+        Text = { text = "Cancel" },
+        TextFont = { font_size = 12 },
+        TextColor = { color = self.colors.text },
+    }):with_parent(cancel_btn)
+    
+    -- Delete button
+    local delete_btn = spawn({
+        Button = {},
+        Node = {
+            width = {Px = 80},
+            height = {Px = 32},
+            justify_content = "Center",
+            align_items = "Center",
+        },
+        BackgroundColor = { color = self.colors.danger },
+        BorderRadius = { top_left = {Px = 4}, top_right = {Px = 4}, bottom_left = {Px = 4}, bottom_right = {Px = 4} },
+    })
+        :with_parent(button_row)
+        :observe("Pointer<Click>", function(entity, event)
+            self:do_delete_multiple()
+        end)
+        :id()
+    
+    spawn({
+        Text = { text = "Delete" },
+        TextFont = { font_size = 12 },
+        TextColor = { color = {r = 1, g = 1, b = 1, a = 1} },
+    }):with_parent(delete_btn)
+end
+
+--- Delete all selected items
+function FileBrowser:do_delete_multiple()
+    self:close_delete_dialog()
+    
+    for path, _ in pairs(self.selected_paths) do
+        -- CRITICAL SAFETY CHECK: Never delete empty path (root directory)!
+        if path and path ~= "" then
+            print("Deleting: " .. path)
+            delete_asset(path)
+            
+            -- Remove item from local folder list
+            local parent_path = path:match("(.*/)")
+            if parent_path then
+                parent_path = parent_path:sub(1, -2)
+            else
+                parent_path = ""
+            end
+            
+            local folder = self.folders[parent_path]
+            if folder and folder.items then
+                for i, existing_item in ipairs(folder.items) do
+                    if existing_item.path == path then
+                        table.remove(folder.items, i)
+                        break
+                    end
+                end
+            end
+        end
+    end
+    
+    -- Clear selection and re-render
+    self.selected_paths = {}
+    self.needs_render = true
+end
+
 -- =============================================================================
 -- Move Confirmation Dialog
 -- =============================================================================
@@ -1489,7 +1754,6 @@ function FileBrowser:show_move_confirmation()
         return 
     end
     
-    print("Creating move dialog entities...")
     local dialog_width = 320
     
     -- Dialog backdrop (full screen semi-transparent overlay)
@@ -1510,7 +1774,6 @@ function FileBrowser:show_move_confirmation()
             self:close_move_dialog()
         end)
         :id()
-    print("  Created backdrop: " .. tostring(self.move_backdrop))
     
     -- Dialog container
     self.move_dialog = spawn({
@@ -1531,7 +1794,6 @@ function FileBrowser:show_move_confirmation()
         },
         GlobalZIndex = { value = 901 },
     }):id()
-    print("  Created dialog: " .. tostring(self.move_dialog))
     
     local dialog = self.move_dialog
     
@@ -1643,6 +1905,177 @@ function FileBrowser:do_move()
     print("Moving " .. move.source.path .. " to " .. (move.target_folder == "" and "root" or move.target_folder))
     self:move_item_locally(move.source, move.target_folder)
     rename_asset(move.source.path, move.new_path)
+end
+
+--- Show move confirmation for multiple items
+function FileBrowser:show_move_multiple_confirmation()
+    self:close_move_dialog()
+    
+    if not self.pending_moves or #self.pending_moves == 0 then
+        print("ERROR: No pending moves!")
+        return
+    end
+    
+    local count = #self.pending_moves
+    local target = self.pending_moves[1].target_folder
+    local dialog_width = 320
+    
+    -- Dialog backdrop
+    self.move_backdrop = spawn({
+        Button = {},
+        Node = {
+            position_type = "Absolute",
+            left = {Px = 0}, right = {Px = 0},
+            top = {Px = 0}, bottom = {Px = 0},
+            width = {Percent = 100},
+            height = {Percent = 100},
+        },
+        BackgroundColor = { color = {r = 0, g = 0, b = 0, a = 0.5} },
+        GlobalZIndex = { value = 900 },
+    })
+        :observe("Pointer<Click>", function(entity, event)
+            self.pending_moves = nil
+            self:close_move_dialog()
+        end)
+        :id()
+    
+    -- Dialog container
+    self.move_dialog = spawn({
+        Node = {
+            position_type = "Absolute",
+            left = {Percent = 50},
+            top = {Percent = 50},
+            width = {Px = dialog_width},
+            margin = { left = {Px = -dialog_width/2}, top = {Px = -80} },
+            flex_direction = "Column",
+            padding = { top = {Px = 16}, bottom = {Px = 16}, left = {Px = 16}, right = {Px = 16} },
+            align_items = "Center",
+        },
+        BackgroundColor = { color = self.colors.bg },
+        BorderRadius = { 
+            top_left = {Px = 8}, top_right = {Px = 8}, 
+            bottom_left = {Px = 8}, bottom_right = {Px = 8} 
+        },
+        GlobalZIndex = { value = 901 },
+    }):id()
+    
+    local dialog = self.move_dialog
+    
+    -- Title
+    spawn({
+        Text = { text = "Move " .. count .. " items?" },
+        TextFont = { font_size = 16 },
+        TextColor = { color = self.colors.text },
+    }):with_parent(dialog)
+    
+    -- Target folder text
+    spawn({
+        Text = { text = "To: " .. (target == "" and "/" or target) },
+        TextFont = { font_size = 12 },
+        TextColor = { color = self.colors.text_dim },
+        Node = { margin = { top = {Px = 8}, bottom = {Px = 16} } },
+    }):with_parent(dialog)
+    
+    -- Button row
+    local button_row = spawn({
+        Node = {
+            flex_direction = "Row",
+            justify_content = "Center",
+            column_gap = {Px = 12},
+        },
+    }):with_parent(dialog):id()
+    
+    -- Cancel button
+    local cancel_btn = spawn({
+        Button = {},
+        Node = {
+            width = {Px = 80},
+            height = {Px = 32},
+            justify_content = "Center",
+            align_items = "Center",
+        },
+        BackgroundColor = { color = self.colors.row_hover },
+        BorderRadius = { top_left = {Px = 4}, top_right = {Px = 4}, bottom_left = {Px = 4}, bottom_right = {Px = 4} },
+    })
+        :with_parent(button_row)
+        :observe("Pointer<Click>", function(entity, event)
+            self.pending_moves = nil
+            self:close_move_dialog()
+        end)
+        :id()
+    
+    spawn({
+        Text = { text = "Cancel" },
+        TextFont = { font_size = 12 },
+        TextColor = { color = self.colors.text },
+    }):with_parent(cancel_btn)
+    
+    -- Move button
+    local move_btn = spawn({
+        Button = {},
+        Node = {
+            width = {Px = 80},
+            height = {Px = 32},
+            justify_content = "Center",
+            align_items = "Center",
+        },
+        BackgroundColor = { color = {r = 0.2, g = 0.5, b = 0.3, a = 1.0} },
+        BorderRadius = { top_left = {Px = 4}, top_right = {Px = 4}, bottom_left = {Px = 4}, bottom_right = {Px = 4} },
+    })
+        :with_parent(button_row)
+        :observe("Pointer<Click>", function(entity, event)
+            self:close_move_dialog()
+            self:do_pending_moves()
+        end)
+        :id()
+    
+    spawn({
+        Text = { text = "Move" },
+        TextFont = { font_size = 12 },
+        TextColor = { color = {r = 1, g = 1, b = 1, a = 1} },
+    }):with_parent(move_btn)
+end
+
+--- Execute pending batch moves (for multi-item drag-drop)
+function FileBrowser:do_pending_moves()
+    if not self.pending_moves or #self.pending_moves == 0 then return end
+    
+    for _, move in ipairs(self.pending_moves) do
+        print("Moving " .. move.source_path .. " to " .. move.new_path)
+        -- Use rename_asset to move the file
+        rename_asset(move.source_path, move.new_path)
+        
+        -- Update local folder lists for instant UI update
+        -- Remove from source folder
+        local source_folder = move.source_path:match("(.+)/[^/]+$") or ""
+        local source_state = self.folders[source_folder]
+        if source_state and source_state.items then
+            for i, item in ipairs(source_state.items) do
+                if item.path == move.source_path then
+                    table.remove(source_state.items, i)
+                    break
+                end
+            end
+        end
+        
+        -- Add to target folder
+        local target_state = self.folders[move.target_folder]
+        if target_state and target_state.items then
+            local item_name = move.source_path:match("([^/]+)$") or move.source_path
+            local is_dir = self.folders[move.source_path] ~= nil
+            table.insert(target_state.items, {
+                name = item_name,
+                path = move.new_path,
+                is_directory = is_dir,
+                size = 0
+            })
+        end
+    end
+    
+    -- Clear selection and re-render
+    self.selected_paths = {}
+    self.pending_moves = nil
+    self.needs_render = true
 end
 
 -- =============================================================================
@@ -1828,13 +2261,11 @@ function FileBrowser:process_pending_create_file(world)
     -- Read text from the input entity's LuaTextInputValue component
     -- Just get the first one - there should only be one active text input at a time
     local entities = world:query({"LuaTextInputValue"}, nil)
-    print("Found " .. #entities .. " entities with LuaTextInputValue for file creation")
     if #entities > 0 then
         local entity = entities[1]
         local value = entity:get("LuaTextInputValue")
         if value and value.text then
             file_name = value.text
-            print("Read filename from input: '" .. file_name .. "'")
         end
     end
     
@@ -2075,21 +2506,26 @@ end
 
 --- Handle right click on row (called from render_row)
 function FileBrowser:on_row_right_click(item, x, y)
-    print("Right click on row: " .. item.path)
     self:show_context_menu(item, x, y)
 end
 
 --- Show file picker dialog and upload selected files
 function FileBrowser:show_file_picker()
-    -- Determine target folder - use selected folder or root
+    -- Determine target folder - use first selected folder or root
     local target_folder = ""
-    if self.selected_path then
+    -- Get first selected path
+    local first_selected = nil
+    for path, _ in pairs(self.selected_paths) do
+        first_selected = path
+        break
+    end
+    if first_selected then
         -- If selected is a folder, use it; if file, use its parent
-        local folder_state = self.folders[self.selected_path]
+        local folder_state = self.folders[first_selected]
         if folder_state then
-            target_folder = self.selected_path
+            target_folder = first_selected
         else
-            target_folder = self.selected_path:match("(.+)/[^/]+$") or ""
+            target_folder = first_selected:match("(.+)/[^/]+$") or ""
         end
     end
     
