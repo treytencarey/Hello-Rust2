@@ -7,7 +7,7 @@
 
 use bevy::prelude::*;
 use bevy_lua_ecs::*;
-use hello::plugins::{VrInputPlugin, VrButtonState, VrControllerState};
+use hello::plugins::{HelloCorePlugin, VrInputPlugin, VrButtonState, VrControllerState};
 use std::fs;
 use std::ops::Deref;
 
@@ -25,9 +25,8 @@ use bevy_mod_xr::{
 };
 use openxr::Posef;
 
-// Include auto-generated bindings
-#[path = "../src/auto_resource_bindings.rs"]
-mod auto_resource_bindings;
+// Use auto-generated bindings from hello library (not direct include, so crate:: paths resolve correctly)
+use hello::auto_resource_bindings;
 
 // Controller marker component
 #[derive(Component, Reflect)]
@@ -43,7 +42,7 @@ enum Hand {
 }
 
 // Default script path - can be overridden via command line
-const DEFAULT_SCRIPT: &str = "assets/scripts/examples/vr_ui_panel.lua";
+const DEFAULT_SCRIPT: &str = "assets/scripts/examples/vr_sidebar.lua";
 
 fn main() -> AppExit {
     let mut app = App::new();
@@ -66,8 +65,11 @@ fn main() -> AppExit {
     // VR input plugin for button states
     app.add_plugins(VrInputPlugin);
     
-    // Lua bindings
-    app.add_plugins(crate::auto_resource_bindings::LuaBindingsPlugin);
+    // Hello core plugin for Lua globals (pick_files_dialog, etc)
+    app.add_plugins(HelloCorePlugin {});
+    
+    // Network asset plugin for directory listing and upload functions
+    app.add_plugins(hello::network_asset_integration::NetworkAssetPlugin);
     
     // OpenXR action setup
     app.add_systems(XrSessionCreated, spawn_controllers);

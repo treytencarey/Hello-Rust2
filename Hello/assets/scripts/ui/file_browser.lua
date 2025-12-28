@@ -96,11 +96,13 @@ end
 
 --- Show the file browser
 --- @param left_offset Optional left offset in pixels (for sidebar integration)
+--- @param parent_entity number|nil Optional parent entity ID for VR integration
 --- @return panel_entity The panel container entity ID
-function FileBrowser:show(left_offset)
+function FileBrowser:show(left_offset, parent_entity)
     if self.is_visible then return self.panel_entity end
     
     self.left_offset = left_offset or 0
+    self.parent_entity = parent_entity
     self:spawn_panel()
     self:load_folder("")  -- Load root
     
@@ -158,6 +160,11 @@ function FileBrowser:spawn_panel()
             -- Reset flag at end of bubbling chain (panel is last)
             self.drag_folder_handled = false
         end)
+    
+    -- Apply parent if provided (for VR integration)
+    if self.parent_entity then
+        panel = panel:with_parent(self.parent_entity)
+    end
     
     self.panel_entity = panel:id()
     table.insert(self.entities, self.panel_entity)

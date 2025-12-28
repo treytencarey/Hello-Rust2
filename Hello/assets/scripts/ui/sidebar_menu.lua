@@ -59,11 +59,15 @@ function SidebarMenu.new()
 end
 
 --- Show the sidebar (icon bar only - panels position themselves)
-function SidebarMenu:show()
+--- @param parent_entity number|nil Optional parent entity ID for VR integration
+function SidebarMenu:show(parent_entity)
     if self.is_visible then return end
     
+    -- Store parent for panels to use
+    self.parent_entity = parent_entity
+    
     -- Icon bar (narrow vertical strip on left)
-    self.icon_bar_entity = spawn({
+    local builder = spawn({
         Node = {
             position_type = "Absolute",
             left = {Px = 0},
@@ -77,7 +81,11 @@ function SidebarMenu:show()
         },
         BackgroundColor = { color = COLORS.icon_bar_bg },
         GlobalZIndex = { value = 100 },
-    }):id()
+    })
+    if parent_entity then
+        builder = builder:with_parent(parent_entity)
+    end
+    self.icon_bar_entity = builder:id()
     table.insert(self.entities, self.icon_bar_entity)
     
     self.is_visible = true
@@ -219,10 +227,11 @@ function SidebarMenu:update(world)
                 -- Open new panel
                 local menu = self
                 local left_offset = ICON_BAR_WIDTH
+                local parent = self.parent_entity  -- Capture for closure
                 
                 require_async(btn.script, function(ModuleClass)
                     local instance = ModuleClass.new()
-                    local container = instance:show(left_offset)
+                    local container = instance:show(left_offset, parent)
                     if container then
                         menu:update_button_state(idx, true)
                     end

@@ -146,6 +146,11 @@ path = "examples/vr_ui_panel.rs"
 required-features = ["bevy_mod_xr"]
 
 [[example]]
+name = "vr_lua_host"
+path = "examples/vr_lua_host.rs"
+required-features = ["bevy_mod_xr", "networking"]
+
+[[example]]
 name = "replicon_renet_button"
 path = "examples/replicon_renet_button.rs"
 required-features = ["networking"]

@@ -1163,6 +1163,24 @@ pub fn set_field_from_lua(
         if let LuaValue::Boolean(b) = lua_value {
             *bool_field = *b;
         }
+    } else if let Some(entity_field) = field.try_downcast_mut::<Entity>() {
+        // Handle Entity field updates (e.g., UiTargetCamera)
+        // Entity is passed as u64 bits from Lua
+        match lua_value {
+            LuaValue::Integer(i) => {
+                let entity = Entity::from_bits(*i as u64);
+                *entity_field = entity;
+                debug!("[FIELD_SET] ✓ Set Entity field from bits {} -> {:?}", i, entity);
+            }
+            LuaValue::Number(n) => {
+                let entity = Entity::from_bits(*n as u64);
+                *entity_field = entity;
+                debug!("[FIELD_SET] ✓ Set Entity field from bits {} -> {:?}", n, entity);
+            }
+            _ => {
+                warn!("[FIELD_SET] Entity field expected integer, got: {:?}", lua_value);
+            }
+        }
     } else if let Some(color_field) = field.try_downcast_mut::<Color>() {
         if let LuaValue::Table(color_table) = lua_value {
             let r: f32 = color_table.get("r").unwrap_or(1.0);

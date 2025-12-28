@@ -24,6 +24,7 @@ pub fn process_component_updates(
     // Get resources we need BEFORE any mutable entity access
     let type_registry = world.resource::<AppTypeRegistry>().clone();
     let asset_registry = world.get_resource::<crate::asset_loading::AssetRegistry>().cloned();
+    let spawn_queue = world.resource::<crate::spawn_queue::SpawnQueue>().clone();
     
     for request in requests {
         let type_path = request.component_name.clone();
@@ -39,6 +40,13 @@ pub fn process_component_updates(
                     continue;
                 }
             }
+        };
+        
+        // Pre-resolve entity references in the data (handles temp_id -> Entity conversion)
+        // This is critical for components like UiTargetCamera that reference entities from spawn()
+        let resolved_data = {
+            let lua_ctx = world.resource::<LuaScriptContext>();
+            resolve_entity_references_in_table(&lua_ctx.lua, &data_value, &spawn_queue)
         };
         
         // Check entity exists
@@ -77,8 +85,8 @@ pub fn process_component_updates(
                                 reflect_from_ptr.as_reflect_mut(component_ptr.as_mut()) 
                             };
                             
-                            // Update fields from Lua table
-                            if let LuaValue::Table(table) = &data_value {
+                            // Update fields from Lua table (using resolved_data with temp_ids converted)
+                            if let LuaValue::Table(ref table) = resolved_data {
                                 if let Err(e) = update_component_from_lua(
                                     component_mut.as_partial_reflect_mut(),
                                     table,
@@ -234,4 +242,57 @@ fn update_component_from_lua(
     }
     
     Ok(())
+}
+
+/// Resolve entity references (temp_ids from spawn()) in a Lua table
+/// Looks for 'entity' keys and converts temp_ids to real entity bits
+fn resolve_entity_references_in_table(
+    lua: &mlua::Lua,
+    data: &LuaValue,
+    spawn_queue: &crate::spawn_queue::SpawnQueue,
+) -> LuaValue {
+    match data {
+        LuaValue::Table(table) => {
+            // Create a new table with resolved references
+            match lua.create_table() {
+                Ok(new_table) => {
+                    for pair in table.pairs::<mlua::Value, LuaValue>() {
+                        if let Ok((key, value)) = pair {
+                            // Check if this is an 'entity' field that needs resolution
+                            let resolved_value = if let mlua::Value::String(key_str) = &key {
+                                if key_str.to_str().map(|s| s == "entity").unwrap_or(false) {
+                                    // This is an entity reference - resolve temp_id
+                                    match &value {
+                                        LuaValue::Integer(temp_id) => {
+                                            let entity = spawn_queue.resolve_entity(*temp_id as u64);
+                                            debug!("[ENTITY_RESOLVE] Resolved temp_id {} -> entity {:?} (bits: {})", 
+                                                temp_id, entity, entity.to_bits());
+                                            LuaValue::Integer(entity.to_bits() as i64)
+                                        }
+                                        LuaValue::Number(temp_id) => {
+                                            let entity = spawn_queue.resolve_entity(*temp_id as u64);
+                                            debug!("[ENTITY_RESOLVE] Resolved temp_id {} -> entity {:?} (bits: {})", 
+                                                temp_id, entity, entity.to_bits());
+                                            LuaValue::Integer(entity.to_bits() as i64)
+                                        }
+                                        _ => resolve_entity_references_in_table(lua, &value, spawn_queue),
+                                    }
+                                } else {
+                                    // Recursively resolve nested tables
+                                    resolve_entity_references_in_table(lua, &value, spawn_queue)
+                                }
+                            } else {
+                                // Non-string key, recursively resolve
+                                resolve_entity_references_in_table(lua, &value, spawn_queue)
+                            };
+                            let _ = new_table.set(key, resolved_value);
+                        }
+                    }
+                    LuaValue::Table(new_table)
+                }
+                Err(_) => data.clone(),
+            }
+        }
+        _ => data.clone(),
+    }
 }
