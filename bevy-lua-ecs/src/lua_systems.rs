@@ -2,6 +2,7 @@ use crate::component_update_queue::ComponentUpdateQueue;
 use crate::components::ComponentRegistry;
 use crate::lua_integration::LuaScriptContext;
 use crate::lua_world_api::{execute_query, LuaQueryBuilder};
+use crate::spawn_queue::SpawnQueue;
 use bevy::prelude::*;
 use mlua::prelude::*;
 use std::sync::{Arc, Mutex};
@@ -47,6 +48,7 @@ pub fn run_lua_systems(world: &mut World) {
     let registry = world.resource::<LuaSystemRegistry>().clone();
     let component_registry = world.resource::<ComponentRegistry>();
     let update_queue = world.resource::<ComponentUpdateQueue>().clone();
+    let spawn_queue = world.resource::<SpawnQueue>().clone();
     let serde_registry = world
         .resource::<crate::serde_components::SerdeComponentRegistry>()
         .clone();
@@ -70,6 +72,7 @@ pub fn run_lua_systems(world: &mut World) {
             world,
             &component_registry,
             &update_queue,
+            &spawn_queue,
             &serde_registry,
             &builder_registry,
             last_run_tick,
@@ -86,6 +89,7 @@ fn run_single_lua_system(
     world: &World,
     component_registry: &ComponentRegistry,
     update_queue: &ComponentUpdateQueue,
+    spawn_queue: &SpawnQueue,
     serde_registry: &crate::serde_components::SerdeComponentRegistry,
     _builder_registry: &crate::resource_builder::ResourceBuilderRegistry,
     last_run: u32,
@@ -175,9 +179,11 @@ fn run_single_lua_system(
             "get_entity",
             scope.create_function({
                 let update_queue_clone = update_queue.clone();
+                let spawn_queue_for_get = spawn_queue.clone();
                 move |lua_ctx, (_self, entity_bits): (LuaTable, i64)| {
-                    // Reconstruct Entity from bits
-                    let entity = Entity::from_bits(entity_bits as u64);
+                    // Resolve temp_id or raw entity bits using spawn_queue
+                    // This handles both spawn() temp_ids and query() entity bits
+                    let entity = spawn_queue_for_get.resolve_entity(entity_bits as u64);
                     
                     // Check if entity exists in world
                     let entity_ref = match world.get_entity(entity) {
@@ -646,6 +652,49 @@ fn run_single_lua_system(
                     cleanup(lua_ctx, instance_id, &script_name)?;
 
                     debug!("✓ Script instance {} stopped", instance_id);
+                    Ok(())
+                }
+            })?,
+        )?;
+
+        // stop_owning_script(entity_id) - stop the script that owns the given entity
+        // Reads ScriptOwned component from the entity to get instance_id
+        world_table.set(
+            "stop_owning_script",
+            scope.create_function({
+                let script_registry = world
+                    .resource::<crate::script_registry::ScriptRegistry>()
+                    .clone();
+                let spawn_queue = world.resource::<SpawnQueue>().clone();
+                let cleanup = cleanup_script_instance.clone();
+                move |lua_ctx, (_self, entity_id): (LuaTable, u64)| {
+                    // Use resolve_entity to handle both temp_id (from spawn) and entity bits (from query)
+                    let entity = spawn_queue.resolve_entity(entity_id);
+
+                    // Get ScriptOwned component from the entity
+                    let script_owned = world
+                        .get::<crate::script_entities::ScriptOwned>(entity)
+                        .ok_or_else(|| {
+                            LuaError::RuntimeError(format!(
+                                "Entity {:?} has no ScriptOwned component (id: {})",
+                                entity, entity_id
+                            ))
+                        })?;
+
+                    let instance_id = script_owned.instance_id;
+
+                    debug!(
+                        "Stop requested for script instance {} (via entity {:?}, original id: {})",
+                        instance_id, entity, entity_id
+                    );
+
+                    // Mark as stopped in registry (prevents auto-reload)
+                    script_registry.mark_stopped(instance_id);
+
+                    // Use shared cleanup logic
+                    cleanup(lua_ctx, instance_id, "stop_owning_script")?;
+
+                    debug!("✓ Script instance {} stopped via entity", instance_id);
                     Ok(())
                 }
             })?,

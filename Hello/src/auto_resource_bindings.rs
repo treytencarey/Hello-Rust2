@@ -71,11 +71,11 @@ pub const DISCOVERED_ASSET_TYPES: &[&str] = &[
     "TiledWorldAsset",
     "StandardTilemapMaterial",
     "GizmoAsset",
-    "GltfSkin",
-    "GltfMesh",
-    "Gltf",
     "GltfNode",
     "GltfPrimitive",
+    "Gltf",
+    "GltfMesh",
+    "GltfSkin",
     "Image",
     "TextureAtlasLayout",
     "Mesh",
@@ -123,11 +123,11 @@ pub fn register_auto_typed_path_loaders(
         bevy::asset::LoadedFolder,
         bevy::audio::AudioSource,
         bevy::gizmos::GizmoAsset,
-        bevy::gltf::GltfSkin,
-        bevy::gltf::GltfMesh,
-        bevy::gltf::Gltf,
         bevy::gltf::GltfNode,
         bevy::gltf::GltfPrimitive,
+        bevy::gltf::Gltf,
+        bevy::gltf::GltfMesh,
+        bevy::gltf::GltfSkin,
         bevy::prelude::Image,
         bevy::prelude::Mesh,
         bevy::prelude::StandardMaterial,
@@ -564,95 +564,6 @@ pub fn dispatch_systemparam_method(
     args: mlua::MultiValue,
 ) -> mlua::Result<mlua::Value> {
     match (param_name, method_name) {
-        ("MeshRayCast", "cast_ray") => {
-            let app_type_registry = world
-                .resource::<bevy::ecs::reflect::AppTypeRegistry>()
-                .clone();
-            let type_registry = app_type_registry.read();
-            let mut args: std::collections::VecDeque<mlua::Value> = args.into_iter().collect();
-            let typed_arg0: bevy::math::Ray3d = {
-                let type_reg = type_registry
-                    .get_with_short_type_path("Ray3d")
-                    .or_else(|| type_registry.get_with_type_path("Ray3d"));
-                let param_result: Option<Box<dyn bevy::reflect::Reflect>> = type_reg
-                    .and_then(|reg| reg.data::<bevy::prelude::ReflectDefault>())
-                    .map(|rd| rd.default());
-                let used_default = param_result.is_some();
-                let mut param_instance = if let Some(inst) = param_result {
-                    inst
-                } else {
-                    if let Some(arg_val) = args.front() {
-                        if let mlua::Value::Table(t) = arg_val {
-                            if let Some(type_registration) = type_reg {
-                                if let Some(from_reflect_data) =
-                                    type_registration.data::<bevy::reflect::ReflectFromReflect>()
-                                {
-                                    let type_info = type_registration.type_info();
-                                    let dynamic = bevy_lua_ecs::lua_table_to_dynamic(
-                                        lua,
-                                        t,
-                                        type_info,
-                                        &app_type_registry,
-                                    )
-                                    .map_err(|e| {
-                                        mlua::Error::RuntimeError(format!(
-                                            "Failed to build DynamicStruct for '{}': {}",
-                                            "Ray3d", e
-                                        ))
-                                    })?;
-                                    if let Some(reflected) =
-                                        from_reflect_data.from_reflect(&dynamic)
-                                    {
-                                        args.pop_front();
-                                        reflected
-                                    } else {
-                                        return Err (mlua :: Error :: RuntimeError (format ! ("Cannot construct parameter type '{}' - FromReflect conversion failed. Check that all fields are provided." , "Ray3d"))) ;
-                                    }
-                                } else {
-                                    return Err (mlua :: Error :: RuntimeError (format ! ("Cannot construct parameter type '{}' - doesn't implement FromReflect" , "Ray3d"))) ;
-                                }
-                            } else {
-                                return Err (mlua :: Error :: RuntimeError (format ! ("Cannot construct parameter type '{}' - not found in TypeRegistry" , "Ray3d"))) ;
-                            }
-                        } else {
-                            return Err(mlua::Error::RuntimeError(format!(
-                                "Cannot construct parameter type '{}' - expected table argument",
-                                "Ray3d"
-                            )));
-                        }
-                    } else {
-                        return Err (mlua :: Error :: RuntimeError (format ! ("Cannot construct parameter type '{}' - no argument provided and no Default" , "Ray3d"))) ;
-                    }
-                };
-                if used_default {
-                    if let Some(arg_val) = args.pop_front() {
-                        if let mlua::Value::Table(t) = arg_val {
-                            let _ = bevy_lua_ecs::lua_to_reflection(
-                                lua,
-                                &mlua::Value::Table(t),
-                                param_instance.as_partial_reflect_mut(),
-                                &app_type_registry,
-                            );
-                        }
-                    }
-                }
-                param_instance
-                    .downcast_ref::<bevy::math::Ray3d>()
-                    .cloned()
-                    .ok_or_else(|| {
-                        mlua::Error::RuntimeError(format!(
-                            "Failed to downcast parameter to '{}'",
-                            "Ray3d"
-                        ))
-                    })?
-            };
-            let mut state = bevy::ecs::system::SystemState::<
-                bevy::picking::mesh_picking::ray_cast::MeshRayCast,
-            >::new(world);
-            let mut param = state.get_mut(world);
-            let result = param.cast_ray(typed_arg0, &Default::default());
-            bevy_lua_ecs::reflection::result_to_lua_value(lua, &result)
-        }
         ("MeshRayCast", "cast_ray") => {
             let app_type_registry = world
                 .resource::<bevy::ecs::reflect::AppTypeRegistry>()
@@ -6914,10 +6825,10 @@ fn register_asset_cloners(asset_registry: &bevy_lua_ecs::AssetRegistry) {
     bevy_lua_ecs::register_cloner_if_clone::<bevy::animation::AnimationClip>(&mut cloners);
     bevy_lua_ecs::register_cloner_if_clone::<bevy::audio::AudioSource>(&mut cloners);
     bevy_lua_ecs::register_cloner_if_clone::<bevy::gizmos::GizmoAsset>(&mut cloners);
-    bevy_lua_ecs::register_cloner_if_clone::<bevy::gltf::GltfSkin>(&mut cloners);
-    bevy_lua_ecs::register_cloner_if_clone::<bevy::gltf::GltfMesh>(&mut cloners);
     bevy_lua_ecs::register_cloner_if_clone::<bevy::gltf::GltfNode>(&mut cloners);
     bevy_lua_ecs::register_cloner_if_clone::<bevy::gltf::GltfPrimitive>(&mut cloners);
+    bevy_lua_ecs::register_cloner_if_clone::<bevy::gltf::GltfMesh>(&mut cloners);
+    bevy_lua_ecs::register_cloner_if_clone::<bevy::gltf::GltfSkin>(&mut cloners);
     bevy_lua_ecs::register_cloner_if_clone::<bevy::prelude::Image>(&mut cloners);
     bevy_lua_ecs::register_cloner_if_clone::<bevy::prelude::Mesh>(&mut cloners);
     bevy_lua_ecs::register_cloner_if_clone::<bevy::prelude::StandardMaterial>(&mut cloners);
@@ -6978,11 +6889,11 @@ fn register_typed_path_loaders(
         bevy::asset::LoadedFolder,
         bevy::audio::AudioSource,
         bevy::gizmos::GizmoAsset,
-        bevy::gltf::GltfSkin,
-        bevy::gltf::GltfMesh,
-        bevy::gltf::Gltf,
         bevy::gltf::GltfNode,
         bevy::gltf::GltfPrimitive,
+        bevy::gltf::Gltf,
+        bevy::gltf::GltfMesh,
+        bevy::gltf::GltfSkin,
         bevy::prelude::Image,
         bevy::prelude::Mesh,
         bevy::prelude::StandardMaterial,

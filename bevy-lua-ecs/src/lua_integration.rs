@@ -22,6 +22,7 @@ impl LuaScriptContext {
         system_registry: LuaSystemRegistry,
         _builder_registry: crate::resource_builder::ResourceBuilderRegistry,
         script_instance: crate::script_entities::ScriptInstance,
+        script_registry: crate::script_registry::ScriptRegistry,
     ) -> Result<Self, LuaError> {
         let lua = Lua::new();
 
@@ -42,8 +43,9 @@ impl LuaScriptContext {
         let spawn = lua_clone.create_function(move |lua_ctx, components: LuaTable| {
             // Capture current __INSTANCE_ID__ at queue time
             let instance_id: Option<u64> = lua_ctx.globals().get("__INSTANCE_ID__").ok();
+            let script_name: Option<String> = lua_ctx.globals().get("__SCRIPT_NAME__").ok();
 
-            debug!("[SPAWN] Queuing entity with instance_id: {:?}", instance_id);
+            debug!("[SPAWN] Queuing entity with instance_id: {:?}, script: {:?}", instance_id, script_name);
 
             let mut all_components = Vec::new();
 
@@ -417,6 +419,7 @@ impl LuaScriptContext {
         let lua_for_async = lua_clone.clone();
         let cache_for_async = script_cache.clone();
         let script_instance_for_async = script_instance.clone();
+        let script_registry_for_async = script_registry.clone();
         let require_async = lua_clone.create_function(move |lua_ctx, (path, callback, options): (String, LuaFunction, Option<LuaTable>)| {
             // Get reload option - must check for Nil explicitly because Lua nil converts to false
             let should_reload = if let Some(ref opts) = options {
@@ -467,17 +470,12 @@ impl LuaScriptContext {
             // Each (path, parent) combination gets its own instance
             let current_parent_id: u64 = lua_ctx.globals().get("__INSTANCE_ID__").unwrap_or(0);
             
-            let module_instance_id = if let Some(existing_id) = cache_for_async.get_module_instance(&resolved_path, current_parent_id) {
-                // Reuse existing instance for this (path, parent) combination
-                debug!("require_async('{}') reusing instance {} for parent {}", resolved_path, existing_id, current_parent_id);
-                existing_id
-            } else {
-                // First time this parent is loading this module, create new instance
-                let new_id = script_instance_for_async.start(resolved_path.clone());
-                cache_for_async.set_module_instance(resolved_path.clone(), current_parent_id, new_id);
-                debug!("require_async('{}') created NEW instance {} for parent {}", resolved_path, new_id, current_parent_id);
-                new_id
-            };
+            // Always create a new instance for require_async
+            // This avoids issues with stale cached instance IDs
+            let new_id = script_instance_for_async.start(resolved_path.clone());
+            cache_for_async.set_module_instance(resolved_path.clone(), current_parent_id, new_id);
+            debug!("require_async('{}') created instance {} for parent {}", resolved_path, new_id, current_parent_id);
+            let module_instance_id = new_id;
             
             // Always update parent-child relationship when require_async is called
             // This ensures the module instance is linked to the current parent
@@ -572,12 +570,22 @@ impl LuaScriptContext {
                 }
             };
             
-            // Save current __INSTANCE_ID__ to restore later
-            let previous_instance_id: Option<u64> = lua_ctx.globals().get("__INSTANCE_ID__").ok();
+            // Register the script instance with ScriptRegistry
+            // This ensures mark_stopped() can find this instance later
+            script_registry_for_async.register_script(
+                std::path::PathBuf::from(&resolved_path),
+                module_instance_id,
+                source.clone(),
+            );
             
-            // Set __INSTANCE_ID__ to module's instance BEFORE executing module
-            // This ensures any require_async calls within the module use correct parent
+            // Save current globals to restore later
+            let previous_instance_id: Option<u64> = lua_ctx.globals().get("__INSTANCE_ID__").ok();
+            let previous_script_name: Option<String> = lua_ctx.globals().get("__SCRIPT_NAME__").ok();
+            
+            // Set module context BEFORE executing module
+            // This ensures spawn() uses the correct instance_id and script name
             lua_ctx.globals().set("__INSTANCE_ID__", module_instance_id)?;
+            lua_ctx.globals().set("__SCRIPT_NAME__", resolved_path.clone())?;
             debug!("Executing module '{}' with __INSTANCE_ID__ = {}", resolved_path, module_instance_id);
             
             // Execute module
@@ -601,6 +609,8 @@ impl LuaScriptContext {
             
             // __INSTANCE_ID__ is already set to module's instance from above
             // Call the callback with the loaded module
+            let current_id: u64 = lua_ctx.globals().get("__INSTANCE_ID__").unwrap_or(0);
+            debug!("[REQUIRE_ASYNC] About to call callback with __INSTANCE_ID__ = {} for module {}", current_id, resolved_path);
             let callback_result = callback.call::<()>(result);
             
             // Restore previous __INSTANCE_ID__
@@ -608,6 +618,13 @@ impl LuaScriptContext {
                 lua_ctx.globals().set("__INSTANCE_ID__", prev_id)?;
             } else {
                 lua_ctx.globals().set("__INSTANCE_ID__", LuaNil)?;
+            }
+            
+            // Restore previous __SCRIPT_NAME__
+            if let Some(prev_name) = previous_script_name {
+                lua_ctx.globals().set("__SCRIPT_NAME__", prev_name)?;
+            } else {
+                lua_ctx.globals().set("__SCRIPT_NAME__", LuaNil)?;
             }
             
             callback_result?;
@@ -1073,6 +1090,7 @@ fn setup_lua_context(
     mut component_registry: ResMut<crate::components::ComponentRegistry>,
     type_registry: Res<AppTypeRegistry>,
     script_instance: Res<crate::script_entities::ScriptInstance>,
+    script_registry: Res<crate::script_registry::ScriptRegistry>,
 ) {
     let system_registry = LuaSystemRegistry::default();
 
@@ -1098,6 +1116,7 @@ fn setup_lua_context(
         system_registry.clone(),
         builder_registry.clone(),
         script_instance.clone(),
+        script_registry.clone(),
     ) {
         Ok(ctx) => {
             // Add asset loading to Lua

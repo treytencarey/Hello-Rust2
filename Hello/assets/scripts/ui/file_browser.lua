@@ -79,9 +79,12 @@ function FileBrowser.new()
     self.dragging_item = nil
     self.drag_preview = nil
     
-    -- Register Update system for deferred operations (needs world access)
+    -- Register Update system for all event handling (needs world access)
     local browser = self  -- Capture self for closure
     register_system("Update", function(world)
+        -- Main update for event handling
+        browser:update(world)
+        -- Deferred operations
         browser:process_pending_rename(world)
         browser:process_pending_create_file(world)
         browser:process_pending_create_folder(world)
@@ -92,13 +95,17 @@ function FileBrowser.new()
 end
 
 --- Show the file browser
-function FileBrowser:show()
-    if self.is_visible then return end
+--- @param left_offset Optional left offset in pixels (for sidebar integration)
+--- @return panel_entity The panel container entity ID
+function FileBrowser:show(left_offset)
+    if self.is_visible then return self.panel_entity end
     
+    self.left_offset = left_offset or 0
     self:spawn_panel()
     self:load_folder("")  -- Load root
     
     self.is_visible = true
+    return self.panel_entity
 end
 
 --- Hide the file browser
@@ -111,18 +118,23 @@ end
 
 --- Spawn the main panel
 function FileBrowser:spawn_panel()
-    -- Main panel container (fixed left)
-    self.panel_entity = spawn({
-        Node = {
-            position_type = "Absolute",
-            left = {Px = 0},
-            top = {Px = 0},
-            bottom = {Px = 0},
-            width = {Px = PANEL_WIDTH},
-            flex_direction = "Column",
-        },
+    -- Main panel container (always absolute, left_offset determines position)
+    local left_val = self.left_offset or 0
+    local node_config = {
+        position_type = "Absolute",
+        left = {Px = left_val},
+        top = {Px = 0},
+        bottom = {Px = 0},
+        width = {Px = PANEL_WIDTH},
+        flex_direction = "Column",
+    }
+    
+    local panel = spawn({
+        Node = node_config,
         BackgroundColor = { color = self.colors.bg },
         GlobalZIndex = { value = 100 },
+        -- Component to identify this as a sidebar panel (for escape key handling)
+        SidebarPanel = { script = "scripts/ui/file_browser.lua" },
     })
         :observe("Pointer<Over>", function(entity, event)
             self.panel_hovered = true
@@ -146,7 +158,8 @@ function FileBrowser:spawn_panel()
             -- Reset flag at end of bubbling chain (panel is last)
             self.drag_folder_handled = false
         end)
-        :id()
+    
+    self.panel_entity = panel:id()
     table.insert(self.entities, self.panel_entity)
     
     -- Header (child of panel)
