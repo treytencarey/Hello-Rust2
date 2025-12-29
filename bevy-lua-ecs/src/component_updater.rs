@@ -11,6 +11,8 @@ use std::sync::Arc;
 pub fn process_component_updates(
     world: &mut World,
 ) {
+    use std::time::Instant;
+    
     // Collect requests from the queue
     let requests = {
         let queue = world.resource::<ComponentUpdateQueue>();
@@ -20,6 +22,9 @@ pub fn process_component_updates(
     if requests.is_empty() {
         return;
     }
+    
+    let batch_start = Instant::now();
+    let request_count = requests.len();
     
     // Get resources we need BEFORE any mutable entity access
     let type_registry = world.resource::<AppTypeRegistry>().clone();
@@ -133,6 +138,11 @@ pub fn process_component_updates(
             let lua_ctx = world.resource::<LuaScriptContext>();
             let _ = lua_ctx.lua.remove_registry_value(request.data);
         }
+    }
+    
+    let batch_time = batch_start.elapsed();
+    if batch_time.as_millis() >= 1 {
+        debug!("[COMPONENT_UPDATE] Processed {} updates in {:?}", request_count, batch_time);
     }
 }
 

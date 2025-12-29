@@ -28,6 +28,9 @@ use hello::plugins::HelloTiledPlugin;
 #[cfg(feature = "ufbx")]
 use hello::plugins::HelloUfbxPlugin;
 
+#[cfg(feature = "bevy_mod_xr")]
+use hello::plugins::VrInputPlugin;
+
 #[derive(Parser)]
 #[command(name = "hello", about = "Bevy + Lua game framework")]
 struct Args {
@@ -58,6 +61,10 @@ struct Args {
     /// Server port
     #[arg(long, default_value = "5000")]
     port: u16,
+    
+    /// Enable VR mode (requires bevy_mod_xr feature)
+    #[arg(long)]
+    vr: bool,
 }
 
 /// Demo definitions: (name, script_path, description, required_feature)
@@ -114,6 +121,34 @@ fn main() {
     
     // Add Bevy default plugins, configure AssetPlugin to allow absolute paths
     // (FBX files often embed absolute texture paths from export environment)
+    // When VR mode is enabled, use XR plugins instead of standard DefaultPlugins
+    #[cfg(feature = "bevy_mod_xr")]
+    if args.vr {
+        app.add_plugins(bevy_mod_openxr::add_xr_plugins(
+            DefaultPlugins
+                .set(AssetPlugin {
+                    mode: AssetMode::Unprocessed,
+                    meta_check: bevy::asset::AssetMetaCheck::Never,
+                    unapproved_path_mode: bevy::asset::UnapprovedPathMode::Allow,
+                    ..default()
+                })
+                .set(bevy::pbr::PbrPlugin {
+                    prepass_enabled: false,
+                    ..default()
+                })
+        ));
+        app.add_plugins(bevy_mod_xr::hand_debug_gizmos::HandGizmosPlugin);
+        app.add_plugins(VrInputPlugin);
+    } else {
+        app.add_plugins(DefaultPlugins.set(AssetPlugin {
+            mode: AssetMode::Unprocessed,
+            meta_check: bevy::asset::AssetMetaCheck::Never,
+            unapproved_path_mode: bevy::asset::UnapprovedPathMode::Allow,
+            ..default()
+        }));
+    }
+    
+    #[cfg(not(feature = "bevy_mod_xr"))]
     app.add_plugins(DefaultPlugins.set(AssetPlugin {
             mode: AssetMode::Unprocessed,
             meta_check: bevy::asset::AssetMetaCheck::Never,

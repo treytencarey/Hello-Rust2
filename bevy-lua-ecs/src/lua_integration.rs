@@ -984,6 +984,9 @@ impl Plugin for LuaSpawnPlugin {
         app.init_resource::<crate::script_entities::ScriptInstance>();
         app.init_resource::<crate::script_registry::ScriptRegistry>();
         app.init_resource::<crate::lua_observers::LuaObserverRegistry>();
+        app.init_resource::<crate::query_cache::LuaQueryCache>();
+        app.init_resource::<crate::lua_frame_budget::LuaFrameBudget>();
+        app.init_resource::<crate::lua_frame_budget::LuaSystemProgress>();
 
         // Add file watcher plugin for auto-reload
         app.add_plugins(crate::lua_file_watcher::LuaFileWatcherPlugin);

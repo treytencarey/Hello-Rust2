@@ -96,16 +96,20 @@ end
 
 --- Hide the sidebar and all panels
 --- Note: This just despawns UI. To stop open panel scripts, use hide_with_world()
-function SidebarMenu:hide()
+--- Hide the sidebar
+--- @param skip_despawn boolean If true, only clear state without despawning (caller will despawn parent)
+function SidebarMenu:hide(skip_despawn)
     if not self.is_visible then return end
     
     -- Clear open panels list (scripts should have been stopped already via hide_with_world)
     self.open_panels = {}
     
-    -- Despawn our UI entities
-    for _, entity_id in ipairs(self.entities) do
-        despawn(entity_id)
+    -- Only despawn if not skipping (when parent will handle despawn via cascade)
+    if not skip_despawn and self.icon_bar_entity then
+        despawn(self.icon_bar_entity)
     end
+    
+    -- Clear tracking lists (entities are already despawned by cascade)
     self.entities = {}
     self.icon_bar_entity = nil
     
@@ -114,27 +118,27 @@ function SidebarMenu:hide()
         btn.icon_entity = nil
     end
     
+    -- Clear parent entity to prevent stale reference on reopen
+    self.parent_entity = nil
+    
     self.is_visible = false
 end
 
 --- Hide with world access - stops all open panel scripts first
-function SidebarMenu:hide_with_world(world)
+--- @param skip_despawn boolean If true, skip despawning (caller will despawn parent which cascades)
+function SidebarMenu:hide_with_world(world, skip_despawn)
     if not self.is_visible then return end
     
-    -- Stop all open panel scripts first
-    for i = #self.open_panels, 1, -1 do
-        local panel = self.open_panels[i]
-        if panel.entity_id then
-            -- Check if entity still exists before stopping
-            local entity = world:get_entity(panel.entity_id)
-            if entity then
-                world:stop_owning_script(panel.entity_id)
-            end
-        end
+    -- Always stop scripts to prevent their Update systems from running after entities are gone
+    -- This is critical - if we don't stop them, they'll try to access despawned entities
+    local panels = world:query({"SidebarPanel"})
+    for _, panel_entity in ipairs(panels) do
+        local panel_id = panel_entity:id()
+        world:stop_owning_script(panel_id)
     end
     
-    -- Now hide the UI
-    self:hide()
+    -- Now hide the UI (skip_despawn controls if we despawn ourselves)
+    self:hide(skip_despawn)
 end
 
 --- Toggle visibility (deferred - triggers in update loop)
@@ -235,7 +239,7 @@ function SidebarMenu:update(world)
                     if container then
                         menu:update_button_state(idx, true)
                     end
-                end)
+                end, { network = true, reload = true })
             end
         end
     end
@@ -253,10 +257,10 @@ function SidebarMenu:update(world)
                 table.insert(self.buttons, {
                     entity_id = id,
                     icon = data.icon,
-                    title = data.title or data.icon_text or "?",  -- Support both title and legacy icon_text
+                    title = data.title or data.icon_text or "?",
                     script = data.script,
-                    icon_entity = nil,  -- Will be set when rendered
-                    is_active = false,  -- Track active state
+                    icon_entity = nil,
+                    is_active = false,
                 })
                 -- Render the new button
                 self:render_button(#self.buttons)
@@ -285,7 +289,6 @@ function SidebarMenu:update(world)
     end
     
     -- Sync button visual states based on which SidebarPanel entities exist (ECS-based)
-    -- This is robust against hot-reloads since it queries ECS directly
     local open_panels = world:query({"SidebarPanel"})
     local open_scripts = {}
     for _, panel_entity in ipairs(open_panels) do

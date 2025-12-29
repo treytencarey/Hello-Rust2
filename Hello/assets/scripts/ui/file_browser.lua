@@ -102,6 +102,7 @@ function FileBrowser:show(left_offset, parent_entity)
     if self.is_visible then return self.panel_entity end
     
     self.left_offset = left_offset or 0
+    -- Validate parent entity still exists (might be stale after VR panel reopen)
     self.parent_entity = parent_entity
     self:spawn_panel()
     self:load_folder("")  -- Load root
@@ -162,8 +163,15 @@ function FileBrowser:spawn_panel()
         end)
     
     -- Apply parent if provided (for VR integration)
+    -- Use pcall to handle cases where parent entity was despawned
     if self.parent_entity then
-        panel = panel:with_parent(self.parent_entity)
+        local success, err = pcall(function()
+            panel = panel:with_parent(self.parent_entity)
+        end)
+        if not success then
+            print("[FILE_BROWSER] Warning: parent entity " .. tostring(self.parent_entity) .. " no longer exists, spawning without parent")
+            self.parent_entity = nil
+        end
     end
     
     self.panel_entity = panel:id()
@@ -1036,15 +1044,19 @@ end
 
 --- Destroy all UI
 function FileBrowser:destroy_all()
-    self:clear_tree()
+    -- Close dialogs first (they may have entities not parented to panel)
     self:close_context_menu()
     self:close_rename_dialog()
     
-    for _, entity in ipairs(self.entities) do
-        despawn(entity)
+    -- Only despawn the root panel - Bevy will automatically cascade to all children
+    -- This prevents double-despawn warnings when entities are in tracking lists
+    if self.panel_entity then
+        despawn(self.panel_entity)
     end
     
+    -- Clear tracking lists (entities are already despawned by cascade)
     self.entities = {}
+    self.row_entities = {}
     self.panel_entity = nil
     self.scroll_container = nil
 end

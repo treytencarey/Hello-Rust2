@@ -41,7 +41,13 @@ impl LuaSystemRegistry {
     }
 }
 
-/// System that runs registered Lua update systems with full ECS query API
+/// System that runs registered Lua update systems with time-sliced execution
+/// 
+/// Systems are executed in round-robin order. If the frame budget is exceeded,
+/// remaining systems are deferred to run first on the next frame. This ensures
+/// fairness and prevents any single system from starving others.
+///
+/// The time budget is controlled by the `LuaFrameBudget` resource (default: 4ms).
 pub fn run_lua_systems(world: &mut World) {
     // Get resources we need
     let lua_ctx = world.resource::<LuaScriptContext>().clone();
@@ -52,9 +58,38 @@ pub fn run_lua_systems(world: &mut World) {
     let serde_registry = world
         .resource::<crate::serde_components::SerdeComponentRegistry>()
         .clone();
-    let builder_registry = world
+    let _builder_registry = world
         .resource::<crate::resource_builder::ResourceBuilderRegistry>()
         .clone();
+    let script_registry = world
+        .resource::<crate::script_registry::ScriptRegistry>()
+        .clone();
+    let despawn_queue = world
+        .resource::<crate::despawn_queue::DespawnQueue>()
+        .clone();
+    let pending_messages = world
+        .get_resource::<crate::event_sender::PendingLuaMessages>()
+        .cloned()
+        .unwrap_or_default();
+    
+    // Get frame budget and progress tracker
+    let frame_budget = world
+        .get_resource::<crate::lua_frame_budget::LuaFrameBudget>()
+        .cloned()
+        .unwrap_or_default();
+    let progress = world
+        .get_resource::<crate::lua_frame_budget::LuaSystemProgress>()
+        .cloned()
+        .unwrap_or_default();
+    
+    // Get query cache and current frame for query result caching
+    let query_cache = world.get_resource::<crate::query_cache::LuaQueryCache>().cloned();
+    let current_frame = world.get_resource::<bevy::diagnostic::FrameCount>()
+        .map(|f| f.0 as u64)
+        .unwrap_or(0);
+    
+    // Signal new frame to progress tracker (auto-resets per-frame state)
+    progress.new_frame(current_frame);
 
     // Get change detection ticks
     let this_run = world.read_change_tick().get();
@@ -63,22 +98,76 @@ pub fn run_lua_systems(world: &mut World) {
     *last_run = this_run;
     drop(last_run);
 
-    // Run each registered Lua system
+    // Get the list of systems
     let systems = registry.update_systems.lock().unwrap().clone();
-    for (_instance_id, system_key) in systems.iter() {
-        if let Err(e) = run_single_lua_system(
+    let total_systems = systems.len();
+    
+    if total_systems == 0 {
+        return;
+    }
+    
+    // Start from where we left off last frame (for fairness)
+    let start_index = progress.next_index();
+    
+    // Track how many systems we've run this frame
+    let mut systems_run = 0;
+    
+    // Run systems in round-robin order
+    for i in 0..total_systems {
+        let actual_index = (start_index + i) % total_systems;
+        let (instance_id, system_key) = &systems[actual_index];
+        
+        // Time this system
+        let timer = crate::lua_frame_budget::SystemTimer::start();
+        
+        if let Err(e) = run_single_lua_system_fast(
             &lua_ctx.lua,
             system_key,
             world,
-            &component_registry,
+            component_registry,
             &update_queue,
             &spawn_queue,
             &serde_registry,
-            &builder_registry,
+            &script_registry,
+            &registry,
+            &despawn_queue,
+            &pending_messages,
             last_run_tick,
             this_run,
+            query_cache.as_ref(),
+            current_frame,
         ) {
             error!("Error running Lua system: {}", e);
+        }
+        
+        // Record elapsed time and check budget
+        let elapsed = timer.elapsed();
+        
+        // Log slow systems (>1ms)
+        if elapsed.as_millis() >= 1 {
+            let script_path = script_registry
+                .get_instance_path(*instance_id)
+                .map(|p| p.display().to_string())
+                .unwrap_or_else(|| "unknown".to_string());
+            debug!(
+                "[LUA_SYSTEM] instance={} script={} took {:?}",
+                instance_id, script_path, elapsed
+            );
+        }
+        
+        systems_run += 1;
+        
+        // Advance progress tracker
+        progress.advance(total_systems);
+        
+        // Check if we should continue or defer remaining systems
+        if !progress.record_time(elapsed, &frame_budget) {
+            // Budget exceeded - remaining systems deferred to next frame
+            debug!(
+                "[LUA_BUDGET] Budget exceeded after {} of {} systems ({:?} total)",
+                systems_run, total_systems, progress.time_this_frame()
+            );
+            break;
         }
     }
 }
@@ -94,6 +183,8 @@ fn run_single_lua_system(
     _builder_registry: &crate::resource_builder::ResourceBuilderRegistry,
     last_run: u32,
     this_run: u32,
+    query_cache: Option<&crate::query_cache::LuaQueryCache>,
+    current_frame: u64,
 ) -> LuaResult<()> {
     // Get resource registry
     let resource_registry = world.resource::<crate::resource_lua_trait::LuaResourceRegistry>();
@@ -150,6 +241,8 @@ fn run_single_lua_system(
                         update_queue,
                         last_run,
                         this_run,
+                        query_cache,
+                        current_frame,
                     )?;
 
                     let results_table = lua_ctx.create_table()?;
@@ -974,4 +1067,90 @@ fn run_single_lua_system(
 
         Ok(())
     })
+}
+
+/// Optimized version of run_single_lua_system using LuaWorldContext userdata
+/// This eliminates the overhead of creating 10+ closures per system call
+/// by using statically-defined userdata methods instead
+pub fn run_single_lua_system_fast<'w>(
+    lua: &Lua,
+    system_key: &LuaRegistryKey,
+    world: &'w World,
+    component_registry: &'w ComponentRegistry,
+    update_queue: &ComponentUpdateQueue,
+    spawn_queue: &SpawnQueue,
+    serde_registry: &crate::serde_components::SerdeComponentRegistry,
+    script_registry: &crate::script_registry::ScriptRegistry,
+    system_registry: &LuaSystemRegistry,
+    despawn_queue: &crate::despawn_queue::DespawnQueue,
+    pending_messages: &crate::event_sender::PendingLuaMessages,
+    last_run: u32,
+    this_run: u32,
+    query_cache: Option<&crate::query_cache::LuaQueryCache>,
+    current_frame: u64,
+) -> LuaResult<()> {
+    use std::time::Instant;
+    
+    let t0 = Instant::now();
+    
+    // Get the Lua function
+    let func: LuaFunction = lua.registry_value(system_key)?;
+    
+    let t1 = Instant::now();
+
+    // Use scope to ensure userdata is cleaned up after the call
+    let result = lua.scope(|scope| {
+        let t2 = Instant::now();
+        
+        // Create LuaWorldContext with all methods defined statically
+        let world_ctx = crate::lua_world_context::LuaWorldContext::new(
+            world,
+            component_registry,
+            update_queue.clone(),
+            spawn_queue.clone(),
+            serde_registry.clone(),
+            script_registry.clone(),
+            system_registry.clone(),
+            despawn_queue.clone(),
+            pending_messages.clone(),
+            last_run,
+            this_run,
+            query_cache.cloned(),
+            current_frame,
+        );
+        
+        let t3 = Instant::now();
+
+        // Create scoped userdata that won't escape this scope
+        let world_ud = scope.create_userdata(world_ctx)?;
+        
+        let t4 = Instant::now();
+
+        // Call the Lua system function with the userdata
+        func.call::<()>(world_ud)?;
+        
+        let t5 = Instant::now();
+        
+        // Log timing breakdown for slow calls (>0.5ms)
+        let total = t5.duration_since(t2);
+        if total.as_micros() >= 500 {
+            let ctx_create = t3.duration_since(t2).as_micros();
+            let ud_create = t4.duration_since(t3).as_micros();
+            let lua_call = t5.duration_since(t4).as_micros();
+            debug!(
+                "[FAST_TIMING] ctx={:>4}us ud={:>4}us call={:>4}us",
+                ctx_create, ud_create, lua_call
+            );
+        }
+
+        Ok(())
+    });
+    
+    // Log function lookup time if significant
+    let fn_lookup = t1.duration_since(t0).as_micros();
+    if fn_lookup >= 100 {
+        debug!("[FAST_TIMING] fn_lookup={}us", fn_lookup);
+    }
+    
+    result
 }

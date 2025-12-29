@@ -3,6 +3,7 @@ use crate::components::ComponentRegistry;
 use bevy::ecs::reflect::ReflectComponent;
 use bevy::prelude::*;
 use mlua::prelude::*;
+use rayon::prelude::*;
 use std::collections::HashMap;
 use std::sync::Arc;
 
@@ -335,6 +336,7 @@ fn json_to_lua_impl(
 }
 
 /// Execute a query and collect entity snapshots
+/// Uses per-frame caching with full component data for performance
 pub fn execute_query(
     lua: &Lua,
     world: &World,
@@ -343,127 +345,324 @@ pub fn execute_query(
     update_queue: &ComponentUpdateQueue,
     last_run: u32,
     this_run: u32,
+    query_cache: Option<&crate::query_cache::LuaQueryCache>,
+    current_frame: u64,
 ) -> LuaResult<Vec<LuaEntitySnapshot>> {
-    let mut results = Vec::new();
     let type_registry = component_registry.type_registry().read();
-
-    // Iterate all entities using world entities iterator
-    // In Bevy 0.17, we can use world.iter_entities() but it's deprecated
-    // The recommended way is to use a system with Query, but since we're in a Lua context
-    // we'll use the entities iterator
-    for entity_ref in world.iter_entities() {
-        let mut matches = true;
-        let mut component_data = HashMap::new();
-        let mut lua_components = HashMap::new();
-
-        // Check with() filters and collect component data
-        for component_name in &query_builder.with_components {
-            // 1. Check if it's a non-reflected component (like Lightyear components)
-            if let Some(type_id) = component_registry.get_non_reflected_type_id(component_name) {
-                // Check if entity has this component via world.components()
-                if let Some(component_id) = world.components().get_id(*type_id) {
-                    if entity_ref.contains_id(component_id) {
-                        // Component exists on this entity, add placeholder data
-                        component_data.insert(component_name.clone(), "{}".to_string());
-                        continue;
+    
+    // For queries without change detection, check cache first (full component data)
+    if query_builder.changed_components.is_empty() {
+        if let Some(cache) = query_cache {
+            if let Some(cached_results) = cache.get_full(&query_builder.with_components, current_frame) {
+                // Fast path: directly use cached registry keys
+                // No serialization, no reflection - just clone the Arc<RegistryKey>
+                debug!(
+                    "[QUERY_CACHE] HIT for {:?} - returning {} cached entities",
+                    query_builder.with_components, cached_results.len()
+                );
+                let mut results = Vec::with_capacity(cached_results.len());
+                for cached in cached_results {
+                    let entity = Entity::from_bits(cached.entity_bits);
+                    // Verify entity still exists (could have been despawned)
+                    if world.get_entity(entity).is_ok() {
+                        results.push(LuaEntitySnapshot {
+                            entity,
+                            component_data: HashMap::new(), // Not needed, we have lua_components
+                            lua_components: cached.component_keys.clone(),
+                            update_queue: update_queue.clone(),
+                        });
                     }
                 }
-                // Component not found on entity
-                matches = false;
-                break;
+                return Ok(results);
             }
-
-            // 2. Check if it's a known Rust component (with Reflect)
-            if let Some(type_path) = component_registry.get_type_path(component_name) {
-                if let Some(registration) = type_registry.get_with_type_path(&type_path) {
-                    if let Some(reflect_component) = registration.data::<ReflectComponent>() {
-                        if let Some(component) =
-                            reflect_component.reflect(
-                                Into::<bevy::ecs::world::FilteredEntityRef>::into(&entity_ref),
-                            )
-                        {
-                            // Use reflection_to_lua to convert directly with proper field names
-                            match reflection_to_lua(lua, component) {
-                                Ok(lua_value) => {
-                                    // Store as registry key (same as Lua components)
-                                    if let Ok(registry_key) = lua.create_registry_value(lua_value) {
-                                        lua_components.insert(component_name.clone(), Arc::new(registry_key));
-                                        continue;
+        }
+    }
+    
+    // Cache miss - need to do full query
+    debug!(
+        "[QUERY_CACHE] MISS for {:?} frame={} (changed_components: {:?})",
+        query_builder.with_components, current_frame, query_builder.changed_components
+    );
+    
+    // Determine if this query is for Lua-only components using CACHED lookups
+    // This avoids the expensive type registry iteration (was 300-500us per query!)
+    let t_check = std::time::Instant::now();
+    
+    let has_rust_components = if let Some(cache) = query_cache {
+        // Try to use cached component type info
+        let (cached_result, needs_lookup) = cache.check_rust_components(&query_builder.with_components);
+        
+        if let Some(has_rust) = cached_result {
+            // All components were cached - fast path!
+            has_rust
+        } else {
+            // Some components need registry lookup, then cache the result
+            let mut has_rust = false;
+            for name in &needs_lookup {
+                let is_rust = component_registry.get_type_path(name).is_some() ||
+                    component_registry.get_non_reflected_type_id(name).is_some();
+                cache.cache_component_type(name, is_rust);
+                if is_rust {
+                    has_rust = true;
+                }
+            }
+            // Also check cached ones that returned false
+            for name in &query_builder.with_components {
+                if !needs_lookup.contains(name) {
+                    if cache.is_rust_component(name).unwrap_or(false) {
+                        has_rust = true;
+                    }
+                }
+            }
+            has_rust
+        }
+    } else {
+        // No cache available - do full lookup (fallback)
+        query_builder.with_components.iter().any(|name| {
+            component_registry.get_type_path(name).is_some() ||
+            component_registry.get_non_reflected_type_id(name).is_some()
+        })
+    };
+    let _check_time = t_check.elapsed().as_micros();
+    
+    // Log which path we're taking (debug only - logging adds ~150us overhead)
+    debug!(
+        "[QUERY_PATH] {:?} has_rust={} changed_empty={} check_time={}us",
+        query_builder.with_components, has_rust_components, query_builder.changed_components.is_empty(), _check_time
+    );
+    
+    // FAST PATH: For pure Lua component queries (no Rust components, no change detection)
+    // This is a direct iteration without parallel overhead - much faster for small result sets
+    if !has_rust_components && query_builder.changed_components.is_empty() {
+        let component_id = world.components().component_id::<LuaCustomComponents>();
+        if let Some(comp_id) = component_id {
+            use std::time::Instant;
+            let t0 = Instant::now();
+            
+            let mut results = Vec::new();
+            let mut cache_entries = Vec::new();
+            let mut entities_checked = 0u32;
+            let mut entities_matched = 0u32;
+            
+            // Direct archetype traversal - no intermediate Vec, no parallel overhead
+            for archetype in world.archetypes().iter() {
+                if !archetype.contains(comp_id) {
+                    continue;
+                }
+                
+                for arch_entity in archetype.entities() {
+                    entities_checked += 1;
+                    let entity = arch_entity.id();
+                    if let Ok(entity_ref) = world.get_entity(entity) {
+                        if let Some(custom_components) = entity_ref.get::<LuaCustomComponents>() {
+                            // Check if entity has ALL required Lua components
+                            let has_all = query_builder.with_components.iter()
+                                .all(|name| custom_components.components.contains_key(name));
+                            
+                            if has_all {
+                                entities_matched += 1;
+                                // Build component map directly - no intermediate allocations
+                                let mut lua_components = HashMap::new();
+                                for name in &query_builder.with_components {
+                                    if let Some(key) = custom_components.components.get(name) {
+                                        lua_components.insert(name.clone(), key.clone());
                                     }
                                 }
-                                Err(_) => {
-                                    // Fallback to JSON if reflection_to_lua fails
-                                    use bevy::reflect::serde::TypedReflectSerializer;
-                                    let serializer =
-                                        TypedReflectSerializer::new(component.as_reflect(), &type_registry);
-                                    if let Ok(json_value) = serde_json::to_value(serializer) {
-                                        if let Ok(json_string) = serde_json::to_string(&json_value) {
-                                            component_data.insert(component_name.clone(), json_string);
-                                            continue;
-                                        }
-                                    }
-                                    // Final fallback to Debug
-                                    component_data
-                                        .insert(component_name.clone(), format!("{:?}", component));
-                                    continue;
-                                }
+                                
+                                // Build cache entry
+                                cache_entries.push(crate::query_cache::CachedEntityResult {
+                                    entity_bits: entity.to_bits(),
+                                    component_keys: lua_components.clone(),
+                                });
+                                
+                                results.push(LuaEntitySnapshot {
+                                    entity,
+                                    component_data: HashMap::new(),
+                                    lua_components,
+                                    update_queue: update_queue.clone(),
+                                });
                             }
                         }
                     }
                 }
-                // If known type but not found on entity -> mismatch
-                matches = false;
-                break;
             }
-
-            // 3. Check if it's a generic Lua component
-            if let Some(custom_components) = entity_ref.get::<LuaCustomComponents>() {
-                if let Some(key) = custom_components.components.get(component_name) {
-                    // Found it!
-                    lua_components.insert(component_name.clone(), key.clone());
-                    continue;
-                }
+            
+            let _elapsed = t0.elapsed().as_micros();
+            // Debug log for fast path stats (disabled in release for performance)
+            debug!(
+                "[QUERY_FAST_PATH] {:?} checked={} matched={} time={}us",
+                query_builder.with_components, entities_checked, entities_matched, _elapsed
+            );
+            
+            // Cache results for later in this frame
+            if let Some(cache) = query_cache {
+                cache.insert_full(&query_builder.with_components, cache_entries, current_frame);
             }
-
-            // Not found anywhere
-            matches = false;
-            break;
+            
+            return Ok(results);
         }
-
-        // Check changed() filters
-        if matches {
-            for component_name in &query_builder.changed_components {
-                // Only Rust components support change detection efficiently
+    }
+    
+    // SLOW PATH: Mixed Rust/Lua queries or queries with change detection
+    // Still uses parallel filtering for potentially large result sets
+    
+    // Collect entities to a Vec for parallel iteration (mixed Rust/Lua queries)
+    let all_entities: Vec<_> = world.iter_entities().collect();
+    
+    // Phase 1: Parallel filter - find matching entities (no Lua operations)
+    // Returns entity ID + which components are Lua vs Rust
+    let matching_entities: Vec<(Entity, Vec<String>, Vec<String>)> = all_entities
+        .par_iter()
+        .filter_map(|entity_ref| {
+            let mut lua_component_names = Vec::new();
+            let mut rust_component_names = Vec::new();
+            
+            // Check each component in the filter
+            for component_name in &query_builder.with_components {
+                // 1. Check non-reflected component
+                if let Some(type_id) = component_registry.get_non_reflected_type_id(component_name) {
+                    if let Some(component_id) = world.components().get_id(*type_id) {
+                        if entity_ref.contains_id(component_id) {
+                            rust_component_names.push(component_name.clone());
+                            continue;
+                        }
+                    }
+                    return None; // Component not found
+                }
+                
+                // 2. Check reflected Rust component
                 if let Some(type_path) = component_registry.get_type_path(component_name) {
                     if let Some(registration) = type_registry.get_with_type_path(&type_path) {
-                        if let Some(_reflect_component) = registration.data::<ReflectComponent>() {
+                        if let Some(reflect_component) = registration.data::<ReflectComponent>() {
+                            if reflect_component.reflect(
+                                Into::<bevy::ecs::world::FilteredEntityRef>::into(entity_ref),
+                            ).is_some() {
+                                rust_component_names.push(component_name.clone());
+                                continue;
+                            }
+                        }
+                    }
+                    return None; // Known Rust type but not on entity
+                }
+                
+                // 3. Check Lua custom component
+                if let Some(custom_components) = entity_ref.get::<LuaCustomComponents>() {
+                    if custom_components.components.contains_key(component_name) {
+                        lua_component_names.push(component_name.clone());
+                        continue;
+                    }
+                }
+                
+                return None; // Not found anywhere
+            }
+            
+            // Check changed() filters
+            for component_name in &query_builder.changed_components {
+                if let Some(type_path) = component_registry.get_type_path(component_name) {
+                    if let Some(registration) = type_registry.get_with_type_path(&type_path) {
+                        if registration.data::<ReflectComponent>().is_some() {
                             let component_id = world.components().get_id(registration.type_id());
                             if let Some(comp_id) = component_id {
                                 if let Some(ticks) = entity_ref.get_change_ticks_by_id(comp_id) {
                                     use bevy::ecs::component::Tick;
                                     if !ticks.is_changed(Tick::new(last_run), Tick::new(this_run)) {
-                                        matches = false;
-                                        break;
+                                        return None; // Not changed
                                     }
                                 }
                             }
                         }
                     }
                 }
-                // TODO: Change detection for Lua components?
-                // For now, we assume they don't change or we can't detect it easily without a wrapper.
+            }
+            
+            Some((entity_ref.id(), lua_component_names, rust_component_names))
+        })
+        .collect();
+    
+    // Phase 2: Sequential Lua serialization (only for matching entities)
+    let mut results = Vec::with_capacity(matching_entities.len());
+    let mut cache_entries = Vec::with_capacity(matching_entities.len());
+    
+    for (entity, lua_component_names, rust_component_names) in matching_entities {
+        let entity_ref = match world.get_entity(entity) {
+            Ok(e) => e,
+            Err(_) => continue,
+        };
+        
+        let mut component_data = HashMap::new();
+        let mut lua_components = HashMap::new();
+        
+        // Serialize Lua components
+        if let Some(custom_components) = entity_ref.get::<LuaCustomComponents>() {
+            for name in &lua_component_names {
+                if let Some(key) = custom_components.components.get(name) {
+                    lua_components.insert(name.clone(), key.clone());
+                }
             }
         }
-
-        if matches {
-            results.push(LuaEntitySnapshot {
-                entity: entity_ref.id(),
-                component_data,
-                lua_components,
-                update_queue: update_queue.clone(),
-            });
+        
+        // Serialize Rust components
+        for name in &rust_component_names {
+            // Non-reflected component
+            if component_registry.get_non_reflected_type_id(name).is_some() {
+                component_data.insert(name.clone(), "{}".to_string());
+                continue;
+            }
+            
+            // Reflected component
+            if let Some(type_path) = component_registry.get_type_path(name) {
+                if let Some(registration) = type_registry.get_with_type_path(&type_path) {
+                    if let Some(reflect_component) = registration.data::<ReflectComponent>() {
+                        if let Some(component) = reflect_component.reflect(
+                            Into::<bevy::ecs::world::FilteredEntityRef>::into(&entity_ref),
+                        ) {
+                            match reflection_to_lua(lua, component) {
+                                Ok(lua_value) => {
+                                    if let Ok(registry_key) = lua.create_registry_value(lua_value) {
+                                        lua_components.insert(name.clone(), Arc::new(registry_key));
+                                    }
+                                }
+                                Err(_) => {
+                                    use bevy::reflect::serde::TypedReflectSerializer;
+                                    let serializer = TypedReflectSerializer::new(
+                                        component.as_reflect(),
+                                        &type_registry,
+                                    );
+                                    if let Ok(json_value) = serde_json::to_value(serializer) {
+                                        if let Ok(json_string) = serde_json::to_string(&json_value) {
+                                            component_data.insert(name.clone(), json_string);
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        
+        // Build cache entry with full component data
+        cache_entries.push(crate::query_cache::CachedEntityResult {
+            entity_bits: entity.to_bits(),
+            component_keys: lua_components.clone(),
+        });
+        
+        results.push(LuaEntitySnapshot {
+            entity,
+            component_data,
+            lua_components,
+            update_queue: update_queue.clone(),
+        });
+    }
+    
+    // Store full results in cache for subsequent queries this frame
+    // Only cache if there's no change detection (those can't be cached)
+    if query_builder.changed_components.is_empty() {
+        if let Some(cache) = query_cache {
+            cache.insert_full(&query_builder.with_components, cache_entries, current_frame);
         }
     }
-
+    
     Ok(results)
 }
+

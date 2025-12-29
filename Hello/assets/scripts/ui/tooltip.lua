@@ -30,6 +30,12 @@ local TOOLTIP_STYLE = {
 --- Set the parent entity for tooltip spawning (for VR integration)
 --- @param entity number|nil Parent entity ID, or nil to spawn as root
 function Tooltip.set_parent(entity)
+    -- If clearing parent, also clear tooltip entity references
+    -- (parent will be despawned, cascading to tooltip - prevent double despawn)
+    if entity == nil and parent_entity ~= nil then
+        tooltip_entity = nil
+        tooltip_text_entity = nil
+    end
     parent_entity = entity
 end
 
