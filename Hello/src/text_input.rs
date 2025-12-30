@@ -97,16 +97,16 @@ fn convert_lua_text_inputs(
                     TextInputAction::Edit(TextInputEdit::Paste(lua_input.initial_value.clone()))
                 ].into(),
             });
-            info!("Set initial text for entity {:?}: {}", entity, lua_input.initial_value);
+            debug!("Set initial text for entity {:?}: {}", entity, lua_input.initial_value);
         }
         
         // Auto-focus if requested
         if lua_input.auto_focus {
             input_focus.0 = Some(entity);
-            info!("Auto-focused text input entity {:?}", entity);
+            debug!("Auto-focused text input entity {:?}", entity);
         }
         
-        info!("Converted LuaTextInput to TextInputNode for entity {:?}", entity);
+        debug!("Converted LuaTextInput to TextInputNode for entity {:?}", entity);
     }
 }
 

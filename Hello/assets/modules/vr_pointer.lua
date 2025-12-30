@@ -9,6 +9,7 @@
 --   end)
 
 local VrInput = require("modules/vr_input.lua")
+local VrUI = nil  -- Lazy-loaded to avoid circular dependency
 
 local VrPointer = {}
 
@@ -16,11 +17,25 @@ local VrPointer = {}
 local VR_POINTER_UUID = 90870999
 
 -- Trigger state for edge detection
+-- We compute edges in Lua because Rust's just_pressed is only true for 1 frame,
+-- but Lua systems don't run every frame, so we'd miss edge events.
 local trigger_state = {
     pressed = false,
+    last_pressed = false,  -- Previous Lua frame's pressed state
     just_pressed = false,
-    just_released = false
+    just_released = false,
+    pending_press = false,   -- True if we pressed but weren't aiming at panel yet
+    pending_release = false, -- True if we released but weren't aiming at panel yet
+    -- Right-click simulation via trigger hold
+    hold_start_time = nil,      -- Time when trigger was pressed (os.clock())
+    hold_start_pos = nil,       -- Position {x, y} when trigger was pressed
+    is_long_press = false,      -- True if we detected a long press (0.5s+ with small movement)
+    long_press_sent = false,    -- True if we already sent the Secondary press for this gesture
 }
+
+-- Long press configuration
+local LONG_PRESS_TIME = 0.5        -- Seconds to hold for right-click
+local LONG_PRESS_TOLERANCE = 15    -- Pixels of movement allowed during hold
 
 -- Entity references
 local pointer_entity = nil
@@ -30,6 +45,47 @@ local debug_ray_entity = nil  -- Debug: visualize MeshRayCast ray
 -- Laser settings
 local LASER_LENGTH = 2.0  -- 2 meters
 local LASER_RADIUS = 0.002  -- 2mm
+
+--- Get the active pointer hand ("left" or "right")
+local function get_active_hand()
+    -- Lazy-load VrUI to avoid circular dependency
+    if not VrUI then
+        VrUI = require("modules/vr_ui.lua")
+    end
+    return VrUI.get_pointer_hand() or "right"
+end
+
+--- Get active controller position based on which hand is pointing
+local function get_active_controller_position(world)
+    local hand = get_active_hand()
+    if hand == "left" then
+        return VrInput.get_left_position(world)
+    else
+        return VrInput.get_right_position(world)
+    end
+end
+
+--- Get active controller forward based on which hand is pointing
+local function get_active_controller_forward(world)
+    local hand = get_active_hand()
+    if hand == "left" then
+        return VrInput.get_left_forward(world)
+    else
+        return VrInput.get_right_forward(world)
+    end
+end
+
+--- Get active trigger state based on which hand is pointing
+local function get_active_trigger_pressed(world)
+    local hand = get_active_hand()
+    local vr_state = VrInput.get_buttons(world)
+    if not vr_state then return false end
+    if hand == "left" then
+        return vr_state.left_trigger_pressed or false
+    else
+        return vr_state.right_trigger_pressed or false
+    end
+end
 
 --- Initialize the VR pointer (spawn PointerId entity and laser visual)
 function VrPointer.init()
@@ -116,10 +172,10 @@ end
 local function update_laser(world)
     if not laser_entity then return end
     
-    local right_pos = VrInput.get_right_position(world)
-    local right_fwd = VrInput.get_right_forward(world)
+    local controller_pos = get_active_controller_position(world)
+    local controller_fwd = get_active_controller_forward(world)
     
-    if not right_pos or not right_fwd then
+    if not controller_pos or not controller_fwd then
         -- Hide laser (scale 0)
         -- Note: We can't easily update just scale, so we skip update
         return
@@ -127,19 +183,17 @@ local function update_laser(world)
     
     -- Calculate laser center (halfway along the ray)
     local laser_center = {
-        x = right_pos.x + right_fwd.x * (LASER_LENGTH / 2),
-        y = right_pos.y + right_fwd.y * (LASER_LENGTH / 2),
-        z = right_pos.z + right_fwd.z * (LASER_LENGTH / 2)
+        x = controller_pos.x + controller_fwd.x * (LASER_LENGTH / 2),
+        y = controller_pos.y + controller_fwd.y * (LASER_LENGTH / 2),
+        z = controller_pos.z + controller_fwd.z * (LASER_LENGTH / 2)
     }
     
     -- Calculate rotation to point laser along forward direction
-    local rotation = quat_from_y_to_dir(right_fwd)
+    local rotation = quat_from_y_to_dir(controller_fwd)
     
-    -- Update laser transform using entity:set()
-    -- We need to query the laser entity - for now we'll spawn a global update
-    -- Note: This requires searching for LaserPointer entities
-    local lasers = world:query({"LaserPointer", "Transform"}, nil)
-    for _, laser in ipairs(lasers) do
+    -- Update laser transform
+    local laser = world:get_entity(laser_entity)
+    if laser then
         laser:set({
             Transform = {
                 translation = laser_center,
@@ -163,15 +217,19 @@ function VrPointer.update(world, surfaces)
     local vr_state = VrInput.get_buttons(world)
     if not vr_state then return end
     
-    -- Use right_trigger_just_pressed from resource (polled in Rust)
-    local trigger_current = (vr_state.right_trigger or 0) > 0.5
-    trigger_state.just_pressed = vr_state.right_trigger_just_pressed or false
-    trigger_state.just_released = not trigger_current and trigger_state.pressed
-    trigger_state.pressed = trigger_current
+    -- Get current pressed state from active hand's trigger
+    local current_pressed = get_active_trigger_pressed(world)
     
-    -- Get right controller position and forward from VrControllerState
-    local ray_origin = VrInput.get_right_position(world)
-    local forward = VrInput.get_right_forward(world)
+    -- Compute edges in Lua by comparing to last Lua frame's state
+    -- This works even when Lua doesn't run every Rust frame
+    trigger_state.just_pressed = current_pressed and not trigger_state.last_pressed
+    trigger_state.just_released = not current_pressed and trigger_state.last_pressed
+    trigger_state.pressed = current_pressed
+    trigger_state.last_pressed = current_pressed  -- Save for next Lua frame
+    
+    -- Get active controller position and forward
+    local ray_origin = get_active_controller_position(world)
+    local forward = get_active_controller_forward(world)
     
     if not ray_origin or not forward then
         return  -- No controller data
@@ -201,15 +259,18 @@ function VrPointer.update(world, surfaces)
                 local v = hit_data.uv.y
                 
                 if u and v then
-                    print(string.format("[HIT] entity=%d UV(%.2f, %.2f)", entity_bits, u, v))
+                    -- Find the surface that matches this hit entity
+                    -- Note: s.entity may be a temp ID from spawn, need to resolve to real bits
+                    local surface = nil
+                    for _, s in ipairs(surfaces) do
+                        local resolved = world:get_entity(s.entity)
+                        if resolved and resolved:id() == entity_bits then
+                            surface = s
+                            break
+                        end
+                    end
                     
-                    -- Get entity wrapper and check for VrPanelMarker directly
-                    local entity = world:get_entity(entity_bits)
-                    if entity and entity:has("VrPanelMarker") then
-                        -- Found the panel!
-                        local surface = surfaces[1]
-                        if not surface then return end
-                        
+                    if surface then
                         -- Convert UV to texture pixel coords
                         -- Bevy Plane3d: UV (0,0) is top-left, V increases downward
                         -- Bevy UI: Y=0 is top, Y increases downward
@@ -227,6 +288,22 @@ function VrPointer.update(world, surfaces)
                 end
             end
         end
+    end
+    
+    -- If we pressed but didn't hit a panel, queue the press for when we do hit
+    if trigger_state.just_pressed then
+        trigger_state.pending_press = true
+    end
+    
+    -- If we released but didn't hit a panel, queue the release for when we do hit
+    if trigger_state.just_released then
+        trigger_state.pending_release = true
+        trigger_state.pending_press = false  -- Cancel any pending press
+    end
+    
+    -- Clear pending release once we're pressing again (new gesture)
+    if trigger_state.pressed then
+        trigger_state.pending_release = false
     end
 end
 
@@ -286,23 +363,82 @@ function VrPointer._write_pointer_input(world, rtt_image, tex_x, tex_y)
         action = { Move = { delta = { x = 0, y = 0 } } }
     })
     
-    -- Send Press/Release on edges
+    -- Long press detection logic
+    local current_time = os.clock()
+    
+    -- On trigger press: start tracking hold
     if trigger_state.just_pressed then
+        trigger_state.hold_start_time = current_time
+        trigger_state.hold_start_pos = { x = tex_x, y = tex_y }
+        trigger_state.is_long_press = false
+        trigger_state.long_press_sent = false
+    end
+    
+    -- While pressed: check for long press conditions
+    if trigger_state.pressed and trigger_state.hold_start_time and not trigger_state.long_press_sent then
+        local hold_duration = current_time - trigger_state.hold_start_time
+        
+        -- Check movement from start position
+        local dx = tex_x - trigger_state.hold_start_pos.x
+        local dy = tex_y - trigger_state.hold_start_pos.y
+        local movement = math.sqrt(dx * dx + dy * dy)
+        
+        -- If held long enough with small movement, trigger right-click
+        if hold_duration >= LONG_PRESS_TIME and movement <= LONG_PRESS_TOLERANCE then
+            trigger_state.is_long_press = true
+            trigger_state.long_press_sent = true
+            
+            -- Send Secondary (right-click) press and immediate release
+            world:write_message("PointerInput", {
+                pointer_id = pointer_id,
+                location = location,
+                action = { Press = "Secondary" }
+            })
+            world:write_message("PointerInput", {
+                pointer_id = pointer_id,
+                location = location,
+                action = { Release = "Secondary" }
+            })
+            print(string.format("[VR_POINTER] Long press (right-click) at (%.1f, %.1f)", tex_x, tex_y))
+        elseif movement > LONG_PRESS_TOLERANCE then
+            -- Too much movement - cancel long press tracking, treat as drag
+            trigger_state.hold_start_time = nil
+            trigger_state.hold_start_pos = nil
+        end
+    end
+    
+    -- Send Press/Release on edges (or pending press)
+    -- Skip if this was a long press - we don't want to send Primary click
+    local should_press = (trigger_state.just_pressed or 
+        (trigger_state.pending_press and trigger_state.pressed))
+    
+    if should_press then
         world:write_message("PointerInput", {
             pointer_id = pointer_id,
             location = location,
             action = { Press = "Primary" }
         })
-        print(string.format("[VR_POINTER] Press at (%.1f, %.1f)", tex_x, tex_y))
+        trigger_state.pending_press = false  -- Press was sent
+        -- print(string.format("[VR_POINTER] Press at (%.1f, %.1f)", tex_x, tex_y))
     end
     
-    if trigger_state.just_released then
-        world:write_message("PointerInput", {
-            pointer_id = pointer_id,
-            location = location,
-            action = { Release = "Primary" }
-        })
-        print(string.format("[VR_POINTER] Release at (%.1f, %.1f)", tex_x, tex_y))
+    if trigger_state.just_released or trigger_state.pending_release then
+        -- Only send Release if we didn't do a long press
+        if not trigger_state.is_long_press then
+            world:write_message("PointerInput", {
+                pointer_id = pointer_id,
+                location = location,
+                action = { Release = "Primary" }
+            })
+            -- print(string.format("[VR_POINTER] Release at (%.1f, %.1f)", tex_x, tex_y))
+        end
+        trigger_state.pending_release = false  -- Release was sent
+        
+        -- Reset long press state
+        trigger_state.hold_start_time = nil
+        trigger_state.hold_start_pos = nil
+        trigger_state.is_long_press = false
+        trigger_state.long_press_sent = false
     end
 end
 

@@ -66,6 +66,12 @@ cargo run -- --network client --server-addr 192.168.1.100 --port 5000
 # Start as full peer (both server and client - default)
 cargo run -- --network both
 
+# VR only
+cargo run --features bevy_mod_xr -- --vr --script scripts/examples/vr_sidebar.lua
+
+# VR + Networking
+cargo run --features "bevy_mod_xr networking" -- --vr --network both --script scripts/main.lua
+
 # Run networking demo
 cargo run -- --demo networking
 ```

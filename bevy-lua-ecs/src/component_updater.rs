@@ -105,7 +105,94 @@ pub fn process_component_updates(
                                 }
                             }
                         } else {
-                            debug!("[COMPONENT_UPDATE] Component {} not found on entity", type_path);
+                            // Component doesn't exist - try to INSERT it
+                            debug!("[COMPONENT_UPDATE] Component {} not found on entity, attempting insert", type_path);
+                            
+                            // We need to re-acquire registry for insert
+                            drop(entity_mut);
+                            
+                            // Try PATH 1: ReflectDefault-based creation
+                            let insert_data: Option<(Box<dyn bevy::reflect::Reflect>, ReflectComponent)> = {
+                                let registry = type_registry.read();
+                                registry.get_with_type_path(&type_path)
+                                    .or_else(|| registry.get_with_short_type_path(&type_path))
+                                    .and_then(|registration| {
+                                        // Get ReflectDefault and ReflectComponent
+                                        let reflect_default = registration.data::<ReflectDefault>()?;
+                                        let reflect_component = registration.data::<ReflectComponent>()?.clone();
+                                        let new_component = reflect_default.default();
+                                        Some((new_component, reflect_component))
+                                    })
+                            };
+                            
+                            if let Some((mut new_component, reflect_component)) = insert_data {
+                                // PATH 1: Use ReflectDefault
+                                if let LuaValue::Table(ref table) = resolved_data {
+                                    if let Err(e) = update_component_from_lua(
+                                        new_component.as_partial_reflect_mut(),
+                                        table,
+                                        asset_registry.as_ref(),
+                                        &type_registry,
+                                    ) {
+                                        error!("[COMPONENT_UPDATE] Failed to patch new component {}: {}", type_path, e);
+                                    } else {
+                                        // Insert the component using ReflectComponent
+                                        let registry_read = type_registry.read();
+                                        if let Ok(mut entity_mut) = world.get_entity_mut(request.entity) {
+                                            reflect_component.insert(&mut entity_mut, new_component.as_partial_reflect(), &registry_read);
+                                            debug!("[COMPONENT_UPDATE] ✓ Inserted new component {} on entity", type_path);
+                                            component_updated = true;
+                                        }
+                                    }
+                                }
+                            } else {
+                                // PATH 2: Try entity wrapper components (like UiTargetCamera(Entity))
+                                // These don't have Default but can be constructed if we have the entity value
+                                debug!("[COMPONENT_UPDATE] Trying entity wrapper path for {}", type_path);
+                                
+                                if let LuaValue::Table(ref table) = resolved_data {
+                                    // Look for 'entity' field containing the entity ID
+                                    if let Ok(entity_bits) = table.get::<i64>("entity") {
+                                        let target_entity = bevy::ecs::entity::Entity::from_bits(entity_bits as u64);
+                                        debug!("[COMPONENT_UPDATE] Found entity field: {} -> {:?}", entity_bits, target_entity);
+                                        
+                                        // Get ReflectFromReflect and ReflectComponent from registry
+                                        let registry = type_registry.read();
+                                        if let Some(registration) = registry.get_with_type_path(&type_path)
+                                            .or_else(|| registry.get_with_short_type_path(&type_path))
+                                        {
+                                            if let (Some(from_reflect), Some(reflect_component)) = (
+                                                registration.data::<bevy::reflect::ReflectFromReflect>(),
+                                                registration.data::<ReflectComponent>().cloned()
+                                            ) {
+                                                // Create a DynamicTupleStruct with the entity
+                                                let mut dynamic = bevy::reflect::DynamicTupleStruct::default();
+                                                dynamic.insert_boxed(Box::new(target_entity));
+                                                
+                                                // Set the represented type for from_reflect to work
+                                                let represented_type = registration.type_info();
+                                                dynamic.set_represented_type(Some(represented_type));
+                                                
+                                                if let Some(concrete) = from_reflect.from_reflect(dynamic.as_partial_reflect()) {
+                                                    drop(registry);
+                                                    let registry_read = type_registry.read();
+                                                    if let Ok(mut entity_mut) = world.get_entity_mut(request.entity) {
+                                                        reflect_component.insert(&mut entity_mut, concrete.as_partial_reflect(), &registry_read);
+                                                        debug!("[COMPONENT_UPDATE] ✓ Inserted entity wrapper component {} on entity", type_path);
+                                                        component_updated = true;
+                                                    }
+                                                } else {
+                                                    error!("[COMPONENT_UPDATE] from_reflect failed for {}", type_path);
+                                                }
+                                            } else {
+                                                debug!("[COMPONENT_UPDATE] Component {} has no ReflectFromReflect or ReflectComponent", type_path);
+                                            }
+                                        }
+                                    } else {
+                                        debug!("[COMPONENT_UPDATE] No 'entity' field found for entity wrapper {}", type_path);
+                                    }
+                                }
+                            }
                         }
                     }
                 } else {

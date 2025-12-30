@@ -171,6 +171,8 @@ pub fn lua_table_to_dynamic_with_assets(
     let mut dynamic = DynamicStruct::default();
 
     if let TypeInfo::Struct(struct_info) = type_info {
+        bevy::log::debug!("[LUA_TO_DYNAMIC] Building DynamicStruct for type: {}", struct_info.type_path());
+        
         // Set represented_type so FromReflect knows the target type
         // Get from TypeRegistry for 'static lifetime
         {
@@ -183,14 +185,37 @@ pub fn lua_table_to_dynamic_with_assets(
         for i in 0..struct_info.field_len() {
             let field: &NamedField = struct_info.field_at(i).unwrap();
             let field_name = field.name();
+            let field_type_path = field.type_path();
 
             // Try to get the value from the Lua table
             if let Ok(lua_val) = table.get::<LuaValue>(field_name) {
+                // If value is nil, check if it's an Option field
+                if matches!(lua_val, LuaValue::Nil) {
+                    if field_type_path.starts_with("core::option::Option") || field_type_path.starts_with("Option") {
+                         bevy::log::debug!("[LUA_TO_DYNAMIC] Field '{}': Missing/Nil for Option type, inserting None", field_name);
+                         let none_variant = bevy::reflect::DynamicEnum::new("None", bevy::reflect::DynamicVariant::Unit);
+                         dynamic.insert_boxed(field_name, Box::new(none_variant));
+                         continue;
+                    }
+                    
+                    bevy::log::debug!("[LUA_TO_DYNAMIC] Field '{}' (type: {}): Lua value is Nil, skipping", 
+                        field_name, field_type_path);
+                    continue;
+                }
+                
+                bevy::log::debug!("[LUA_TO_DYNAMIC] Field '{}' (type: {}): Found Lua value of kind {:?}", 
+                    field_name, field_type_path, std::mem::discriminant(&lua_val));
+                
                 // Get type_info - fallback to TypeRegistry lookup if field doesn't have it
                 let field_type_info = field.type_info().or_else(|| {
                     let reg = registry.read();
                     reg.get(field.type_id()).map(|r| r.type_info())
                 });
+                
+                if field_type_info.is_none() {
+                    bevy::log::warn!("[LUA_TO_DYNAMIC] Field '{}': No type_info available in registry", field_name);
+                }
+                
                 // Convert Lua value to appropriate reflected type
                 let field_value = lua_value_to_box_reflect_with_assets(
                     lua,
@@ -199,9 +224,22 @@ pub fn lua_table_to_dynamic_with_assets(
                     registry,
                     asset_registry,
                 )?;
+                bevy::log::debug!("[LUA_TO_DYNAMIC] Field '{}': Converted successfully", field_name);
                 dynamic.insert_boxed(field_name, field_value);
+            } else {
+                // Check if missing field is Option type
+                if field_type_path.starts_with("core::option::Option") || field_type_path.starts_with("Option") {
+                     bevy::log::debug!("[LUA_TO_DYNAMIC] Field '{}': Missing for Option type, inserting None", field_name);
+                     let none_variant = bevy::reflect::DynamicEnum::new("None", bevy::reflect::DynamicVariant::Unit);
+                     dynamic.insert_boxed(field_name, Box::new(none_variant));
+                     continue;
+                }
+                bevy::log::debug!("[LUA_TO_DYNAMIC] Field '{}' (type: {}): Not provided in Lua table", 
+                    field_name, field_type_path);
             }
         }
+        
+        bevy::log::debug!("[LUA_TO_DYNAMIC] DynamicStruct built with {} fields", dynamic.field_len());
     }
 
     Ok(dynamic)
@@ -352,6 +390,11 @@ fn lua_value_to_box_reflect_with_assets(
                     return Ok(Box::new(*i as u32));
                 } else if type_path.contains("usize") {
                     return Ok(Box::new(*i as usize));
+                } else if type_path.contains("Entity") {
+                    // Construct Entity from integer bits (for fields like KeyboardInput.window)
+                    let entity = bevy::ecs::entity::Entity::from_bits(*i as u64);
+                    bevy::log::debug!("[ENTITY_HANDLE] Constructed Entity from integer: {:?}", entity);
+                    return Ok(Box::new(entity));
                 } else if type_path == "uuid::Uuid" {
                     // Construct Uuid from integer (used for PointerId::Custom)
                     let uuid = uuid::Uuid::from_u128(*i as u128);

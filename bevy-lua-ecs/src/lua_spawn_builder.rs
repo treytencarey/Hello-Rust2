@@ -91,7 +91,7 @@ impl LuaUserData for LuaSpawnBuilder {
 
                     if let Some(entity) = maybe_entity {
                         // Entity has been spawned - use update queue for runtime updates
-                        bevy::log::info!("[SPAWN_BUILDER] Queueing update for component '{}' on entity {:?} (temp_id: {})", component_name, entity, this.temp_id);
+                        bevy::log::debug!("[SPAWN_BUILDER] Queueing update for component '{}' on entity {:?} (temp_id: {})", component_name, entity, this.temp_id);
                         this.update_queue
                             .queue_update(entity, component_name, registry_key);
                     } else {

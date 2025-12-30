@@ -59,20 +59,28 @@ function SidebarMenu.new()
 end
 
 --- Show the sidebar (icon bar only - panels position themselves)
---- @param parent_entity number|nil Optional parent entity ID for VR integration
-function SidebarMenu:show(parent_entity)
+function SidebarMenu:show()
     if self.is_visible then return end
     
-    -- Store parent for panels to use
-    self.parent_entity = parent_entity
-    
-    -- Icon bar (narrow vertical strip on left)
-    local builder = spawn({
+    -- Outer container (horizontal flex - icon bar + panel area)
+    local outer = spawn({
         Node = {
             position_type = "Absolute",
             left = {Px = 0},
             top = {Px = 0},
             bottom = {Px = 0},
+            flex_direction = "Row",  -- Horizontal layout
+            align_items = "Stretch",  -- Children fill height
+        },
+        BackgroundColor = { color = {r = 0, g = 0, b = 0, a = 0} },  -- Transparent
+        GlobalZIndex = { value = 100 },
+    })
+    self.outer_container = outer:id()
+    table.insert(self.entities, self.outer_container)
+    
+    -- Icon bar (fixed width, flex child)
+    local icon_bar = spawn({
+        Node = {
             width = {Px = ICON_BAR_WIDTH},
             flex_direction = "Column",
             align_items = "Center",
@@ -80,13 +88,20 @@ function SidebarMenu:show(parent_entity)
             row_gap = {Px = 4},
         },
         BackgroundColor = { color = COLORS.icon_bar_bg },
-        GlobalZIndex = { value = 100 },
-    })
-    if parent_entity then
-        builder = builder:with_parent(parent_entity)
-    end
-    self.icon_bar_entity = builder:id()
+    }):with_parent(self.outer_container)
+    self.icon_bar_entity = icon_bar:id()
     table.insert(self.entities, self.icon_bar_entity)
+    
+    -- Panel container (grows to fit opened panels, flex child)
+    local panel_container = spawn({
+        Node = {
+            flex_direction = "Row",  -- Panels side by side if multiple
+            align_items = "Stretch",
+        },
+        BackgroundColor = { color = {r = 0, g = 0, b = 0, a = 0} },  -- Transparent
+    }):with_parent(self.outer_container)
+    self.panel_container = panel_container:id()
+    table.insert(self.entities, self.panel_container)
     
     self.is_visible = true
     
@@ -105,21 +120,21 @@ function SidebarMenu:hide(skip_despawn)
     self.open_panels = {}
     
     -- Only despawn if not skipping (when parent will handle despawn via cascade)
-    if not skip_despawn and self.icon_bar_entity then
-        despawn(self.icon_bar_entity)
+    -- Despawn outer_container which cascades to icon_bar and panel_container
+    if not skip_despawn and self.outer_container then
+        despawn(self.outer_container)
     end
     
     -- Clear tracking lists (entities are already despawned by cascade)
     self.entities = {}
+    self.outer_container = nil
     self.icon_bar_entity = nil
+    self.panel_container = nil
     
     -- Clear button icon entities (they were children and despawned)
     for _, btn in ipairs(self.buttons) do
         btn.icon_entity = nil
     end
-    
-    -- Clear parent entity to prevent stale reference on reopen
-    self.parent_entity = nil
     
     self.is_visible = false
 end
@@ -230,8 +245,8 @@ function SidebarMenu:update(world)
             else
                 -- Open new panel
                 local menu = self
-                local left_offset = ICON_BAR_WIDTH
-                local parent = self.parent_entity  -- Capture for closure
+                local left_offset = 0  -- No offset needed - using flex layout
+                local parent = self.panel_container  -- Make panels children of panel container
                 
                 require_async(btn.script, function(ModuleClass)
                     local instance = ModuleClass.new()

@@ -21,6 +21,7 @@ mlua = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
 uuid = "1.11"
+rayon = "1.10"
 
 # Optional dependency for physics example
 bevy_rapier2d = { workspace = true, optional = true }

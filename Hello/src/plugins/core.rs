@@ -65,7 +65,7 @@ fn register_hello_lua_functions(lua_ctx: Res<LuaScriptContext>) {
     if let Err(e) = lua.globals().set("pick_files_dialog", pick_files_dialog) {
         error!("Failed to register pick_files_dialog: {:?}", e);
     } else {
-        info!("✓ Registered pick_files_dialog Lua function");
+        debug!("✓ Registered pick_files_dialog Lua function");
     }
 }
 

@@ -96,13 +96,12 @@ end
 
 --- Show the file browser
 --- @param left_offset Optional left offset in pixels (for sidebar integration)
---- @param parent_entity number|nil Optional parent entity ID for VR integration
+--- @param parent_entity number|nil Optional parent entity ID (makes this a child)
 --- @return panel_entity The panel container entity ID
 function FileBrowser:show(left_offset, parent_entity)
     if self.is_visible then return self.panel_entity end
     
     self.left_offset = left_offset or 0
-    -- Validate parent entity still exists (might be stale after VR panel reopen)
     self.parent_entity = parent_entity
     self:spawn_panel()
     self:load_folder("")  -- Load root
@@ -121,16 +120,27 @@ end
 
 --- Spawn the main panel
 function FileBrowser:spawn_panel()
-    -- Main panel container (always absolute, left_offset determines position)
-    local left_val = self.left_offset or 0
-    local node_config = {
-        position_type = "Absolute",
-        left = {Px = left_val},
-        top = {Px = 0},
-        bottom = {Px = 0},
-        width = {Px = PANEL_WIDTH},
-        flex_direction = "Column",
-    }
+    -- Node config depends on whether we have a parent (flex child) or not (absolute root)
+    local node_config
+    if self.parent_entity then
+        -- Flex child - relative positioning, let parent layout handle it
+        node_config = {
+            width = {Px = PANEL_WIDTH},
+            height = {Percent = 100},  -- Fill parent height
+            flex_direction = "Column",
+        }
+    else
+        -- Standalone root - use absolute positioning
+        local left_val = self.left_offset or 0
+        node_config = {
+            position_type = "Absolute",
+            left = {Px = left_val},
+            top = {Px = 0},
+            bottom = {Px = 0},
+            width = {Px = PANEL_WIDTH},
+            flex_direction = "Column",
+        }
+    end
     
     local panel = spawn({
         Node = node_config,
@@ -162,16 +172,9 @@ function FileBrowser:spawn_panel()
             self.drag_folder_handled = false
         end)
     
-    -- Apply parent if provided (for VR integration)
-    -- Use pcall to handle cases where parent entity was despawned
+    -- Make panel a child of parent (for proper ECS hierarchy)
     if self.parent_entity then
-        local success, err = pcall(function()
-            panel = panel:with_parent(self.parent_entity)
-        end)
-        if not success then
-            print("[FILE_BROWSER] Warning: parent entity " .. tostring(self.parent_entity) .. " no longer exists, spawning without parent")
-            self.parent_entity = nil
-        end
+        panel = panel:with_parent(self.parent_entity)
     end
     
     self.panel_entity = panel:id()

@@ -12,10 +12,9 @@ spawn({
     Camera2d = {},
 })
 
--- Load and show the sidebar menu
+-- Load the sidebar menu
 local SidebarMenu = require("scripts/ui/sidebar_menu.lua")
 local menu = SidebarMenu.new()
-menu:show()
 
 -- Spawn sidebar button entities
 -- The sidebar menu will discover these via ECS queries

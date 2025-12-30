@@ -4927,12 +4927,22 @@ fn write_bindings_to_parent_crate(
                 let registry = type_registry.read();
                 
                 // Find the type registration for this event
-                if let Some(type_registration) = registry.get_with_type_path(#bevy_path) {
+                // Try bevy re-export path first, then original crate path
+                if let Some(type_registration) = registry.get_with_type_path(#bevy_path)
+                    .or_else(|| registry.get_with_type_path(#full_internal_path)) {
                     let type_info = type_registration.type_info();
                     
                     // Build DynamicStruct from the Lua table using type info
                     let dynamic = bevy_lua_ecs::lua_table_to_dynamic(lua, data, type_info, &type_registry)
                         .map_err(|e| format!("Failed to build event '{}': {}", #bevy_path, e))?;
+                    
+                    // Debug: Log what fields were built
+                    // use bevy::reflect::Struct;
+                    // bevy::log::debug!("[EVENT_WRITE] Built DynamicStruct for {} with {} fields:", #bevy_path, dynamic.field_len());
+                    // for i in 0..dynamic.field_len() {
+                    //     let name = dynamic.name_at(i).unwrap_or("unknown");
+                    //     bevy::log::debug!("[EVENT_WRITE]   - field '{}': present", name);
+                    // }
                     
                     // Convert via FromReflect - T::from_reflect returns Option<T> directly
                     if let Some(concrete_event) = <#type_path as bevy::reflect::FromReflect>::from_reflect(&dynamic) {
@@ -4944,6 +4954,15 @@ fn write_bindings_to_parent_crate(
                         bevy::log::debug!("[EVENT_WRITE] Sent event: {}", #bevy_path);
                         return Ok(());
                     }
+                    
+                    // Debug: Log expected fields from type_info
+                    // if let bevy::reflect::TypeInfo::Struct(struct_info) = type_info {
+                    //     bevy::log::warn!("[EVENT_WRITE] FromReflect failed. Expected fields:");
+                    //     for i in 0..struct_info.field_len() {
+                    //         let field = struct_info.field_at(i).unwrap();
+                    //         bevy::log::warn!("[EVENT_WRITE]   - '{}': {}", field.name(), field.type_path());
+                    //     }
+                    // }
                     return Err(format!("Failed to construct event '{}' via FromReflect", #bevy_path));
                 } else {
                     return Err(format!("Event type '{}' not found in TypeRegistry", #bevy_path));

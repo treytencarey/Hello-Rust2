@@ -133,6 +133,77 @@ function VrInput.get_spawn_position_in_front_of_right(world, distance)
     return nil
 end
 
+--- Get HMD (head-mounted display) position
+--- @param world userdata The world object
+--- @return table|nil {x, y, z} or nil if not available
+function VrInput.get_hmd_position(world)
+    local ctrl = VrInput.get_controllers(world)
+    return ctrl and ctrl.hmd_position or nil
+end
+
+--- Calculate spawn position in front of HMD
+--- @param world userdata The world object
+--- @param distance number Distance in meters in front of HMD
+--- @return table|nil {x, y, z} or nil if HMD not available
+function VrInput.get_spawn_position_in_front_of_hmd(world, distance)
+    -- Get camera forward direction and position from Camera3d entity
+    local cameras = world:query({"GlobalTransform", "Camera3d"}, nil)
+    if not cameras or #cameras == 0 then return nil end
+    
+    local camera_transform = cameras[1]:get("GlobalTransform")
+    if not camera_transform or not camera_transform._0 then return nil end
+    
+    local affine = camera_transform._0
+    
+    -- Get actual head position from the affine transform's translation
+    local head_pos = affine.translation
+    if not head_pos then
+        -- Fallback to resource if affine translation not available
+        head_pos = VrInput.get_hmd_position(world)
+        if not head_pos then return nil end
+    end
+    
+    -- Extract forward direction from affine transform matrix
+    -- Column 2 is the Z axis (forward is -Z in Bevy)
+    local matrix = affine.matrix3
+    if matrix and matrix.z_axis then
+        local fwd = {
+            x = -matrix.z_axis.x,
+            y = -matrix.z_axis.y,
+            z = -matrix.z_axis.z
+        }
+        -- Normalize
+        local len = math.sqrt(fwd.x*fwd.x + fwd.y*fwd.y + fwd.z*fwd.z)
+        if len > 0.001 then
+            fwd.x = fwd.x / len
+            fwd.y = fwd.y / len
+            fwd.z = fwd.z / len
+        end
+        
+        -- Use only horizontal forward (project to XZ plane) so Y stays at head level
+        local horiz_len = math.sqrt(fwd.x*fwd.x + fwd.z*fwd.z)
+        local horiz_fwd = { x = 0, z = -1 }  -- Fallback if looking straight up/down
+        if horiz_len > 0.001 then
+            horiz_fwd.x = fwd.x / horiz_len
+            horiz_fwd.z = fwd.z / horiz_len
+        end
+        
+        return {
+            x = head_pos.x + horiz_fwd.x * distance,
+            y = head_pos.y,  -- Keep at actual head height from camera transform
+            z = head_pos.z + horiz_fwd.z * distance
+        }
+    end
+    
+    -- Fallback: spawn directly in front (negative Z)
+    return {
+        x = head_pos.x,
+        y = head_pos.y,
+        z = head_pos.z - distance
+    }
+end
+
+
 -- =============================================================================
 -- Grip Button Accessors
 -- =============================================================================

@@ -156,16 +156,55 @@ impl LuaUserData for LuaWorldContext<'_> {
                 }
             };
             
+            // Read Lua custom components
             let lua_components = if let Some(custom) = entity_ref.get::<LuaCustomComponents>() {
                 custom.components.clone()
             } else {
                 HashMap::new()
             };
             
+            // Read all reflected Rust components on this entity
+            let type_registry = this.component_registry.type_registry().read();
+            let mut reflected_components: HashMap<String, Arc<LuaRegistryKey>> = HashMap::new();
+            
+            // Iterate through all archetype components on this entity
+            let archetype = entity_ref.archetype();
+            for component_id in archetype.components() {
+                if let Some(component_info) = this.world().components().get_info(*component_id) {
+                    let type_id = component_info.type_id();
+                    if let Some(type_id) = type_id {
+                        // Find the registration for this type
+                        if let Some(registration) = type_registry.get(type_id) {
+                            if let Some(reflect_component) = registration.data::<bevy::ecs::reflect::ReflectComponent>() {
+                                // Get the reflected component data
+                                if let Some(component) = reflect_component.reflect(entity_ref) {
+                                    // Get short name for the component
+                                    let type_path = registration.type_info().type_path();
+                                    let short_name = type_path.rsplit("::").next().unwrap_or(type_path);
+                                    
+                                    // Convert to Lua via reflection
+                                    if let Ok(lua_value) = crate::lua_world_api::reflection_to_lua(lua, component) {
+                                        if let Ok(registry_key) = lua.create_registry_value(lua_value) {
+                                            reflected_components.insert(short_name.to_string(), Arc::new(registry_key));
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+            
+            // Merge reflected components into lua_components  
+            let mut all_components = lua_components;
+            for (name, key) in reflected_components {
+                all_components.entry(name).or_insert(key);
+            }
+            
             let snapshot = LuaEntitySnapshot {
                 entity,
-                component_data: HashMap::new(),
-                lua_components,
+                component_data: HashMap::new(), // Deprecated - using lua_components for all
+                lua_components: all_components,
                 update_queue: this.update_queue.clone(),
             };
             
