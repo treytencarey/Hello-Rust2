@@ -1,15 +1,18 @@
 -- VR Pointer Module
 -- Provides VR controller raycasting, laser pointer visual, and PointerInput writing for UI interaction
+-- Automatically detects VR panels via VrPanelMarker component on mesh entities.
 --
 -- Usage:
 --   local VrPointer = require("modules/vr_pointer.lua")
 --   VrPointer.init()  -- Spawn custom PointerId and laser visual
 --   register_system("First", function(world)
---       VrPointer.update(world, panels)  -- panels = list of VrUiSurface tables
+--       VrPointer.update(world)  -- Auto-detects panels with VrPanelMarker
 --   end)
 
 local VrInput = require("modules/vr_input.lua")
 local VrUI = nil  -- Lazy-loaded to avoid circular dependency
+
+print(string.format("[VR_POINTER_DEBUG] ===== Module loaded at %f =====", os.clock()))
 
 local VrPointer = {}
 
@@ -41,6 +44,10 @@ local LONG_PRESS_TOLERANCE = 15    -- Pixels of movement allowed during hold
 local pointer_entity = nil
 local laser_entity = nil
 local debug_ray_entity = nil  -- Debug: visualize MeshRayCast ray
+
+-- Hover and grip state for component-based communication
+local hovered_entity = nil      -- Currently hovered panel mesh entity ID
+local gripped_entity = nil      -- Currently gripped panel mesh entity ID
 
 -- Laser settings
 local LASER_LENGTH = 2.0  -- 2 meters
@@ -84,6 +91,26 @@ local function get_active_trigger_pressed(world)
         return vr_state.left_trigger_pressed or false
     else
         return vr_state.right_trigger_pressed or false
+    end
+end
+
+--- Get active grip just pressed state based on which hand is pointing
+local function get_active_grip_just_pressed(world)
+    local hand = get_active_hand()
+    if hand == "left" then
+        return VrInput.is_left_grip_just_pressed(world)
+    else
+        return VrInput.is_right_grip_just_pressed(world)
+    end
+end
+
+--- Get active grip just released state based on which hand is pointing
+local function get_active_grip_just_released(world)
+    local hand = get_active_hand()
+    if hand == "left" then
+        return VrInput.is_left_grip_just_released(world)
+    else
+        return VrInput.is_right_grip_just_released(world)
     end
 end
 
@@ -206,16 +233,15 @@ end
 
 --- Update pointer with raycasting and input events
 --- @param world userdata The world object
---- @param surfaces table List of surface info tables {entity, transform, texture_width, texture_height, panel_half_width, panel_half_height, rtt_image}
-function VrPointer.update(world, surfaces)
+--- @return number|nil Entity ID of hovered panel mesh, or nil
+function VrPointer.update(world)
+    
     -- Always update laser visual
     update_laser(world)
     
-    if not surfaces or #surfaces == 0 then return end
-    
     -- Get VrButtonState for trigger
     local vr_state = VrInput.get_buttons(world)
-    if not vr_state then return end
+    if not vr_state then return nil end
     
     -- Get current pressed state from active hand's trigger
     local current_pressed = get_active_trigger_pressed(world)
@@ -232,16 +258,24 @@ function VrPointer.update(world, surfaces)
     local forward = get_active_controller_forward(world)
     
     if not ray_origin or not forward then
-        return  -- No controller data
+        return nil  -- No controller data
     end
     
     -- Use MeshRayCast to get UV coordinates directly
     local ray = {
         origin = ray_origin,
-        direction = forward
+        direction = forward,
+        early_exit = false,
     }
     
     local result = world:call_systemparam_method("MeshRayCast", "cast_ray", ray)
+    
+    -- Store previous hovered entity to detect changes
+    local prev_hovered_entity = hovered_entity
+    
+    local hit_point = nil  -- 3D world position where ray hit the panel
+    local hit_panel_position = nil  -- Panel center position from Transform
+    local new_entity = nil  -- Will be set if we hit a panel with VrPanelMarker
     
     -- Result is now a structured Lua table:
     -- {
@@ -249,7 +283,8 @@ function VrPointer.update(world, surfaces)
     --   [2] = ...
     -- }
     if result and type(result) == "table" and #result > 0 then
-        -- Iterate through hits to find one with VrPanelMarker
+        -- Iterate through all hits to find one with VrPanelMarker
+        -- Raycast now returns ALL hits (piercing mode), so we skip non-panel entities
         for _, hit in ipairs(result) do
             local entity_bits = hit.entity
             local hit_data = hit.data
@@ -259,44 +294,126 @@ function VrPointer.update(world, surfaces)
                 local v = hit_data.uv.y
                 
                 if u and v then
-                    -- Find the surface that matches this hit entity
-                    -- Note: s.entity may be a temp ID from spawn, need to resolve to real bits
-                    local surface = nil
-                    for _, s in ipairs(surfaces) do
-                        local resolved = world:get_entity(s.entity)
-                        if resolved and resolved:id() == entity_bits then
-                            surface = s
-                            break
+                    -- Check if hit entity has VrPanelMarker component
+                    local hit_entity = world:get_entity(entity_bits)
+                    if hit_entity then
+                        local marker = hit_entity:get("VrPanelMarker")
+                        if marker and marker.texture_width and marker.rtt_image then
+                            hit_point = hit_data.point  -- Store 3D hit point
+                            
+                            -- Get panel position from Transform for grip offset calculation
+                            local transform = hit_entity:get("Transform")
+                            if transform and transform.translation then
+                                hit_panel_position = transform.translation
+                            end
+                            
+                            -- Convert UV to texture pixel coords
+                            -- Bevy Plane3d: UV (0,0) is top-left, V increases downward
+                            -- Bevy UI: Y=0 is top, Y increases downward
+                            -- So no flip is needed
+                            local tex_x = u * marker.texture_width
+                            local tex_y = v * marker.texture_height
+                            
+                            -- Write PointerInput messages
+                            VrPointer._write_pointer_input(world, marker.rtt_image, tex_x, tex_y)
+                            new_entity = entity_bits
+                            break  -- Found a panel hit, stop iterating
                         end
                     end
-                    
-                    if surface then
-                        -- Convert UV to texture pixel coords
-                        -- Bevy Plane3d: UV (0,0) is top-left, V increases downward
-                        -- Bevy UI: Y=0 is top, Y increases downward
-                        -- So no flip is needed
-                        local tex_x = u * surface.texture_width
-                        local tex_y = v * surface.texture_height
-                        
-                        print(string.format("[HIT PANEL] UV(%.2f, %.2f) -> pixel(%.1f, %.1f)", 
-                            u, v, tex_x, tex_y))
-                        
-                        -- Write PointerInput messages
-                        VrPointer._write_pointer_input(world, surface.rtt_image, tex_x, tex_y)
-                        return
-                    end
+                    -- Skip hits without valid UV or without VrPanelMarker
                 end
             end
         end
     end
     
+    -- Update hovered_entity (will be nil if no panel was hit this frame)
+    hovered_entity = new_entity
+
+    -- Update VrHovered component if hover state changed
+    if hovered_entity ~= prev_hovered_entity then
+        print(string.format("[VR_POINTER] Hover state changed: prev=%s, new=%s", tostring(prev_hovered_entity), tostring(hovered_entity)))
+        -- Remove VrHovered from old entity
+        if prev_hovered_entity then
+            print(string.format("[VR_POINTER] Removing VrHovered from entity %d", prev_hovered_entity))
+            local old_entity = world:get_entity(prev_hovered_entity)
+            if old_entity then
+                old_entity:set({ VrHovered = nil })
+            end
+        end
+        
+        -- Add VrHovered to new entity
+        if hovered_entity then
+            print(string.format("[VR_POINTER] Adding VrHovered to entity %d", hovered_entity))
+            local new_entity = world:get_entity(hovered_entity)
+            if new_entity then
+                new_entity:set({ VrHovered = {} })
+            end
+        end
+    end
+    
+    
+    -- Handle grip for gripping the hovered panel
+    local grip_pos = get_active_controller_position(world)
+    local grip_forward = get_active_controller_forward(world)
+    
+    -- Grip start: if grip just pressed and we're hovering a panel
+    local grip_just_pressed = get_active_grip_just_pressed(world)
+    if grip_just_pressed then
+        print(string.format("[VR_POINTER] Grip just pressed detected! hovered=%s hit_panel_position=%s hit_point=%s",
+            tostring(hovered_entity ~= nil), tostring(hit_panel_position ~= nil), tostring(hit_point ~= nil)))
+    end
+    if grip_just_pressed and hovered_entity and hit_panel_position and hit_point then
+        -- Calculate distance and offset from hit point to panel center
+        if grip_pos then
+            gripped_entity = hovered_entity
+            local entity = world:get_entity(gripped_entity)
+            if entity then
+                -- Calculate distance from controller to hit point
+                local dx = hit_point.x - grip_pos.x
+                local dy = hit_point.y - grip_pos.y
+                local dz = hit_point.z - grip_pos.z
+                local distance = math.sqrt(dx*dx + dy*dy + dz*dz)
+                
+                -- Calculate offset from hit point to panel center
+                local offset_x = hit_panel_position.x - hit_point.x
+                local offset_y = hit_panel_position.y - hit_point.y
+                local offset_z = hit_panel_position.z - hit_point.z
+                
+                -- Set VrGripping (overwrites any existing, no need to clear first)
+                entity:set({
+                    VrGripping = {
+                        distance = distance,
+                        offset_x = offset_x,
+                        offset_y = offset_y,
+                        offset_z = offset_z
+                    }
+                })
+                print(string.format("[VR_POINTER] Started gripping entity %d, distance=%.3f, offset=(%.3f,%.3f,%.3f)", 
+                    gripped_entity, distance, offset_x, offset_y, offset_z))
+            end
+        end
+    end
+    
+    -- Grip release: remove VrGripping (only if we're actually gripping something)
+    if gripped_entity and get_active_grip_just_released(world) then
+        print(string.format("[VR_POINTER] Grip released, gripped_entity=%d", gripped_entity))
+        local entity = world:get_entity(gripped_entity)
+        if entity then
+            entity:set({ VrGripping = {} })
+            print(string.format("[VR_POINTER] Removed VrGripping from entity %d", gripped_entity))
+        else
+            print(string.format("[VR_POINTER] Warning: couldn't find entity %d to remove VrGripping", gripped_entity))
+        end
+        gripped_entity = nil
+    end
+    
     -- If we pressed but didn't hit a panel, queue the press for when we do hit
-    if trigger_state.just_pressed then
+    if trigger_state.just_pressed and not hovered_entity then
         trigger_state.pending_press = true
     end
     
     -- If we released but didn't hit a panel, queue the release for when we do hit
-    if trigger_state.just_released then
+    if trigger_state.just_released and not hovered_entity then
         trigger_state.pending_release = true
         trigger_state.pending_press = false  -- Cancel any pending press
     end
@@ -305,6 +422,8 @@ function VrPointer.update(world, surfaces)
     if trigger_state.pressed then
         trigger_state.pending_release = false
     end
+    
+    return hovered_entity
 end
 
 --- Internal: Raycast against a plane

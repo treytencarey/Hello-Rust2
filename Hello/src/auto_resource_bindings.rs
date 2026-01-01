@@ -71,11 +71,11 @@ pub const DISCOVERED_ASSET_TYPES: &[&str] = &[
     "TiledWorldAsset",
     "StandardTilemapMaterial",
     "GizmoAsset",
-    "GltfSkin",
+    "GltfNode",
     "Gltf",
     "GltfPrimitive",
-    "GltfNode",
     "GltfMesh",
+    "GltfSkin",
     "Image",
     "TextureAtlasLayout",
     "Mesh",
@@ -123,11 +123,11 @@ pub fn register_auto_typed_path_loaders(
         bevy::asset::LoadedFolder,
         bevy::audio::AudioSource,
         bevy::gizmos::GizmoAsset,
-        bevy::gltf::GltfSkin,
+        bevy::gltf::GltfNode,
         bevy::gltf::Gltf,
         bevy::gltf::GltfPrimitive,
-        bevy::gltf::GltfNode,
         bevy::gltf::GltfMesh,
+        bevy::gltf::GltfSkin,
         bevy::prelude::Image,
         bevy::prelude::Mesh,
         bevy::prelude::StandardMaterial,
@@ -646,11 +646,21 @@ pub fn dispatch_systemparam_method(
                         ))
                     })?
             };
+            let closure_struct_1 = bevy::picking::mesh_picking::ray_cast::MeshRayCastSettings {
+                filter: &|_| true,
+                early_exit_test: &|_| false,
+                ..Default::default()
+            };
+            if args.front().is_some() {
+                if let Some(mlua::Value::Table(_)) = args.pop_front() {
+                    bevy :: log :: debug ! ("Struct '{}' has closure fields - using permissive defaults (closure fields can't be customized from Lua)" , "MeshRayCastSettings");
+                }
+            }
             let mut state = bevy::ecs::system::SystemState::<
                 bevy::picking::mesh_picking::ray_cast::MeshRayCast,
             >::new(world);
             let mut param = state.get_mut(world);
-            let result = param.cast_ray(typed_arg0, &Default::default());
+            let result = param.cast_ray(typed_arg0, &closure_struct_1);
             bevy_lua_ecs::reflection::result_to_lua_value(lua, &result)
         }
         ("MeshRayCast", "cast_ray") => {
@@ -735,11 +745,21 @@ pub fn dispatch_systemparam_method(
                         ))
                     })?
             };
+            let closure_struct_1 = bevy::picking::mesh_picking::ray_cast::MeshRayCastSettings {
+                filter: &|_| true,
+                early_exit_test: &|_| false,
+                ..Default::default()
+            };
+            if args.front().is_some() {
+                if let Some(mlua::Value::Table(_)) = args.pop_front() {
+                    bevy :: log :: debug ! ("Struct '{}' has closure fields - using permissive defaults (closure fields can't be customized from Lua)" , "MeshRayCastSettings");
+                }
+            }
             let mut state = bevy::ecs::system::SystemState::<
                 bevy::picking::mesh_picking::ray_cast::MeshRayCast,
             >::new(world);
             let mut param = state.get_mut(world);
-            let result = param.cast_ray(typed_arg0, &Default::default());
+            let result = param.cast_ray(typed_arg0, &closure_struct_1);
             bevy_lua_ecs::reflection::result_to_lua_value(lua, &result)
         }
         ("MeshRayCast", "cast_ray") => {
@@ -824,11 +844,21 @@ pub fn dispatch_systemparam_method(
                         ))
                     })?
             };
+            let closure_struct_1 = bevy::picking::mesh_picking::ray_cast::MeshRayCastSettings {
+                filter: &|_| true,
+                early_exit_test: &|_| false,
+                ..Default::default()
+            };
+            if args.front().is_some() {
+                if let Some(mlua::Value::Table(_)) = args.pop_front() {
+                    bevy :: log :: debug ! ("Struct '{}' has closure fields - using permissive defaults (closure fields can't be customized from Lua)" , "MeshRayCastSettings");
+                }
+            }
             let mut state = bevy::ecs::system::SystemState::<
                 bevy::picking::mesh_picking::ray_cast::MeshRayCast,
             >::new(world);
             let mut param = state.get_mut(world);
-            let result = param.cast_ray(typed_arg0, &Default::default());
+            let result = param.cast_ray(typed_arg0, &closure_struct_1);
             bevy_lua_ecs::reflection::result_to_lua_value(lua, &result)
         }
         _ => Err(mlua::Error::RuntimeError(format!(
@@ -6825,10 +6855,10 @@ fn register_asset_cloners(asset_registry: &bevy_lua_ecs::AssetRegistry) {
     bevy_lua_ecs::register_cloner_if_clone::<bevy::animation::AnimationClip>(&mut cloners);
     bevy_lua_ecs::register_cloner_if_clone::<bevy::audio::AudioSource>(&mut cloners);
     bevy_lua_ecs::register_cloner_if_clone::<bevy::gizmos::GizmoAsset>(&mut cloners);
-    bevy_lua_ecs::register_cloner_if_clone::<bevy::gltf::GltfSkin>(&mut cloners);
-    bevy_lua_ecs::register_cloner_if_clone::<bevy::gltf::GltfPrimitive>(&mut cloners);
     bevy_lua_ecs::register_cloner_if_clone::<bevy::gltf::GltfNode>(&mut cloners);
+    bevy_lua_ecs::register_cloner_if_clone::<bevy::gltf::GltfPrimitive>(&mut cloners);
     bevy_lua_ecs::register_cloner_if_clone::<bevy::gltf::GltfMesh>(&mut cloners);
+    bevy_lua_ecs::register_cloner_if_clone::<bevy::gltf::GltfSkin>(&mut cloners);
     bevy_lua_ecs::register_cloner_if_clone::<bevy::prelude::Image>(&mut cloners);
     bevy_lua_ecs::register_cloner_if_clone::<bevy::prelude::Mesh>(&mut cloners);
     bevy_lua_ecs::register_cloner_if_clone::<bevy::prelude::StandardMaterial>(&mut cloners);
@@ -6889,11 +6919,11 @@ fn register_typed_path_loaders(
         bevy::asset::LoadedFolder,
         bevy::audio::AudioSource,
         bevy::gizmos::GizmoAsset,
-        bevy::gltf::GltfSkin,
+        bevy::gltf::GltfNode,
         bevy::gltf::Gltf,
         bevy::gltf::GltfPrimitive,
-        bevy::gltf::GltfNode,
         bevy::gltf::GltfMesh,
+        bevy::gltf::GltfSkin,
         bevy::prelude::Image,
         bevy::prelude::Mesh,
         bevy::prelude::StandardMaterial,

@@ -970,6 +970,35 @@ struct DiscoveredSystemParamMethod {
     returns_iterator: bool,
 }
 
+/// A field in a discovered struct definition
+#[derive(Debug, Clone, Serialize, Deserialize)]
+struct DiscoveredStructField {
+    /// Field name (e.g., "early_exit_test")
+    name: String,
+    /// Field type as string (e.g., "&'a dyn Fn(Entity) -> bool")
+    type_str: String,
+    /// Whether this field is a closure type (&dyn Fn(...) or similar)
+    is_closure: bool,
+    /// If closure, what does it return? (e.g., "bool")
+    closure_return_type: Option<String>,
+}
+
+/// A discovered struct definition with its fields
+/// Used for constructing types that contain closures from Lua
+#[derive(Debug, Clone, Serialize, Deserialize)]
+struct DiscoveredStructDef {
+    /// Short type name (e.g., "MeshRayCastSettings")
+    type_name: String,
+    /// Full type path (e.g., "bevy::picking::mesh_picking::ray_cast::MeshRayCastSettings")
+    full_path: String,
+    /// Crate name
+    crate_name: String,
+    /// Fields of this struct
+    fields: Vec<DiscoveredStructField>,
+    /// Whether this struct contains any closure fields
+    has_closure_fields: bool,
+}
+
 /// Cache for discovered SystemParam types and methods
 /// Stored as JSON in target directory to speed up subsequent builds
 #[derive(Debug, Serialize, Deserialize)]
@@ -3109,6 +3138,239 @@ fn parse_systemparam_method_params(sig: &syn::Signature) -> Vec<SystemParamMetho
     params
 }
 
+// =============================================================================
+// STRUCT DEFINITION DISCOVERY
+// Scan for struct definitions and their fields to detect closure types
+// =============================================================================
+
+/// Cache for discovered struct definitions
+static DISCOVERED_STRUCTS: std::sync::OnceLock<std::collections::HashMap<String, DiscoveredStructDef>> =
+    std::sync::OnceLock::new();
+
+/// Get discovered struct definitions, initializing cache if needed
+fn get_discovered_structs() -> &'static std::collections::HashMap<String, DiscoveredStructDef> {
+    DISCOVERED_STRUCTS.get_or_init(|| {
+        let structs = discover_struct_definitions();
+        let mut map = std::collections::HashMap::new();
+        for s in structs {
+            map.insert(s.type_name.clone(), s);
+        }
+        map
+    })
+}
+
+/// Check if a type name corresponds to a struct with closure fields
+fn struct_has_closure_fields(type_name: &str) -> bool {
+    // Clean up type name (remove lifetimes, references, etc.)
+    let clean_name = type_name
+        .replace("&", "")
+        .replace("'_", "")
+        .replace("'static", "")
+        .replace("<", "")
+        .replace(">", "")
+        .trim()
+        .to_string();
+    
+    // Extract just the type name (last segment)
+    let base_name = clean_name.split("::").last().unwrap_or(&clean_name);
+    
+    get_discovered_structs()
+        .get(base_name)
+        .map(|s| s.has_closure_fields)
+        .unwrap_or(false)
+}
+
+/// Get the discovered struct definition by type name
+fn get_struct_def(type_name: &str) -> Option<&'static DiscoveredStructDef> {
+    let clean_name = type_name
+        .replace("&", "")
+        .replace("'_", "")
+        .replace("'static", "")
+        .replace("<", "")
+        .replace(">", "")
+        .trim()
+        .to_string();
+    
+    let base_name = clean_name.split("::").last().unwrap_or(&clean_name);
+    get_discovered_structs().get(base_name)
+}
+
+/// Discover struct definitions from bevy crates
+fn discover_struct_definitions() -> Vec<DiscoveredStructDef> {
+    let mut results = Vec::new();
+    
+    println!("cargo:warning=[STRUCT_DISCOVERY] Scanning for struct definitions with closure fields...");
+    
+    let cargo_home = env::var("CARGO_HOME")
+        .or_else(|_| env::var("HOME").map(|h| format!("{}/.cargo", h)))
+        .or_else(|_| env::var("USERPROFILE").map(|h| format!("{}/.cargo", h)))
+        .unwrap_or_default();
+    
+    if cargo_home.is_empty() {
+        return results;
+    }
+    
+    let registry_src = PathBuf::from(&cargo_home).join("registry").join("src");
+    if !registry_src.exists() {
+        return results;
+    }
+    
+    let dependencies = get_bevy_dependencies_from_lock();
+    
+    for index_entry in fs::read_dir(&registry_src).into_iter().flatten().flatten() {
+        let index_dir = index_entry.path();
+        if !index_dir.is_dir() {
+            continue;
+        }
+        
+        for crate_entry in fs::read_dir(&index_dir).into_iter().flatten().flatten() {
+            let crate_dir = crate_entry.path();
+            let dir_name = crate_dir.file_name().and_then(|n| n.to_str()).unwrap_or("");
+            
+            let base_crate = dir_name.split('-').next().unwrap_or(dir_name);
+            if !dependencies.contains_key(base_crate) {
+                continue;
+            }
+            
+            let src_dir = crate_dir.join("src");
+            if src_dir.exists() {
+                scan_directory_for_struct_defs(&src_dir, base_crate, &mut results);
+            }
+        }
+    }
+    
+    // Log structs with closure fields
+    let with_closures: Vec<_> = results.iter().filter(|s| s.has_closure_fields).collect();
+    println!(
+        "cargo:warning=[STRUCT_DISCOVERY] Found {} structs with closure fields",
+        with_closures.len()
+    );
+    for s in &with_closures {
+        println!("cargo:warning=[STRUCT_DISCOVERY]   - {} ({} fields, {} closures)", 
+            s.type_name, 
+            s.fields.len(),
+            s.fields.iter().filter(|f| f.is_closure).count()
+        );
+    }
+    
+    results
+}
+
+/// Scan directory for struct definitions
+fn scan_directory_for_struct_defs(
+    dir: &Path,
+    crate_name: &str,
+    results: &mut Vec<DiscoveredStructDef>,
+) {
+    for entry in fs::read_dir(dir).into_iter().flatten().flatten() {
+        let path = entry.path();
+        
+        if path.is_dir() {
+            scan_directory_for_struct_defs(&path, crate_name, results);
+        } else if path.extension().map_or(false, |ext| ext == "rs") {
+            if let Ok(source) = fs::read_to_string(&path) {
+                parse_struct_defs_from_source(&source, crate_name, &path, results);
+            }
+        }
+    }
+}
+
+/// Parse source file for struct definitions with their fields
+fn parse_struct_defs_from_source(
+    source: &str,
+    crate_name: &str,
+    file_path: &Path,
+    results: &mut Vec<DiscoveredStructDef>,
+) {
+    let Ok(file) = syn::parse_file(source) else {
+        return;
+    };
+    
+    for item in file.items {
+        if let syn::Item::Struct(item_struct) = item {
+            // Must be public
+            if !matches!(item_struct.vis, syn::Visibility::Public(_)) {
+                continue;
+            }
+            
+            // Only named field structs
+            let syn::Fields::Named(ref fields) = item_struct.fields else {
+                continue;
+            };
+            
+            let type_name = item_struct.ident.to_string();
+            
+            // Parse fields
+            let mut struct_fields = Vec::new();
+            let mut has_closure_fields = false;
+            
+            for field in &fields.named {
+                let Some(field_name) = field.ident.as_ref() else {
+                    continue;
+                };
+                
+                let ty = &field.ty;
+                let field_type_str = quote::quote!(#ty).to_string().replace(" ", "");
+                let (is_closure, closure_return_type) = detect_closure_type(&field_type_str);
+                
+                if is_closure {
+                    has_closure_fields = true;
+                }
+                
+                struct_fields.push(DiscoveredStructField {
+                    name: field_name.to_string(),
+                    type_str: field_type_str,
+                    is_closure,
+                    closure_return_type,
+                });
+            }
+            
+            // Only keep structs that have fields (and especially those with closures)
+            if !struct_fields.is_empty() && has_closure_fields {
+                let module_path = build_module_path_from_file(file_path, crate_name);
+                let full_path = if module_path.is_empty() {
+                    format!("{}::{}", crate_name, type_name)
+                } else {
+                    format!("{}::{}::{}", crate_name, module_path, type_name)
+                };
+                
+                let full_path = normalize_bevy_path(&full_path).unwrap_or(full_path);
+                
+                results.push(DiscoveredStructDef {
+                    type_name,
+                    full_path,
+                    crate_name: crate_name.to_string(),
+                    fields: struct_fields,
+                    has_closure_fields,
+                });
+            }
+        }
+    }
+}
+
+/// Detect if a type string represents a closure type
+/// Returns (is_closure, return_type) for patterns like &dyn Fn(Entity) -> bool
+fn detect_closure_type(type_str: &str) -> (bool, Option<String>) {
+    let clean = type_str.replace(" ", "");
+    
+    // Look for patterns like:
+    // &dyn Fn(X) -> Y
+    // &'a dyn Fn(X) -> Y
+    // &dyn FnMut(X) -> Y
+    // &dyn FnOnce(X) -> Y
+    if clean.contains("dyn") && (clean.contains("Fn(") || clean.contains("FnMut(") || clean.contains("FnOnce(")) {
+        // Extract return type if present
+        if let Some(arrow_pos) = clean.find("->") {
+            let return_type = clean[arrow_pos + 2..].trim().to_string();
+            return (true, Some(return_type));
+        }
+        return (true, None);
+    }
+    
+    (false, None)
+}
+
+
 /// Cached set of types that implement Reflect (discovered by scanning sources)
 /// This is populated by discover_reflect_types() and used by is_type_reflectable()
 static REFLECT_TYPES: std::sync::OnceLock<std::collections::HashSet<String>> =
@@ -5092,12 +5354,96 @@ fn write_bindings_to_parent_crate(
             let mut param_names = Vec::new();
             
             for (idx, p) in m.params.iter().enumerate() {
-                // Skip reference params with lifetimes (like &MeshRayCastSettings)
-                if p.is_reference && p.type_str.contains("Settings") {
-                    // Use default for settings types
-                    param_names.push(quote::quote! { &Default::default() });
+                // Check if this is a reference to a struct type with closure fields
+                // This uses generic closure detection, not name-based "Settings" detection
+                if p.is_reference && struct_has_closure_fields(&p.type_str) {
+                    let closure_struct_ident = syn::Ident::new(&format!("closure_struct_{}", idx), proc_macro2::Span::call_site());
+                    
+                    // Clean up the parameter type string for the type path
+                    let param_type_str = p.type_str.replace("'_", "'static").replace("& ", "").replace("&", "");
+                    let type_name_cleaned = param_type_str.trim();
+                    
+                    // Get the discovered struct definition
+                    let Some(struct_def) = get_struct_def(&p.type_str) else {
+                        println!("cargo:warning=      ⚠ Skipping {}::{}: can't find struct def for '{}'", 
+                            param_name, method_name, type_name_cleaned);
+                        return None;
+                    };
+                    
+                    // Try to resolve the type path
+                    let Some(full_type_path) = resolve_short_type_to_full_path(type_name_cleaned) else {
+                        println!("cargo:warning=      ⚠ Skipping {}::{}: can't resolve type '{}'", 
+                            param_name, method_name, type_name_cleaned);
+                        return None;
+                    };
+                    
+                    let Ok(param_type_path) = syn::parse_str::<syn::Path>(&full_type_path) else {
+                        println!("cargo:warning=      ⚠ Skipping {}::{}: can't parse type '{}'", 
+                            param_name, method_name, full_type_path);
+                        return None;
+                    };
+                    
+                    // Generate struct field initializers ONLY for closure fields
+                    // Use struct update syntax ..Default::default() for all other fields
+                    let mut closure_field_inits = Vec::new();
+                    
+                    for field in &struct_def.fields {
+                        // Only generate initializers for closure fields
+                        if field.is_closure {
+                            let field_ident = syn::Ident::new(&field.name, proc_macro2::Span::call_site());
+                            let return_type = field.closure_return_type.as_deref().unwrap_or("").trim();
+                            
+                            // Debug: show what we're detecting
+                            println!("cargo:warning=        [CLOSURE] {}.{}: return_type='{}' (is_bool={})", 
+                                struct_def.type_name, field.name, return_type, return_type == "bool");
+                            
+                            if return_type == "bool" {
+                                // For bool-returning closures, use permissive default
+                                // - "filter" -> true (include all entities)
+                                // - Other (like "early_exit") -> false (don't filter, don't exit early)
+                                if field.name.contains("filter") {
+                                    closure_field_inits.push(quote::quote! {
+                                        #field_ident: &|_| true
+                                    });
+                                } else {
+                                    closure_field_inits.push(quote::quote! {
+                                        #field_ident: &|_| false
+                                    });
+                                }
+                            }
+                            // Skip non-bool closures - they'll use Default::default()
+                        }
+                        // Non-closure fields use ..Default::default() - don't generate anything
+                    }
+                    
+                    let struct_type_name = &struct_def.type_name;
+                    
+                    // Generate the struct initialization using struct update syntax
+                    // Only override closure fields, let Default handle everything else
+                    param_extractions.push(quote::quote! {
+                        // Construct struct with closure fields using permissive defaults
+                        // Non-closure fields use the struct's own Default implementation
+                        let #closure_struct_ident = #param_type_path {
+                            #(#closure_field_inits,)*
+                            ..Default::default()
+                        };
+                        
+                        // Consume the Lua arg if provided (closure customization not supported from Lua)
+                        if args.front().is_some() {
+                            if let Some(mlua::Value::Table(_)) = args.pop_front() {
+                                bevy::log::debug!(
+                                    "Struct '{}' has closure fields - using permissive defaults (closure fields can't be customized from Lua)",
+                                    #struct_type_name
+                                );
+                            }
+                        }
+                    });
+                    
+                    param_names.push(quote::quote! { &#closure_struct_ident });
                     continue;
                 }
+                
+                // Regular extraction for other params
                 
                 // Clean up the parameter type string
                 let param_type_str = p.type_str.replace("'_", "'static").replace("& ", "").replace("&", "");

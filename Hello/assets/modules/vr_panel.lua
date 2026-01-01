@@ -5,7 +5,7 @@
 --   - Auto-sizing from ComputedNode
 --   - Auto-resize when UI size changes
 --   - Grip-to-move support
---   - VR pointer integration
+--   - VrPanelMarker component for automatic VR pointer detection
 --
 -- Usage:
 --   local VrPanel = require("modules/vr_panel.lua")
@@ -19,13 +19,43 @@
 --   -- In update system:
 --   panel:update(world)
 --   
---   -- For VR pointer:
---   VrPointer.update(world, {panel:get_surface()})
+--   -- VrPointer.update(world) will auto-detect this panel via VrPanelMarker
 
 local VrInput = require("modules/vr_input.lua")
 
 local VrPanel = {}
 VrPanel.__index = VrPanel
+
+-- Lazy-loaded to avoid circular dependency
+local VrUI = nil
+
+--- Get the active pointer hand ("left" or "right")
+local function get_active_hand()
+    if not VrUI then
+        VrUI = require("modules/vr_ui.lua")
+    end
+    return VrUI.get_pointer_hand() or "right"
+end
+
+--- Get active controller position based on which hand is pointing
+local function get_active_controller_position(world)
+    local hand = get_active_hand()
+    if hand == "left" then
+        return VrInput.get_left_position(world)
+    else
+        return VrInput.get_right_position(world)
+    end
+end
+
+--- Check if active grip is currently pressed
+local function is_active_grip_pressed(world)
+    local hand = get_active_hand()
+    if hand == "left" then
+        return VrInput.is_left_grip_pressed(world)
+    else
+        return VrInput.is_right_grip_pressed(world)
+    end
+end
 
 -- Conversion factor: pixels to meters
 local PIXELS_TO_METERS = 0.0008  -- 0.8mm per pixel for comfortable VR reading
@@ -66,10 +96,6 @@ function VrPanel.wrap(ui_entity, options)
     self.rtt_camera = nil
     self.rtt_image = nil
     self.panel_mesh = nil
-    
-    -- Grip-to-move state
-    self.is_gripping = false
-    self.grip_offset = nil
     
     -- If initial_size is provided, spawn infrastructure immediately
     if options.initial_size then
@@ -148,7 +174,12 @@ function VrPanel:_spawn_infrastructure(width, height)
             scale = { x = 1, y = 1, z = 1 }
         },
         Visibility = initial_visibility,
-        VrPanelMarker = { panel_id = self.panel_id }
+        VrPanelMarker = {
+            panel_id = self.panel_id,
+            texture_width = width,
+            texture_height = height,
+            rtt_image = self.rtt_image
+        }
     })
     self.panel_mesh = panel:id()
     
@@ -246,7 +277,12 @@ function VrPanel:_resize(world, new_width, new_height)
             scale = { x = 1, y = 1, z = 1 }
         },
         Visibility = "Visible",
-        VrPanelMarker = { panel_id = self.panel_id }
+        VrPanelMarker = {
+            panel_id = self.panel_id,
+            texture_width = new_width,
+            texture_height = new_height,
+            rtt_image = self.rtt_image
+        }
     })
     self.panel_mesh = panel:id()
     
@@ -378,45 +414,96 @@ function VrPanel:update(world)
         return  -- Don't process other updates on looking_at frame
     end
     
-    -- Grip-to-move logic
-    local left_pos = VrInput.get_left_position(world)
-    
-    -- Handle grip start
-    if VrInput.is_left_grip_just_pressed(world) then
-        if left_pos and self.position then
-            self.grip_offset = {
-                x = self.position.x - left_pos.x,
-                y = self.position.y - left_pos.y,
-                z = self.position.z - left_pos.z
-            }
-            self.is_gripping = true
-        end
-    end
-    
-    -- Handle grip release
-    if VrInput.is_left_grip_just_released(world) then
-        self.is_gripping = false
-        self.grip_offset = nil
-    end
-    
-    -- While gripping: move panel to follow hand
-    if self.is_gripping and left_pos and self.grip_offset then
-        local new_pos = {
-            x = left_pos.x + self.grip_offset.x,
-            y = left_pos.y + self.grip_offset.y,
-            z = left_pos.z + self.grip_offset.z
-        }
-        self.position = new_pos
-        
+    -- Grip-to-move: react to VrGripping component (set by VrPointer)
+    -- Only process if grip button is actually pressed (prevents lag from queued component removal)
+    -- Note: We don't check VrHovered here because the panel moves during gripping,
+    -- so we'd stop hitting it. VrGripping is only added when you start gripping while hovered.
+    if self.panel_mesh and is_active_grip_pressed(world) then
         local entity = world:get_entity(self.panel_mesh)
         if entity then
-            entity:set({
-                Transform = {
-                    translation = new_pos,
-                    rotation = self.rotation,
-                    scale = { x = 1, y = 1, z = 1 }
-                }
-            })
+            local gripping = entity:get("VrGripping")
+            
+            -- Process gripping if component exists with valid offset data
+            -- (offset is populated by VrPointer when grip starts)
+            if gripping and gripping.distance and gripping.offset_x ~= nil then
+                local grip_pos = get_active_controller_position(world)
+                
+                -- Get controller forward direction to project ray
+                local hand = get_active_hand()
+                local grip_forward
+                if hand == "left" then
+                    grip_forward = VrInput.get_left_forward(world)
+                else
+                    grip_forward = VrInput.get_right_forward(world)
+                end
+                
+                if grip_pos and grip_forward then
+                    -- Project ray forward by stored distance to get hit point
+                    local hit_point_x = grip_pos.x + grip_forward.x * gripping.distance
+                    local hit_point_y = grip_pos.y + grip_forward.y * gripping.distance
+                    local hit_point_z = grip_pos.z + grip_forward.z * gripping.distance
+                    
+                    -- Apply offset from hit point to panel center
+                    local new_pos = {
+                        x = hit_point_x + gripping.offset_x,
+                        y = hit_point_y + gripping.offset_y,
+                        z = hit_point_z + gripping.offset_z
+                    }
+                    self.position = new_pos
+                    
+                    -- Set translation first
+                    entity:set({
+                        Transform = {
+                            translation = new_pos
+                        }
+                    })
+                    
+                    -- Then apply looking_at for rotation
+                    local cameras = world:query({"GlobalTransform", "Camera3d"}, nil)
+                    if cameras and #cameras > 0 then
+                        local camera_transform = cameras[1]:get("GlobalTransform")
+                        if camera_transform and camera_transform._0 and camera_transform._0.translation then
+                            local camera_pos = camera_transform._0.translation
+                            
+                            -- Direction from panel to camera (full 3D for vertical tilt)
+                            local to_camera = {
+                                x = camera_pos.x - new_pos.x,
+                                y = camera_pos.y - new_pos.y,
+                                z = camera_pos.z - new_pos.z
+                            }
+                            local len = math.sqrt(to_camera.x * to_camera.x + to_camera.y * to_camera.y + to_camera.z * to_camera.z)
+                            if len > 0.001 then
+                                to_camera.x = to_camera.x / len
+                                to_camera.y = to_camera.y / len
+                                to_camera.z = to_camera.z / len
+                            else
+                                to_camera = { x = 0, y = 0, z = 1 }
+                            end
+                            
+                            -- Target is above panel (makes -Z point up, +Y aligns with to_camera)
+                            local looking_at_target = {
+                                x = new_pos.x,
+                                y = new_pos.y + 1,
+                                z = new_pos.z
+                            }
+                            
+                            world:call_component_method(
+                                self.panel_mesh,
+                                "Transform",
+                                "looking_at",
+                                looking_at_target,
+                                to_camera
+                            )
+                            
+                            -- Cache the rotation
+                            local transform = entity:get("Transform")
+                            if transform and transform.rotation then
+                                self.rotation = transform.rotation
+                            end
+                        end
+                    end
+                end
+            end
         end
     end
 end

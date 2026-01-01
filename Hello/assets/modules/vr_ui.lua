@@ -425,15 +425,13 @@ end)
 
 -- VR Pointer system (First schedule for PointerInput processing)
 register_system("First", function(world)
-    -- Skip if VR not available or no panels
+    -- Skip if VR not available
     if not is_vr_available then
         return
     end
     
-    local surfaces = get_all_surfaces()
-    if #surfaces > 0 then
-        VrPointer.update(world, surfaces)
-    end
+    -- Update VR pointer (auto-detects panels via VrPanelMarker)
+    VrPointer.update(world)
 end)
 
 print("[VR_UI] Module loaded - will auto-wrap UI nodes when VR is detected")
