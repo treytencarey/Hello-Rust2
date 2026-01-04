@@ -15,6 +15,12 @@ pub struct LuaCustomComponents {
     pub components: HashMap<String, Arc<LuaRegistryKey>>,
 }
 
+/// Type for non-reflected component serializer callback
+/// Takes entity ref and component name, returns serialized string or None if component not found
+pub type NonReflectedSerializer = Arc<
+    dyn Fn(&bevy::ecs::world::EntityRef, &str) -> Result<Option<String>, String> + Send + Sync,
+>;
+
 /// Registry of component handlers using reflection
 #[derive(Resource)]
 pub struct ComponentRegistry {
@@ -23,7 +29,10 @@ pub struct ComponentRegistry {
     asset_registry: Option<crate::asset_loading::AssetRegistry>,
     /// Map of non-reflected component names to their TypeIds (for components that don't implement Reflect)
     non_reflected_components: HashMap<String, std::any::TypeId>,
+    /// Optional serializer for non-reflected components (set by generated code)
+    non_reflected_serializer: Option<NonReflectedSerializer>,
 }
+
 
 impl ComponentRegistry {
     /// Create registry from app's type registry
@@ -33,7 +42,9 @@ impl ComponentRegistry {
             type_registry: type_registry.clone(),
             asset_registry: None,
             non_reflected_components: HashMap::new(),
+            non_reflected_serializer: None,
         };
+
 
         // Auto-discover and register all components
         registry.discover_components();
@@ -125,6 +136,33 @@ impl ComponentRegistry {
     /// Get access to the type registry
     pub fn type_registry(&self) -> &AppTypeRegistry {
         &self.type_registry
+    }
+
+    /// Set the non-reflected component serializer callback
+    /// This is called by generated code to provide custom serialization for enum components
+    pub fn set_non_reflected_serializer(&mut self, serializer: NonReflectedSerializer) {
+        self.non_reflected_serializer = Some(serializer);
+    }
+
+    /// Serialize a non-reflected component using the registered callback
+    /// Returns Some(serialized_string) if component exists and serializer is set, None otherwise
+    pub fn serialize_non_reflected(
+        &self,
+        entity_ref: &bevy::ecs::world::EntityRef,
+        name: &str,
+    ) -> Option<String> {
+        if let Some(ref serializer) = self.non_reflected_serializer {
+            match serializer(entity_ref, name) {
+                Ok(Some(s)) => Some(s),
+                Ok(None) => None,
+                Err(e) => {
+                    debug!("[NON_REFLECTED] Serialization error for {}: {}", name, e);
+                    None
+                }
+            }
+        } else {
+            None
+        }
     }
 
     /// Register an entity wrapper component (newtype around Entity)

@@ -41,6 +41,13 @@ constructors = [
 [package.metadata.lua_bitflags]
 TextureUsages = ["COPY_SRC", "COPY_DST", "TEXTURE_BINDING", "STORAGE_BINDING", "RENDER_ATTACHMENT"]
 
+# Method types for Lua binding generation
+# component_types: Methods on these Component types are exposed via call_component_method
+# static_types: Static methods on these types are exposed via call_static_method
+[package.metadata.lua_methods]
+component_types = ["Transform", "GlobalTransform"]
+static_types = ["Quat", "Vec3"]
+
 [features]
 # Unified default for demos - maximizes build cache reuse
 default = ["all-plugins"]

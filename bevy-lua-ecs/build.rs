@@ -28,21 +28,24 @@ fn main() {
             
             // Check OUT_DIR/auto_bindings.rs first (our own output)
             let out_bindings = build_dir.join("auto_bindings.rs");
-            if !out_bindings.exists() {
+            let needs_regen = if !out_bindings.exists() {
                 println!("cargo:warning=Build script: OUT_DIR/auto_bindings.rs missing, forcing regeneration");
-                // Continue to regenerate
+                true
             } else if let Some(parent_manifest) = find_parent_manifest(&build_dir) {
                 // Also check parent's auto_resource_bindings.rs
                 let parent_src_dir = parent_manifest.parent().unwrap().join("src");
                 let bindings_file = parent_src_dir.join("auto_resource_bindings.rs");
                 if !bindings_file.exists() {
                     println!("cargo:warning=Build script: Parent auto_resource_bindings.rs missing, forcing regeneration");
-                    // Continue to regenerate
+                    true
                 } else {
-                    println!("cargo:warning=Build script: Features unchanged, skipping regeneration");
-                    return;
+                    false
                 }
             } else {
+                false
+            };
+            
+            if !needs_regen {
                 println!("cargo:warning=Build script: Features unchanged, skipping regeneration");
                 return;
             }
@@ -51,6 +54,7 @@ fn main() {
             return;
         }
     }
+
     
     println!("cargo:warning=Build script: PKG={}, regenerating bindings", pkg_name);
 
@@ -355,6 +359,9 @@ fn generate_bindings_for_manifest(manifest_path: &Path) {
         }
     }
 
+    // Parse lua_methods configuration from [package.metadata.lua_methods]
+    let lua_methods_config = get_lua_methods_from_metadata(&manifest);
+
     // Extract the package name from the manifest
     let parent_crate_name = manifest
         .get("package")
@@ -368,7 +375,7 @@ fn generate_bindings_for_manifest(manifest_path: &Path) {
     write_bindings_to_parent_crate(
         all_bindings,
         all_constructor_bindings,
-        entity_wrapper_names,
+        discovered_entity_wrappers, // Pass full wrappers for compile-time registration
         asset_type_names,
         discovered_assets,
         discovered_constructors,
@@ -377,9 +384,11 @@ fn generate_bindings_for_manifest(manifest_path: &Path) {
         discovered_systemparams,
         discovered_systemparam_methods,
         discovered_component_methods,
+        &lua_methods_config,
         &parent_src_dir,
         &parent_crate_name,
     );
+
 
     //Write events to our own auto_bindings.rs
     write_empty_bindings_with_events(event_types);
@@ -520,6 +529,66 @@ fn get_bitflags_from_metadata(manifest: &toml::Value) -> Vec<BitflagsSpec> {
             }
         })
         .collect()
+}
+
+/// Configuration for Lua method bindings from [package.metadata.lua_methods]
+#[derive(Debug, Clone, Default)]
+struct LuaMethodsConfig {
+    /// Component types to expose methods for (e.g., Transform, GlobalTransform)
+    component_types: Vec<String>,
+    /// Static types to expose static methods for (e.g., Quat, Vec3)
+    static_types: Vec<String>,
+}
+
+/// Parse lua_methods configuration from [package.metadata.lua_methods] in Cargo.toml
+/// Format:
+/// [package.metadata.lua_methods]
+/// component_types = ["Transform", "GlobalTransform"]
+/// static_types = ["Quat", "Vec3"]
+fn get_lua_methods_from_metadata(manifest: &toml::Value) -> LuaMethodsConfig {
+    let lua_methods = manifest
+        .get("package")
+        .and_then(|p| p.get("metadata"))
+        .and_then(|m| m.get("lua_methods"));
+
+    let Some(methods) = lua_methods else {
+        // Return defaults if not configured
+        return LuaMethodsConfig {
+            component_types: vec!["Transform".into(), "GlobalTransform".into()],
+            static_types: vec![],
+        };
+    };
+
+    let component_types = methods
+        .get("component_types")
+        .and_then(|t| t.as_array())
+        .map(|arr| {
+            arr.iter()
+                .filter_map(|v| v.as_str().map(String::from))
+                .collect()
+        })
+        .unwrap_or_else(|| vec!["Transform".into(), "GlobalTransform".into()]);
+
+    let static_types: Vec<String> = methods
+        .get("static_types")
+        .and_then(|t| t.as_array())
+        .map(|arr| {
+            arr.iter()
+                .filter_map(|v| v.as_str().map(String::from))
+                .collect()
+        })
+        .unwrap_or_default();
+
+    println!(
+        "cargo:warning=  ✓ Found lua_methods config: {} component types, {} static types",
+        component_types.len(),
+        static_types.len()
+    );
+
+    LuaMethodsConfig {
+        component_types,
+        static_types,
+    }
 }
 
 fn parse_type_spec(full_path: &str) -> Option<TypeSpec> {
@@ -779,7 +848,7 @@ impl SourceScanner {
         results
     }
     
-    /// Parse source code and find structs with the specified derive
+    /// Parse source code and find structs/enums with the specified derive
     fn parse_source_for_derives(
         &self,
         source: &str,
@@ -793,62 +862,65 @@ impl SourceScanner {
         let Ok(syntax_tree) = syn::parse_file(source) else { return results };
         
         for item in &syntax_tree.items {
-            if let Item::Struct(item_struct) = item {
-                // Check if struct has the specified derive
-                let has_derive = item_struct.attrs.iter().any(|attr| {
-                    if attr.path().is_ident("derive") {
-                        if let Ok(meta) = attr.meta.require_list() {
-                            let tokens = meta.tokens.to_string();
-                            return tokens.contains(derive_name);
-                        }
+            // Extract type name and attributes from either struct or enum
+            let (type_name, attrs) = match item {
+                Item::Struct(item_struct) => (item_struct.ident.to_string(), &item_struct.attrs),
+                Item::Enum(item_enum) => (item_enum.ident.to_string(), &item_enum.attrs),
+                _ => continue,
+            };
+            
+            // Check if the item has the specified derive
+            let has_derive = attrs.iter().any(|attr| {
+                if attr.path().is_ident("derive") {
+                    if let Ok(meta) = attr.meta.require_list() {
+                        let tokens = meta.tokens.to_string();
+                        return tokens.contains(derive_name);
                     }
-                    false
-                });
-                
-                if has_derive {
-                    let type_name = item_struct.ident.to_string();
-                    
-                    // Build full path
-                    let full_path = if module_name == "lib" || module_name == "main" {
-                        format!("{}::{}", crate_name, type_name)
-                    } else {
-                        format!("{}::{}::{}", crate_name, module_name, type_name)
-                    };
-                    
-                    // Build bevy path (for bevy crates, replace bevy_X with bevy::X)
-                    let bevy_path = if is_bevy_crate && crate_name.starts_with("bevy_") {
-                        let bevy_module = crate_name.strip_prefix("bevy_").unwrap_or(crate_name);
-                        if module_name == "lib" || module_name == "main" {
-                            format!("bevy::{}::{}", bevy_module, type_name)
-                        } else {
-                            format!("bevy::{}::{}::{}", bevy_module, module_name, type_name)
-                        }
-                    } else {
-                        full_path.clone()
-                    };
-                    
-                    // Build rust path for code generation (local crate uses crate::)
-                    let rust_path = if !is_bevy_crate {
-                        // Local crate types use crate:: prefix instead of crate name
-                        if module_name == "lib" || module_name == "main" {
-                            format!("crate::{}", type_name)
-                        } else {
-                            format!("crate::{}::{}", module_name, type_name)
-                        }
-                    } else {
-                        bevy_path.clone()
-                    };
-                    
-                    results.push(DiscoveredDeriveType {
-                        type_name,
-                        full_path,
-                        bevy_path,
-                        rust_path,
-                        crate_name: crate_name.to_string(),
-                        module_name: module_name.to_string(),
-                        is_local_crate: !is_bevy_crate,
-                    });
                 }
+                false
+            });
+            
+            if has_derive {
+                // Build full path
+                let full_path = if module_name == "lib" || module_name == "main" {
+                    format!("{}::{}", crate_name, type_name)
+                } else {
+                    format!("{}::{}::{}", crate_name, module_name, type_name)
+                };
+                
+                // Build bevy path (for bevy crates, replace bevy_X with bevy::X)
+                let bevy_path = if is_bevy_crate && crate_name.starts_with("bevy_") {
+                    let bevy_module = crate_name.strip_prefix("bevy_").unwrap_or(crate_name);
+                    if module_name == "lib" || module_name == "main" {
+                        format!("bevy::{}::{}", bevy_module, type_name)
+                    } else {
+                        format!("bevy::{}::{}::{}", bevy_module, module_name, type_name)
+                    }
+                } else {
+                    full_path.clone()
+                };
+                
+                // Build rust path for code generation (local crate uses crate::)
+                let rust_path = if !is_bevy_crate {
+                    // Local crate types use crate:: prefix instead of crate name
+                    if module_name == "lib" || module_name == "main" {
+                        format!("crate::{}", type_name)
+                    } else {
+                        format!("crate::{}::{}", module_name, type_name)
+                    }
+                } else {
+                    bevy_path.clone()
+                };
+                
+                results.push(DiscoveredDeriveType {
+                    type_name,
+                    full_path,
+                    bevy_path,
+                    rust_path,
+                    crate_name: crate_name.to_string(),
+                    module_name: module_name.to_string(),
+                    is_local_crate: !is_bevy_crate,
+                });
             }
         }
         
@@ -856,7 +928,626 @@ impl SourceScanner {
     }
 }
 
-/// Get the cargo home directory
+// =============================================================================
+// PUBLIC API SCANNER
+// Scans crates by following pub mod chains from lib.rs to discover only
+// types that are part of the public API, avoiding internal private modules.
+// =============================================================================
+
+/// Result of scanning a crate's public API
+#[derive(Debug, Clone)]
+struct PublicModule {
+    /// Module path relative to crate root (e.g., "hands" or "spaces::components")
+    module_path: String,
+    /// The source file path
+    file_path: PathBuf,
+}
+
+/// Complete public API scan result for a crate
+#[derive(Debug, Clone)]
+struct PublicApiScan {
+    /// All public modules (for discovering types)
+    modules: Vec<PublicModule>,
+    /// Re-export map: type_name -> shortest_public_path
+    /// Built from `pub use` statements in lib.rs and public modules
+    re_exports: std::collections::HashMap<String, String>,
+}
+
+/// Scan a crate's public modules by following pub mod chains from lib.rs
+/// Also collects pub use re-exports to find shortest paths
+/// Respects feature flags - only scans modules that are behind enabled features
+fn scan_public_api(crate_root: &Path, crate_name: &str) -> PublicApiScan {
+    // Get enabled features for this crate from our Cargo.toml
+    let enabled_features = get_enabled_features_for_crate(crate_name);
+    
+    let lib_path = crate_root.join("src").join("lib.rs");
+    if !lib_path.exists() {
+        return PublicApiScan {
+            modules: Vec::new(),
+            re_exports: std::collections::HashMap::new(),
+        };
+    }
+    
+    let mut modules = Vec::new();
+    let mut re_exports = std::collections::HashMap::new();
+    
+    // Add lib.rs itself as the root module
+    modules.push(PublicModule {
+        module_path: String::new(),
+        file_path: lib_path.clone(),
+    });
+    
+    // Parse lib.rs for pub use re-exports and pub mod declarations
+    if let Ok(content) = fs::read_to_string(&lib_path) {
+        // Collect re-exports from lib.rs (these are the shortest paths)
+        scan_pub_use_exports(&content, crate_name, "", &mut re_exports);
+        
+        // Recursively scan public modules WITH FEATURE AWARENESS
+        scan_public_mods_recursive_with_features(
+            &crate_root.join("src"),
+            &content,
+            "",
+            &enabled_features,
+            &mut modules,
+        );
+        
+        // Also collect re-exports from public modules (but don't overwrite shorter paths)
+        for module in &modules {
+            if let Ok(mod_content) = fs::read_to_string(&module.file_path) {
+                scan_pub_use_exports(&mod_content, crate_name, &module.module_path, &mut re_exports);
+            }
+        }
+        
+        // PRELUDE FALLBACK: If crate has a prelude module, assume all types can be 
+        // accessed via prelude (handles glob re-exports like `pub use super::*`)
+        if has_prelude_module(crate_root) {
+            add_prelude_exports_for_all_types(&modules, crate_name, &mut re_exports);
+        }
+    }
+    
+    PublicApiScan { modules, re_exports }
+}
+
+
+/// Get enabled features for a crate by parsing Cargo.toml dependency specifications
+fn get_enabled_features_for_crate(crate_name: &str) -> std::collections::HashSet<String> {
+    use std::sync::OnceLock;
+    
+    // Cache the feature map for all crates
+    static CACHED_FEATURES: OnceLock<std::collections::HashMap<String, std::collections::HashSet<String>>> = OnceLock::new();
+    
+    let all_features = CACHED_FEATURES.get_or_init(|| {
+        let mut features_map: std::collections::HashMap<String, std::collections::HashSet<String>> = std::collections::HashMap::new();
+        
+        // Find all Cargo.toml files in workspace
+        let cargo_paths = [
+            env::var("CARGO_MANIFEST_DIR").ok().map(PathBuf::from),
+            env::var("CARGO_MANIFEST_DIR").ok().map(|p| PathBuf::from(p).parent().map(|p| p.to_path_buf())).flatten(),
+        ];
+        
+        for cargo_path in cargo_paths.into_iter().flatten() {
+            let cargo_toml = cargo_path.join("Cargo.toml");
+            if let Ok(content) = fs::read_to_string(&cargo_toml) {
+                parse_dependency_features(&content, &mut features_map);
+            }
+        }
+        
+        features_map
+    });
+    
+    all_features.get(crate_name).cloned().unwrap_or_default()
+}
+
+/// Parse Cargo.toml to extract enabled features for each dependency
+fn parse_dependency_features(
+    content: &str,
+    features_map: &mut std::collections::HashMap<String, std::collections::HashSet<String>>,
+) {
+    // Parse TOML
+    let manifest: toml::Value = match toml::from_str(content) {
+        Ok(v) => v,
+        Err(_) => return,
+    };
+    
+    // Check [dependencies] table
+    if let Some(deps) = manifest.get("dependencies").and_then(|d| d.as_table()) {
+        for (name, value) in deps {
+            let mut features = std::collections::HashSet::new();
+            
+            // Inline table with features: { version = "x", features = ["a", "b"] }
+            if let Some(table) = value.as_table() {
+                if let Some(feat_array) = table.get("features").and_then(|f| f.as_array()) {
+                    for feat in feat_array {
+                        if let Some(f) = feat.as_str() {
+                            features.insert(f.to_string());
+                        }
+                    }
+                }
+            }
+            
+            if !features.is_empty() {
+                features_map.entry(name.clone())
+                    .or_default()
+                    .extend(features);
+            }
+        }
+    }
+    
+    // Also check [target.'cfg(...)'.dependencies] sections
+    if let Some(targets) = manifest.get("target").and_then(|t| t.as_table()) {
+        for (_target_name, target_value) in targets {
+            if let Some(deps) = target_value.get("dependencies").and_then(|d| d.as_table()) {
+                for (name, value) in deps {
+                    let mut features = std::collections::HashSet::new();
+                    
+                    if let Some(table) = value.as_table() {
+                        if let Some(feat_array) = table.get("features").and_then(|f| f.as_array()) {
+                            for feat in feat_array {
+                                if let Some(f) = feat.as_str() {
+                                    features.insert(f.to_string());
+                                }
+                            }
+                        }
+                    }
+                    
+                    if !features.is_empty() {
+                        features_map.entry(name.clone())
+                            .or_default()
+                            .extend(features);
+                    }
+                }
+            }
+        }
+    }
+}
+
+
+/// Check if a crate has a public prelude module
+/// Checks both file-based (prelude.rs) and inline (pub mod prelude { ... }) preludes
+fn has_prelude_module(crate_root: &Path) -> bool {
+    let lib_path = crate_root.join("src").join("lib.rs");
+    if let Ok(content) = fs::read_to_string(&lib_path) {
+        // Check for `pub mod prelude` (either inline or file-based)
+        return content.contains("pub mod prelude");
+    }
+    false
+}
+
+/// Check if a specific type is exported in a bevy crate's prelude
+/// Scans the crate's prelude.rs or lib.rs prelude module for pub use statements
+fn type_in_crate_prelude(crate_name: &str, type_name: &str) -> bool {
+    // Get cargo home
+    let cargo_home = env::var("CARGO_HOME")
+        .or_else(|_| env::var("HOME").map(|h| format!("{}/.cargo", h)))
+        .or_else(|_| env::var("USERPROFILE").map(|h| format!("{}/.cargo", h)))
+        .unwrap_or_default();
+
+    if cargo_home.is_empty() {
+        return false;
+    }
+
+    let registry_src = PathBuf::from(&cargo_home).join("registry/src");
+    if !registry_src.exists() {
+        return false;
+    }
+
+    // Find the crate directory (e.g., bevy_text-0.17.3)
+    for index_entry in fs::read_dir(&registry_src).into_iter().flatten().flatten() {
+        let index_dir = index_entry.path();
+        if !index_dir.is_dir() { continue; }
+        
+        for crate_entry in fs::read_dir(&index_dir).into_iter().flatten().flatten() {
+            let crate_dir = crate_entry.path();
+            let dir_name = crate_dir.file_name().and_then(|n| n.to_str()).unwrap_or("");
+            
+            // Match crate name (e.g., "bevy_text-0.17.3" starts with "bevy_text-")
+            if !dir_name.starts_with(&format!("{}-", crate_name)) {
+                continue;
+            }
+            
+            // Check prelude.rs first
+            let prelude_path = crate_dir.join("src/prelude.rs");
+            if prelude_path.exists() {
+                if let Ok(content) = fs::read_to_string(&prelude_path) {
+                    if prelude_exports_type(&content, type_name) {
+                        return true;
+                    }
+                }
+            }
+            
+            // Also check lib.rs for inline prelude module
+            let lib_path = crate_dir.join("src/lib.rs");
+            if lib_path.exists() {
+                if let Ok(content) = fs::read_to_string(&lib_path) {
+                    // Extract inline prelude module content if it exists
+                    if let Some(prelude_content) = extract_inline_prelude(&content) {
+                        if prelude_exports_type(&prelude_content, type_name) {
+                            return true;
+                        }
+                    }
+                }
+            }
+        }
+    }
+    
+    false
+}
+
+/// Check if prelude content exports a specific type via pub use
+fn prelude_exports_type(content: &str, type_name: &str) -> bool {
+    // Parse using syn for accurate pub use detection
+    if let Ok(file) = syn::parse_file(content) {
+        for item in &file.items {
+            if let syn::Item::Use(item_use) = item {
+                if matches!(item_use.vis, syn::Visibility::Public(_)) {
+                    if use_tree_contains_type(&item_use.tree, type_name) {
+                        return true;
+                    }
+                }
+            }
+        }
+    }
+    
+    // Fallback: simple regex-like check for `pub use ...Type` or `pub use ...{Type, ...}`
+    // This catches cases where syn parsing fails
+    let patterns = [
+        format!("::{};", type_name),
+        format!("::{},", type_name),
+        format!("use {};", type_name),
+        format!(" {} ", type_name),
+    ];
+    
+    for pattern in &patterns {
+        if content.contains(pattern.as_str()) {
+            return true;
+        }
+    }
+
+    
+    false
+}
+
+/// Check if a use tree contains a specific type name
+fn use_tree_contains_type(tree: &syn::UseTree, type_name: &str) -> bool {
+    match tree {
+        syn::UseTree::Name(name) => name.ident == type_name,
+        syn::UseTree::Rename(rename) => rename.rename == type_name || rename.ident == type_name,
+        syn::UseTree::Glob(_) => false, // Can't determine from glob
+        syn::UseTree::Path(path) => use_tree_contains_type(&path.tree, type_name),
+        syn::UseTree::Group(group) => group.items.iter().any(|item| use_tree_contains_type(item, type_name)),
+    }
+}
+
+/// Extract inline prelude module content from lib.rs
+fn extract_inline_prelude(content: &str) -> Option<String> {
+    // Look for `pub mod prelude { ... }`
+    if let Some(start) = content.find("pub mod prelude") {
+        let after_mod = &content[start..];
+        if let Some(brace_start) = after_mod.find('{') {
+            let mut depth = 1;
+            let mut end = brace_start + 1;
+            for (i, c) in after_mod[brace_start + 1..].char_indices() {
+                match c {
+                    '{' => depth += 1,
+                    '}' => {
+                        depth -= 1;
+                        if depth == 0 {
+                            end = brace_start + 1 + i;
+                            break;
+                        }
+                    }
+                    _ => {}
+                }
+            }
+            return Some(after_mod[brace_start + 1..end].to_string());
+        }
+    }
+    None
+}
+
+/// Auto-add prelude exports for all discovered types if crate has prelude
+fn add_prelude_exports_for_all_types(
+    modules: &[PublicModule],
+    crate_name: &str,
+    re_exports: &mut std::collections::HashMap<String, String>,
+) {
+    // Scan all discovered types and add them with prelude path
+    for module in modules {
+        if let Ok(content) = fs::read_to_string(&module.file_path) {
+            let types = parse_source_for_derive_types(&content, "Component");
+            for (type_name, _has_debug) in types {
+                // Use prelude path - it's the canonical short path for external crates
+                let prelude_path = format!("{}::prelude::{}", crate_name, type_name);
+                re_exports.entry(type_name).or_insert(prelude_path);
+            }
+
+        }
+    }
+}
+
+/// Only collects if this path is shorter than any existing entry
+fn scan_pub_use_exports(
+    content: &str,
+    crate_name: &str,
+    module_path: &str,
+    re_exports: &mut std::collections::HashMap<String, String>,
+) {
+    // Parse using syn for accurate pub use detection
+    if let Ok(file) = syn::parse_file(content) {
+        for item in &file.items {
+            if let syn::Item::Use(item_use) = item {
+                // Only public uses
+                if matches!(item_use.vis, syn::Visibility::Public(_)) {
+                    collect_pub_use_types(&item_use.tree, crate_name, module_path, re_exports);
+                }
+            }
+        }
+    }
+}
+
+/// Recursively collect type names from pub use statements
+fn collect_pub_use_types(
+    tree: &syn::UseTree,
+    crate_name: &str,
+    module_path: &str,
+    re_exports: &mut std::collections::HashMap<String, String>,
+) {
+    match tree {
+        syn::UseTree::Path(use_path) => {
+            // Continue traversing the path
+            collect_pub_use_types(&use_path.tree, crate_name, module_path, re_exports);
+        }
+        syn::UseTree::Name(use_name) => {
+            let type_name = use_name.ident.to_string();
+            // Only types (PascalCase), not modules/functions (lowercase)
+            if type_name.chars().next().map_or(false, |c| c.is_uppercase()) {
+                // Build the re-export path
+                let export_path = if module_path.is_empty() {
+                    format!("{}::{}", crate_name, type_name)
+                } else {
+                    format!("{}::{}::{}", crate_name, module_path, type_name)
+                };
+                
+                // Only insert if this path is shorter than existing
+                re_exports.entry(type_name)
+                    .and_modify(|existing| {
+                        if export_path.len() < existing.len() {
+                            *existing = export_path.clone();
+                        }
+                    })
+                    .or_insert(export_path);
+            }
+        }
+        syn::UseTree::Rename(use_rename) => {
+            let type_name = use_rename.rename.to_string();
+            if type_name.chars().next().map_or(false, |c| c.is_uppercase()) {
+                let export_path = if module_path.is_empty() {
+                    format!("{}::{}", crate_name, type_name)
+                } else {
+                    format!("{}::{}::{}", crate_name, module_path, type_name)
+                };
+                
+                re_exports.entry(type_name)
+                    .and_modify(|existing| {
+                        if export_path.len() < existing.len() {
+                            *existing = export_path.clone();
+                        }
+                    })
+                    .or_insert(export_path);
+            }
+        }
+        syn::UseTree::Glob(_) => {
+            // Can't statically determine which types are exported via glob
+            // These will need to use module paths instead
+        }
+        syn::UseTree::Group(use_group) => {
+            for item in &use_group.items {
+                collect_pub_use_types(item, crate_name, module_path, re_exports);
+            }
+        }
+    }
+}
+
+/// Legacy wrapper for code that just needs public modules
+fn scan_public_modules(crate_root: &Path) -> Vec<PublicModule> {
+    // For backward compatibility, extract crate name from path
+    let crate_name = crate_root.file_name()
+        .and_then(|n| n.to_str())
+        .and_then(|s| s.split('-').next())
+        .unwrap_or("unknown");
+    scan_public_api(crate_root, crate_name).modules
+}
+
+/// Recursively scan for pub mod declarations and follow them
+/// Respects #[cfg(feature = "...")] attributes - skips modules behind disabled features
+fn scan_public_mods_recursive(
+    src_dir: &Path,
+    content: &str,
+    current_path: &str,
+    results: &mut Vec<PublicModule>,
+) {
+    // We need to pass enabled features through the function chain
+    // For now, use an empty set (will skip all feature-gated modules)
+    scan_public_mods_recursive_with_features(
+        src_dir,
+        content,
+        current_path,
+        &std::collections::HashSet::new(),
+        results,
+    );
+}
+
+/// Recursively scan for pub mod declarations, respecting feature flags
+fn scan_public_mods_recursive_with_features(
+    src_dir: &Path,
+    content: &str,
+    current_path: &str,
+    enabled_features: &std::collections::HashSet<String>,
+    results: &mut Vec<PublicModule>,
+) {
+    let lines: Vec<&str> = content.lines().collect();
+    let mut pending_cfg_features: Option<Vec<String>> = None;
+    
+    for (i, line) in lines.iter().enumerate() {
+        let trimmed = line.trim();
+        
+        // Check for #[cfg(feature = "...")] attribute
+        if trimmed.starts_with("#[cfg(feature") {
+            // Parse the feature name(s)
+            if let Some(features) = parse_cfg_feature_attr(trimmed) {
+                pending_cfg_features = Some(features);
+            }
+            continue;
+        }
+        
+        // Check for #[cfg(any(feature = "...", feature = "..."))]
+        if trimmed.starts_with("#[cfg(any(") && trimmed.contains("feature") {
+            if let Some(features) = parse_cfg_any_feature_attr(trimmed) {
+                pending_cfg_features = Some(features);
+            }
+            continue;
+        }
+        
+        // Skip other attributes
+        if trimmed.starts_with("#[") {
+            continue;
+        }
+        
+        // Match `pub mod name;` or `pub mod name {`
+        if trimmed.starts_with("pub mod ") {
+            let rest = trimmed.strip_prefix("pub mod ").unwrap_or("");
+            let mod_name = rest
+                .split(|c: char| c == ';' || c == '{' || c.is_whitespace())
+                .next()
+                .unwrap_or("")
+                .trim();
+            
+            if mod_name.is_empty() {
+                pending_cfg_features = None;
+                continue;
+            }
+            
+            // Check if this module is behind a feature flag
+            if let Some(ref required_features) = pending_cfg_features {
+                // Module is behind feature flag(s) - check if ANY of them are enabled
+                let any_enabled = required_features.iter().any(|f| enabled_features.contains(f));
+                if !any_enabled {
+                    // Skip this module - required feature(s) not enabled
+                    pending_cfg_features = None;
+                    continue;
+                }
+            }
+            
+            // Clear pending features after processing
+            pending_cfg_features = None;
+            
+            // Build the module path
+            let module_path = if current_path.is_empty() {
+                mod_name.to_string()
+            } else {
+                format!("{}::{}", current_path, mod_name)
+            };
+            
+            // Try to find the module file: either name.rs or name/mod.rs
+            let mod_file = src_dir.join(format!("{}.rs", mod_name));
+            let mod_dir_file = src_dir.join(mod_name).join("mod.rs");
+            
+            let (found_path, next_dir) = if mod_file.exists() {
+                (Some(mod_file.clone()), src_dir.to_path_buf())
+            } else if mod_dir_file.exists() {
+                (Some(mod_dir_file.clone()), src_dir.join(mod_name))
+            } else {
+                (None, src_dir.to_path_buf())
+            };
+            
+            if let Some(file_path) = found_path {
+                results.push(PublicModule {
+                    module_path: module_path.clone(),
+                    file_path: file_path.clone(),
+                });
+                
+                // Recursively scan this module
+                if let Ok(mod_content) = fs::read_to_string(&file_path) {
+                    scan_public_mods_recursive_with_features(
+                        &next_dir, &mod_content, &module_path, enabled_features, results
+                    );
+                }
+            }
+        } else if !trimmed.is_empty() && !trimmed.starts_with("//") {
+            // Non-empty, non-comment line that's not an attribute - clear pending cfg
+            pending_cfg_features = None;
+        }
+    }
+}
+
+/// Parse feature name from #[cfg(feature = "name")]
+fn parse_cfg_feature_attr(attr: &str) -> Option<Vec<String>> {
+    // Match patterns like: #[cfg(feature = "rapier")]
+    let start = attr.find('"')?;
+    let rest = &attr[start + 1..];
+    let end = rest.find('"')?;
+    Some(vec![rest[..end].to_string()])
+}
+
+/// Parse feature names from #[cfg(any(feature = "a", feature = "b"))]
+fn parse_cfg_any_feature_attr(attr: &str) -> Option<Vec<String>> {
+    let mut features = Vec::new();
+    let mut remaining = attr;
+    
+    while let Some(pos) = remaining.find("feature = \"") {
+        let start = pos + 11;
+        remaining = &remaining[start..];
+        if let Some(end) = remaining.find('"') {
+            features.push(remaining[..end].to_string());
+            remaining = &remaining[end + 1..];
+        } else {
+            break;
+        }
+    }
+    
+    if features.is_empty() {
+        None
+    } else {
+        Some(features)
+    }
+}
+
+
+/// Build the full type path from crate name and module path
+/// Uses re-exports map to find shortest path when available
+fn build_type_path(crate_name: &str, module_path: &str, type_name: &str) -> String {
+    // Default: use module path (this is a fallback for legacy calls)
+    if module_path.is_empty() {
+        format!("{}::{}", crate_name, type_name)
+    } else {
+        format!("{}::{}::{}", crate_name, module_path, type_name)
+    }
+}
+
+/// Build the full type path, checking re-exports first for shortest path
+fn build_type_path_with_reexports(
+    crate_name: &str,
+    module_path: &str,
+    type_name: &str,
+    re_exports: &std::collections::HashMap<String, String>,
+) -> String {
+    // First check if type has a shorter re-export path
+    if let Some(short_path) = re_exports.get(type_name) {
+        return short_path.clone();
+    }
+    
+    // Fall back to module path
+    if module_path.is_empty() {
+        format!("{}::{}", crate_name, type_name)
+    } else {
+        format!("{}::{}::{}", crate_name, module_path, type_name)
+    }
+}
+
+
+
+
+
 fn get_cargo_home() -> Option<PathBuf> {
     env::var("CARGO_HOME")
         .or_else(|_| env::var("HOME").map(|h| format!("{}/.cargo", h)))
@@ -864,6 +1555,120 @@ fn get_cargo_home() -> Option<PathBuf> {
         .ok()
         .map(PathBuf::from)
 }
+
+/// Discover components from a crate by scanning only its public API
+/// This follows pub mod chains from lib.rs to avoid discovering types in private modules
+fn discover_components_from_public_api(
+    crate_root: &Path,
+    crate_name: &str,
+    derive_name: &str,
+) -> Vec<DiscoveredEntityWrapper> {
+    let mut results = Vec::new();
+    
+    // Get all public modules in this crate
+    let public_modules = scan_public_modules(crate_root);
+    
+    for module in &public_modules {
+        if let Ok(content) = fs::read_to_string(&module.file_path) {
+            // Parse for types with the specified derive
+            let types = parse_source_for_derive_types(&content, derive_name);
+            
+            for (type_name, has_debug) in types {
+                let full_path = build_type_path(crate_name, &module.module_path, &type_name);
+                results.push(DiscoveredEntityWrapper {
+                    type_name: type_name.clone(),
+                    full_path,
+                    has_debug,
+                });
+            }
+
+        }
+    }
+    
+    results
+}
+
+/// Parse source code for structs/enums with a specific derive attribute
+/// Returns (type_name, has_debug) pairs for types that derive the specified trait
+fn parse_source_for_derive_types(source: &str, derive_name: &str) -> Vec<(String, bool)> {
+    let mut results = Vec::new();
+    let mut lines = source.lines().peekable();
+    let mut pending_derives: Option<String> = None;
+    
+    while let Some(line) = lines.next() {
+        let trimmed = line.trim();
+        
+        // Collect derive attributes - they may span multiple lines
+        if trimmed.starts_with("#[derive(") || trimmed.starts_with("#[derive (") {
+            pending_derives = Some(trimmed.to_string());
+            
+            // If derive doesn't end on this line, collect more
+            if !trimmed.contains(")]") {
+                while let Some(next) = lines.peek() {
+                    pending_derives = Some(format!(
+                        "{} {}",
+                        pending_derives.unwrap_or_default(),
+                        next.trim()
+                    ));
+                    let next_trimmed = lines.next().unwrap_or("").trim();
+                    if next_trimmed.contains(")]") {
+                        break;
+                    }
+                }
+            }
+        }
+        
+        // Check if we have a struct/enum definition
+        if let Some(ref derives) = pending_derives {
+            if trimmed.starts_with("pub struct ") || trimmed.starts_with("pub enum ") {
+                // Check if the desired derive is present
+                if derives.contains(derive_name) {
+                    let has_debug = derives.contains("Debug");
+                    // Skip generic types - they can't be instantiated without type parameters
+                    // Check if there's a '<' before any other delimiter, indicating generics
+                    let type_line = trimmed
+                        .strip_prefix("pub struct ")
+                        .or_else(|| trimmed.strip_prefix("pub enum "))
+                        .unwrap_or("");
+                    
+                    let first_paren = type_line.find('(');
+                    let first_brace = type_line.find('{');
+                    let first_angle = type_line.find('<');
+                    let first_space = type_line.find(char::is_whitespace);
+                    
+                    // If '<' comes before '(' or '{', this is a generic type - skip it
+                    let is_generic = first_angle.map_or(false, |angle_pos| {
+                        first_paren.map_or(true, |p| angle_pos < p) &&
+                        first_brace.map_or(true, |b| angle_pos < b)
+                    });
+                    
+                    if is_generic {
+                        pending_derives = None;
+                        continue;
+                    }
+                    
+                    // Extract type name - stop at first delimiter
+                    let type_name = type_line
+                        .split(|c: char| c == '<' || c == '(' || c == '{' || c == ';' || c.is_whitespace())
+                        .next()
+                        .unwrap_or("")
+                        .trim();
+                    
+                    if !type_name.is_empty() {
+                        results.push((type_name.to_string(), has_debug));
+                    }
+                }
+                pending_derives = None;
+            } else if !trimmed.starts_with('#') && !trimmed.is_empty() {
+                // Non-attribute line that isn't struct/enum - clear pending
+                pending_derives = None;
+            }
+        }
+    }
+    
+    results
+}
+
 
 // =============================================================================
 // AUTO-DISCOVERY FUNCTIONS
@@ -877,6 +1682,8 @@ struct DiscoveredEntityWrapper {
     full_path: String,
     /// Just the type name (e.g., "UiTargetCamera")
     type_name: String,
+    /// Whether this type derives Debug (for serialization)
+    has_debug: bool,
 }
 
 /// Discovered asset type (implements Asset trait)
@@ -1289,11 +2096,18 @@ fn discover_component_methods() -> Vec<DiscoveredComponentMethod> {
                 continue;
             }
             
+            // NOTE: Don't filter by direct dependencies here!
+            // bevy_transform is transitive but Transform::looking_at() is accessible via bevy::transform::
+            // Component methods from bevy internal crates ARE callable because the types are re-exported
+            // (Unlike entity wrapper registration which needs direct type access)
+
+            
             // Check if this crate is in our dependencies AND version matches
             let expected_version = match dependencies.get(base_crate) {
                 Some(v) => v,
                 None => continue,
             };
+
             
             // Only scan the exact version we depend on
             if dir_version != expected_version {
@@ -1755,11 +2569,8 @@ fn resolve_short_type_to_full_path(short_name: &str) -> Option<String> {
 }
 
 /// Auto-discover entity wrapper components from bevy crates and workspace members
-/// Pattern: pub struct Foo(pub Entity) with #[derive(Component)]
-///
-/// RUNTIME-BASED DISCOVERY: This function discovers ALL entity wrapper type names.
-/// No filtering is applied - runtime TypeRegistry lookup will determine which types
-/// are actually available and usable.
+/// Uses PUBLIC API SCANNING: Only scans modules reachable via `pub mod` chains from lib.rs
+/// This avoids discovering types in private internal modules
 fn discover_entity_wrapper_components() -> Vec<DiscoveredEntityWrapper> {
     let mut wrappers = Vec::new();
 
@@ -1781,14 +2592,14 @@ fn discover_entity_wrapper_components() -> Vec<DiscoveredEntityWrapper> {
         return wrappers;
     }
 
-    // Read ALL bevy_* dependencies from Cargo.lock - no filtering
+    // Read ALL bevy_* dependencies from Cargo.lock
     let dependencies = get_bevy_dependencies_from_lock();
     println!(
         "cargo:warning=  📦 Found {} bevy_* dependencies in Cargo.lock",
         dependencies.len()
     );
 
-    // Scan ALL bevy_* dependency crates for entity wrappers
+    // Scan bevy_* dependency crates using PUBLIC API SCANNING
     for index_entry in fs::read_dir(&registry_src).into_iter().flatten().flatten() {
         let index_dir = index_entry.path();
         if !index_dir.is_dir() {
@@ -1807,14 +2618,39 @@ fn discover_entity_wrapper_components() -> Vec<DiscoveredEntityWrapper> {
                 continue;
             }
 
-            let src_dir = crate_dir.join("src");
-            if src_dir.exists() {
-                scan_directory_for_entity_wrappers(&src_dir, base_crate, &mut wrappers);
+            // Use PUBLIC API SCANNING - scan modules AND collect re-exports
+            let api_scan = scan_public_api(&crate_dir, base_crate);
+            for module in &api_scan.modules {
+                if let Ok(content) = fs::read_to_string(&module.file_path) {
+                    // Parse all Component types from this public module
+                    parse_entity_wrappers_from_source_with_path(
+                        &content,
+                        base_crate,
+                        &module.module_path,
+                        &api_scan.re_exports,
+                        &mut wrappers,
+                    );
+                    parse_component_enums_from_source_with_path(
+                        &content,
+                        base_crate,
+                        &module.module_path,
+                        &api_scan.re_exports,
+                        &mut wrappers,
+                    );
+                    parse_component_structs_from_source_with_path(
+                        &content,
+                        base_crate,
+                        &module.module_path,
+                        &api_scan.re_exports,
+                        &mut wrappers,
+                    );
+                }
             }
         }
     }
 
-    // Also scan workspace members
+
+    // Also scan workspace members using PUBLIC API SCANNING
     if let Ok(manifest_dir) = env::var("CARGO_MANIFEST_DIR") {
         if let Some(workspace_root) = PathBuf::from(&manifest_dir).parent() {
             let workspace_toml = workspace_root.join("Cargo.toml");
@@ -1827,13 +2663,35 @@ fn discover_entity_wrapper_components() -> Vec<DiscoveredEntityWrapper> {
                     {
                         for member in members {
                             if let Some(member_name) = member.as_str() {
-                                let member_src = workspace_root.join(member_name).join("src");
-                                if member_src.exists() {
-                                    scan_directory_for_entity_wrappers(
-                                        &member_src,
-                                        member_name,
-                                        &mut wrappers,
-                                    );
+                                let member_dir = workspace_root.join(member_name);
+                                if member_dir.exists() {
+                                    // Use PUBLIC API SCANNING for workspace members too
+                                    let api_scan = scan_public_api(&member_dir, member_name);
+                                    for module in &api_scan.modules {
+                                        if let Ok(source) = fs::read_to_string(&module.file_path) {
+                                            parse_entity_wrappers_from_source_with_path(
+                                                &source,
+                                                member_name,
+                                                &module.module_path,
+                                                &api_scan.re_exports,
+                                                &mut wrappers,
+                                            );
+                                            parse_component_enums_from_source_with_path(
+                                                &source,
+                                                member_name,
+                                                &module.module_path,
+                                                &api_scan.re_exports,
+                                                &mut wrappers,
+                                            );
+                                            parse_component_structs_from_source_with_path(
+                                                &source,
+                                                member_name,
+                                                &module.module_path,
+                                                &api_scan.re_exports,
+                                                &mut wrappers,
+                                            );
+                                        }
+                                    }
                                 }
                             }
                         }
@@ -1848,7 +2706,7 @@ fn discover_entity_wrapper_components() -> Vec<DiscoveredEntityWrapper> {
     wrappers.retain(|w| seen.insert(w.type_name.clone()));
 
     println!(
-        "cargo:warning=  ✓ Auto-discovered {} entity wrapper type names (for runtime registration)",
+        "cargo:warning=  ✓ Auto-discovered {} entity wrapper type names (via PUBLIC API scanning)",
         wrappers.len()
     );
     for wrapper in &wrappers {
@@ -1861,10 +2719,228 @@ fn discover_entity_wrapper_components() -> Vec<DiscoveredEntityWrapper> {
     wrappers
 }
 
+/// Parse entity wrappers using a known module path instead of file path
+fn parse_entity_wrappers_from_source_with_path(
+    source: &str,
+    crate_name: &str,
+    module_path: &str,
+    re_exports: &std::collections::HashMap<String, String>,
+    results: &mut Vec<DiscoveredEntityWrapper>,
+) {
+    // Look for #[derive(Component)] followed by pub struct Foo(pub Entity)
+    let derive_types = parse_source_for_derive_types(source, "Component");
+    for (type_name, has_debug) in derive_types {
+        // Check if this looks like an entity wrapper (tuple struct with Entity)
+        // Use re-exports to find shortest path when available
+        let full_path = build_type_path_with_reexports(crate_name, module_path, &type_name, re_exports);
+        results.push(DiscoveredEntityWrapper {
+            type_name,
+            full_path,
+            has_debug,
+        });
+    }
+
+
+}
+
+/// Parse Component enums using a known module path
+
+fn parse_component_enums_from_source_with_path(
+    source: &str,
+    crate_name: &str,
+    module_path: &str,
+    re_exports: &std::collections::HashMap<String, String>,
+    results: &mut Vec<DiscoveredEntityWrapper>,
+) {
+    let Ok(file) = syn::parse_file(source) else {
+        return;
+    };
+
+    for item in file.items {
+        if let syn::Item::Enum(item_enum) = item {
+            // Must be public
+            if !matches!(item_enum.vis, syn::Visibility::Public(_)) {
+                continue;
+            }
+
+            // Check for Component and Debug derives
+            let mut has_component = false;
+            let mut has_debug = false;
+            for attr in &item_enum.attrs {
+                if attr.path().is_ident("derive") {
+                    if let Ok(meta) = attr.parse_args::<proc_macro2::TokenStream>() {
+                        let meta_str = meta.to_string();
+                        if meta_str.contains("Component") {
+                            has_component = true;
+                        }
+                        if meta_str.contains("Debug") {
+                            has_debug = true;
+                        }
+                    }
+                }
+            }
+
+            if !has_component {
+                continue;
+            }
+
+            let type_name = item_enum.ident.to_string();
+
+            // Check if there's a shorter re-export path
+            let full_path = if let Some(re_export) = re_exports.get(&type_name) {
+                re_export.clone()
+            } else if module_path.is_empty() {
+                format!("{}::{}", crate_name, type_name)
+            } else {
+                format!("{}::{}::{}", crate_name, module_path, type_name)
+            };
+
+            // Use normalize_bevy_path_for_entity_wrapper to handle path normalization
+            let Some(final_path) = normalize_bevy_path_for_entity_wrapper(&full_path) else {
+                continue;
+            };
+
+            // Debug output for tracking
+            println!("cargo:warning=    - {} (from {}) has_debug={}", type_name, full_path, has_debug);
+
+            results.push(DiscoveredEntityWrapper {
+                full_path: final_path,
+                type_name,
+                has_debug,
+            });
+        }
+    }
+}
+
+
+/// Parse Component structs using a known module path
+fn parse_component_structs_from_source_with_path(
+    source: &str,
+    crate_name: &str,
+    module_path: &str,
+    re_exports: &std::collections::HashMap<String, String>,
+    results: &mut Vec<DiscoveredEntityWrapper>,
+) {
+    // This is now handled by parse_source_for_derive_types which finds both structs and enums
+    // Nothing additional needed here since the main function already calls parse_entity_wrappers_from_source_with_path
+    let _ = (source, crate_name, module_path, re_exports, results);
+}
+
+
+/// Get set of ALL linked crate names from Cargo.lock
+/// Used to filter discovery - only include types from crates that are actually linked
+fn get_linked_crates() -> std::collections::HashSet<String> {
+    use std::sync::OnceLock;
+    static CACHED: OnceLock<std::collections::HashSet<String>> = OnceLock::new();
+    
+    CACHED.get_or_init(|| {
+        let mut crates = std::collections::HashSet::new();
+        
+        // Try to find Cargo.lock in workspace root or parent manifest dir
+        let lock_paths = [
+            env::var("CARGO_MANIFEST_DIR")
+                .ok()
+                .map(|p| PathBuf::from(p).parent().map(|p| p.join("Cargo.lock")))
+                .flatten(),
+            env::var("CARGO_MANIFEST_DIR")
+                .ok()
+                .map(|p| PathBuf::from(p).join("Cargo.lock")),
+        ];
+
+        for lock_path in lock_paths.into_iter().flatten() {
+            if let Ok(content) = fs::read_to_string(&lock_path) {
+                // Parse Cargo.lock toml-style - look for [[package]] sections
+                for line in content.lines() {
+                    let line = line.trim();
+                    if line.starts_with("name = \"") {
+                        if let Some(start) = line.find('"') {
+                            if let Some(end) = line.rfind('"') {
+                                if start < end {
+                                    crates.insert(line[start + 1..end].to_string());
+                                }
+                            }
+                        }
+                    }
+                }
+                
+                if !crates.is_empty() {
+                    break;
+                }
+            }
+        }
+        
+        crates
+    }).clone()
+}
+
+/// Get set of DIRECT dependency crate names from Cargo.toml
+/// Direct dependencies can use their original paths (e.g., bevy_mod_xr::hands::HandBone)
+/// Transitive dependencies (bevy-internal crates) need bevy:: re-export paths
+fn get_direct_dependencies() -> std::collections::HashSet<String> {
+    use std::sync::OnceLock;
+    static CACHED: OnceLock<std::collections::HashSet<String>> = OnceLock::new();
+    
+    CACHED.get_or_init(|| {
+        let mut deps = std::collections::HashSet::new();
+        
+        // Check consumer crate's Cargo.toml (parent of bevy-lua-ecs)
+        let toml_paths = [
+            env::var("CARGO_MANIFEST_DIR")
+                .ok()
+                .map(|p| PathBuf::from(p).parent().map(|p| p.join("Hello").join("Cargo.toml")))
+                .flatten(),
+            // Also check workspace root
+            env::var("CARGO_MANIFEST_DIR")
+                .ok()
+                .map(|p| PathBuf::from(p).parent().map(|p| p.join("Cargo.toml")))
+                .flatten(),
+        ];
+        
+        for toml_path in toml_paths.into_iter().flatten() {
+            if let Ok(content) = fs::read_to_string(&toml_path) {
+                // Simple parsing - look for lines starting with crate names
+                // Format: crate_name = { ... } or crate_name = "version"
+                for line in content.lines() {
+                    let line = line.trim();
+                    // Skip comments and section headers
+                    if line.starts_with('#') || line.starts_with('[') {
+                        continue;
+                    }
+                    // Look for dependency declarations
+                    if let Some(eq_pos) = line.find(" = ") {
+                        let crate_name = line[..eq_pos].trim();
+                        // Replace underscores with hyphens for matching (Cargo convention)
+                        let normalized = crate_name.replace('-', "_");
+                        if !normalized.is_empty() && !normalized.contains('.') {
+                            deps.insert(normalized);
+                        }
+                    }
+                }
+            }
+        }
+        
+        // Always include bevy and standard crates
+        deps.insert("bevy".to_string());
+        
+        // Debug output to trace parsed dependencies  
+        if !deps.is_empty() {
+            eprintln!("  [DIRECT_DEPS] Parsed {} direct dependencies from Cargo.toml", deps.len());
+            for dep in deps.iter().filter(|d| d.starts_with("bevy_")) {
+                eprintln!("    - {}", dep);
+            }
+        }
+        
+        deps
+
+    }).clone()
+}
+
+
 /// Read Cargo.lock to get map of bevy_* crate names to their versions
 /// Returns: HashMap<crate_name, version> e.g. {"bevy_text" -> "0.17.3"}
 fn get_bevy_dependencies_from_lock() -> std::collections::HashMap<String, String> {
     let mut deps = std::collections::HashMap::new();
+
 
     // Try to find Cargo.lock in workspace root or parent manifest dir
     let lock_paths = [
@@ -1931,7 +3007,7 @@ fn get_bevy_dependencies_from_lock() -> std::collections::HashMap<String, String
     deps
 }
 
-/// Scan a directory recursively for entity wrapper components
+/// Scan a directory recursively for entity wrapper components and Component enums
 fn scan_directory_for_entity_wrappers(
     dir: &Path,
     crate_name: &str,
@@ -1945,6 +3021,10 @@ fn scan_directory_for_entity_wrappers(
         } else if path.extension().map_or(false, |ext| ext == "rs") {
             if let Ok(source) = fs::read_to_string(&path) {
                 parse_entity_wrappers_from_source(&source, crate_name, &path, results);
+                // Also parse Component enums (e.g., HandBone enum with #[derive(Component)])
+                parse_component_enums_from_source(&source, crate_name, &path, results);
+                // Also parse regular Component structs (e.g., XrSpaceLocationFlags struct with #[derive(Component)])
+                parse_component_structs_from_source(&source, crate_name, &path, results);
             }
         }
     }
@@ -1983,15 +3063,22 @@ fn parse_entity_wrappers_from_source(
                     continue;
                 }
 
-                // Check for Component derive
-                let has_component = item_struct.attrs.iter().any(|attr| {
+                // Check for Component and Debug derives
+                let mut has_component = false;
+                let mut has_debug = false;
+                for attr in &item_struct.attrs {
                     if attr.path().is_ident("derive") {
                         if let Ok(meta) = attr.parse_args::<proc_macro2::TokenStream>() {
-                            return meta.to_string().contains("Component");
+                            let meta_str = meta.to_string();
+                            if meta_str.contains("Component") {
+                                has_component = true;
+                            }
+                            if meta_str.contains("Debug") {
+                                has_debug = true;
+                            }
                         }
                     }
-                    false
-                });
+                }
 
                 if !has_component {
                     continue;
@@ -2007,20 +3094,171 @@ fn parse_entity_wrappers_from_source(
                     format!("{}::{}::{}", crate_name, module_path, type_name)
                 };
 
-                // Convert underscore crate name to bevy:: path for bevy crates
-                // Skip if path cannot be normalized (internal modules)
-                let Some(full_path) = normalize_bevy_path(&full_path) else {
+                // Use normalize_bevy_path_for_entity_wrapper to skip transitive bevy internal crates
+                // (they have #[reflect(Component)] and are handled via TypeRegistry at runtime)
+                let Some(final_path) = normalize_bevy_path_for_entity_wrapper(&full_path) else {
+
                     continue;
                 };
 
                 results.push(DiscoveredEntityWrapper {
-                    full_path,
+                    full_path: final_path,
                     type_name,
+                    has_debug,
                 });
+
             }
         }
     }
 }
+
+
+/// Parse a source file for public enums with #[derive(Component)]
+/// This discovers Component enums like bevy_mod_xr::hands::HandBone
+fn parse_component_enums_from_source(
+    source: &str,
+    crate_name: &str,
+    file_path: &Path,
+    results: &mut Vec<DiscoveredEntityWrapper>,
+) {
+    let Ok(file) = syn::parse_file(source) else {
+        return;
+    };
+
+    for item in file.items {
+        if let syn::Item::Enum(item_enum) = item {
+            // Must be public
+            if !matches!(item_enum.vis, syn::Visibility::Public(_)) {
+                continue;
+            }
+
+            // Check for Component and Debug derives
+            let mut has_component = false;
+            let mut has_debug = false;
+            for attr in &item_enum.attrs {
+                if attr.path().is_ident("derive") {
+                    if let Ok(meta) = attr.parse_args::<proc_macro2::TokenStream>() {
+                        let meta_str = meta.to_string();
+                        if meta_str.contains("Component") {
+                            has_component = true;
+                        }
+                        if meta_str.contains("Debug") {
+                            has_debug = true;
+                        }
+                    }
+                }
+            }
+
+            if !has_component {
+                continue;
+            }
+
+            let type_name = item_enum.ident.to_string();
+
+            // Build full path from file path
+            let module_path = build_module_path_from_file(file_path, crate_name);
+            let full_path = if module_path.is_empty() {
+                format!("{}::{}", crate_name, type_name)
+            } else {
+                format!("{}::{}::{}", crate_name, module_path, type_name)
+            };
+
+            // Use normalize_bevy_path_for_entity_wrapper to skip transitive bevy internal crates
+            // (they have #[reflect(Component)] and are handled via TypeRegistry at runtime)
+            let Some(final_path) = normalize_bevy_path_for_entity_wrapper(&full_path) else {
+                continue;
+            };
+
+
+            results.push(DiscoveredEntityWrapper {
+                full_path: final_path,
+                type_name,
+                has_debug,
+            });
+
+        }
+    }
+}
+
+
+/// Parse a source file for public structs with #[derive(Component)]
+/// This discovers ANY struct marked as Component (not just Entity wrappers)
+/// Examples: XrSpaceLocationFlags from bevy_mod_xr::spaces
+fn parse_component_structs_from_source(
+    source: &str,
+    crate_name: &str,
+    file_path: &Path,
+    results: &mut Vec<DiscoveredEntityWrapper>,
+) {
+    let Ok(file) = syn::parse_file(source) else {
+        return;
+    };
+
+    for item in file.items {
+        if let syn::Item::Struct(item_struct) = item {
+            // Must be public
+            if !matches!(item_struct.vis, syn::Visibility::Public(_)) {
+                continue;
+            }
+
+            // Skip Entity wrappers - they're already handled by parse_entity_wrappers_from_source
+            if let syn::Fields::Unnamed(fields) = &item_struct.fields {
+                if fields.unnamed.len() == 1 {
+                    let field = &fields.unnamed[0];
+                    let field_type_str = quote::quote!(#field).to_string();
+                    if field_type_str.contains("Entity") {
+                        continue; // Skip, already handled
+                    }
+                }
+            }
+
+            // Check for Component and Debug derives
+            let mut has_component = false;
+            let mut has_debug = false;
+            for attr in &item_struct.attrs {
+                if attr.path().is_ident("derive") {
+                    if let Ok(meta) = attr.parse_args::<proc_macro2::TokenStream>() {
+                        let meta_str = meta.to_string();
+                        if meta_str.contains("Component") {
+                            has_component = true;
+                        }
+                        if meta_str.contains("Debug") {
+                            has_debug = true;
+                        }
+                    }
+                }
+            }
+
+            if !has_component {
+                continue;
+            }
+
+            let type_name = item_struct.ident.to_string();
+
+            // Build full path from file path
+            let module_path = build_module_path_from_file(file_path, crate_name);
+            let full_path = if module_path.is_empty() {
+                format!("{}::{}", crate_name, type_name)
+            } else {
+                format!("{}::{}::{}", crate_name, module_path, type_name)
+            };
+
+            // Use normalize_bevy_path_for_entity_wrapper to skip transitive bevy internal crates
+            // (they have #[reflect(Component)] and are handled via TypeRegistry at runtime)
+            let Some(final_path) = normalize_bevy_path_for_entity_wrapper(&full_path) else {
+
+                continue;
+            };
+
+            results.push(DiscoveredEntityWrapper {
+                full_path: final_path,
+                type_name,
+                has_debug,
+            });
+        }
+    }
+}
+
 
 /// Auto-discover Handle<T> newtype wrappers from bevy crates
 /// Pattern: pub struct TypeName(pub Handle<AssetType>) or pub struct TypeName { handle: Handle<AssetType> }
@@ -2903,8 +4141,9 @@ fn parse_systemparams_from_source(
                 format!("{}::{}::{}", crate_name, module_path, type_name)
             };
 
-            // Normalize to bevy:: path
-            let Some(full_path) = normalize_bevy_path(&full_path) else {
+            // Normalize to bevy:: path for SystemParams
+            let Some(full_path) = normalize_bevy_path_for_systemparam(&full_path) else {
+
                 continue;
             };
 
@@ -4657,15 +5896,17 @@ fn generate_registration_code(
 fn write_bindings_to_parent_crate(
     method_bindings: Vec<proc_macro2::TokenStream>,
     constructor_bindings: Vec<proc_macro2::TokenStream>,
-    entity_wrapper_names: Vec<String>, // Type names for runtime TypeRegistry lookup
+    discovered_entity_wrappers: Vec<DiscoveredEntityWrapper>, // Full wrapper info for both names and compile-time registration
     asset_type_names: Vec<String>,     // Asset type names for runtime TypeRegistry lookup
     discovered_assets: Vec<DiscoveredAssetType>, // Full asset info for cloner generation
+
     discovered_constructors: Vec<DiscoveredAssetConstructor>, // Auto-discovered constructors for opaque types
     discovered_bitflags: Vec<DiscoveredBitflags>,
     newtypes: Vec<NewtypeSpec>,
     discovered_systemparams: Vec<DiscoveredSystemParam>, // Auto-discovered SystemParam types
     discovered_systemparam_methods: Vec<DiscoveredSystemParamMethod>, // Methods on SystemParam types
     discovered_component_methods: Vec<DiscoveredComponentMethod>, // Methods on Component types (e.g., Transform::looking_at)
+    lua_methods_config: &LuaMethodsConfig, // Configuration for component/static method types
     parent_src_dir: &Path,
     parent_crate_name: &str,
 ) {
@@ -4744,8 +5985,11 @@ fn write_bindings_to_parent_crate(
                 return None;
             }
 
-            let normalized_path = normalize_bevy_path(&asset.full_path)?;
+            // Use asset-specific normalization that includes bevy types but blocks internal ones
+            let normalized_path = normalize_bevy_path_for_asset_types(&asset.full_path)?;
             let type_path: syn::Path = syn::parse_str(&normalized_path).ok()?;
+
+
 
             println!(
                 "cargo:warning=    - Registering cloner for {} (full_path: {})",
@@ -4782,8 +6026,11 @@ fn write_bindings_to_parent_crate(
                 return None;
             }
 
-            let normalized_path = normalize_bevy_path(&asset.full_path)?;
+            // Use asset-specific normalization that includes bevy types but blocks internal ones
+            let normalized_path = normalize_bevy_path_for_asset_types(&asset.full_path)?;
+
             let type_path: syn::Path = syn::parse_str(&normalized_path).ok()?;
+
             Some(type_path)
         })
         .collect();
@@ -4796,8 +6043,11 @@ fn write_bindings_to_parent_crate(
     // Generate asset constructor registrations for discovered constructors
     // These allow opaque types like Image to be created from Lua using their actual constructors
     let constructor_registrations: Vec<_> = discovered_constructors.iter().filter_map(|ctor| {
-        let normalized_path = normalize_bevy_path(&ctor.type_path)?;
+        // Use asset-specific normalization that includes bevy types but blocks internal ones
+        let normalized_path = normalize_bevy_path_for_asset_types(&ctor.type_path)?;
         let type_path: syn::Path = syn::parse_str(&normalized_path).ok()?;
+
+
         let type_path_str = &ctor.type_path;
         let method_name = &ctor.method_name;
         
@@ -5251,10 +6501,98 @@ fn write_bindings_to_parent_crate(
     );
 
     // Convert entity wrapper names to quote literals for const array
-    let entity_wrapper_name_literals: Vec<_> = entity_wrapper_names
+    let entity_wrapper_name_literals: Vec<_> = discovered_entity_wrappers
         .iter()
-        .map(|name| quote::quote! { #name })
+        .map(|w| {
+            let name = &w.type_name;
+            quote::quote! { #name }
+        })
         .collect();
+    
+    // Generate compile-time non-reflected component registrations for discovered Component types
+    // This enables Lua queries to find external crate components (like HandBone) that lack #[reflect(Component)]
+    let non_reflected_component_registrations: Vec<_> = discovered_entity_wrappers
+        .iter()
+        .filter_map(|w| {
+            let name = &w.type_name;
+            let full_path_str = &w.full_path;
+            
+            // Use normalize_bevy_path_for_entity_wrapper to skip transitive bevy internal crates
+            // (AnimationTransitions, Fxaa, etc.) - they have reflection and are handled at runtime
+            // - external crates (bevy_mod_xr, bevy_ecs_tiled) -> original paths unchanged
+            let use_path = normalize_bevy_path_for_entity_wrapper(full_path_str)?;
+
+            
+            // Parse the path for code generation
+            let type_path: syn::Path = syn::parse_str(&use_path).ok()?;
+            
+            println!(
+                "cargo:warning=    - Generating non-reflected component registration for {} (path: {})",
+                name, use_path
+            );
+            
+            Some(quote::quote! {
+                component_registry.register_non_reflected_component::<#type_path>(#name);
+            })
+        })
+        .collect();
+
+
+    
+    println!(
+        "cargo:warning=  ✓ Generated {} non-reflected component registrations for Lua queries",
+        non_reflected_component_registrations.len()
+    );
+
+    // Generate dispatch arms for serializing non-reflected components
+    // Uses Debug trait for types that derive it, otherwise returns type name
+    let non_reflected_serialize_arms: Vec<_> = discovered_entity_wrappers
+        .iter()
+        .filter_map(|w| {
+            let name = &w.type_name;
+            let full_path_str = &w.full_path;
+            let has_debug = w.has_debug;
+            
+            let use_path = normalize_bevy_path_for_entity_wrapper(full_path_str)?;
+            let type_path: syn::Path = syn::parse_str(&use_path).ok()?;
+            
+            // Generate a match arm that gets the component
+            if has_debug {
+                // Type has Debug - use it for full serialization
+                Some(quote::quote! {
+                    #name => {
+                        if let Some(component) = entity_ref.get::<#type_path>() {
+                            // Use Debug trait to get string representation
+                            let debug_str = format!("{:?}", *component);
+                            Ok(Some(debug_str))
+                        } else {
+                            Ok(None)
+                        }
+                    }
+                })
+            } else {
+                // Type doesn't have Debug - just return the type name to indicate presence
+                Some(quote::quote! {
+                    #name => {
+                        if entity_ref.contains::<#type_path>() {
+                            // No Debug impl - return type name as presence indicator
+                            Ok(Some(#name.to_string()))
+                        } else {
+                            Ok(None)
+                        }
+                    }
+                })
+            }
+        })
+        .collect();
+
+    
+    println!(
+        "cargo:warning=  ✓ Generated {} non-reflected component serialization dispatch arms",
+        non_reflected_serialize_arms.len()
+    );
+
+
 
     // Generate SystemParam type name literals for const array
     let systemparam_type_name_literals: Vec<_> = discovered_systemparams
@@ -5604,10 +6942,8 @@ fn write_bindings_to_parent_crate(
         .filter(|m| {
             let type_name = &m.type_name;
             
-            // TEMPORARY: Only include Transform and GlobalTransform for now
-            // Other component types have various codegen issues that need debugging
-            // TODO: Expand this once issues are resolved
-            if type_name != "Transform" && type_name != "GlobalTransform" {
+            // Filter component types based on cargo.toml [package.metadata.lua_methods] config
+            if !lua_methods_config.component_types.contains(type_name) {
                 return false;
             }
             
@@ -5791,6 +7127,9 @@ fn write_bindings_to_parent_crate(
             // Check if method returns Self (builder pattern) - if so, we need to write the result back
             let returns_self = m.return_type == "Self" || m.return_type.as_str() == type_name;
             
+            // Check if method returns void/unit type
+            let returns_unit = m.return_type.is_empty() || m.return_type == "()" || m.return_type == "unit";
+            
             // Handle mutable vs immutable self
             let component_access = if m.takes_mut_self {
                 if returns_self {
@@ -5804,23 +7143,47 @@ fn write_bindings_to_parent_crate(
                             Err(mlua::Error::RuntimeError(format!("Entity {:?} has no {} component", entity, #type_name)))
                         }
                     }
+                } else if returns_unit {
+                    // Method returns unit - just call it
+                    quote::quote! {
+                        if let Some(mut comp) = world.get_mut::<#type_path>(entity) {
+                            #method_call;
+                            Ok(mlua::Value::Nil)
+                        } else {
+                            Err(mlua::Error::RuntimeError(format!("Entity {:?} has no {} component", entity, #type_name)))
+                        }
+                    }
                 } else {
+                    // Method returns a value - use reflection to convert to Lua
                     quote::quote! {
                         if let Some(mut comp) = world.get_mut::<#type_path>(entity) {
                             let result = #method_call;
-                            Ok(mlua::Value::Nil) // TODO: use result_to_lua_value when return type reflects
+                            bevy_lua_ecs::reflection::try_reflect_to_lua_value(lua, &result)
                         } else {
                             Err(mlua::Error::RuntimeError(format!("Entity {:?} has no {} component", entity, #type_name)))
                         }
                     }
                 }
             } else {
-                quote::quote! {
-                    if let Some(comp) = world.get::<#type_path>(entity) {
-                        let result = #method_call;
-                        Ok(mlua::Value::Nil) // TODO: use result_to_lua_value when return type reflects
-                    } else {
-                        Err(mlua::Error::RuntimeError(format!("Entity {:?} has no {} component", entity, #type_name)))
+                if returns_unit {
+                    // Method returns unit - just call it
+                    quote::quote! {
+                        if let Some(comp) = world.get::<#type_path>(entity) {
+                            #method_call;
+                            Ok(mlua::Value::Nil)
+                        } else {
+                            Err(mlua::Error::RuntimeError(format!("Entity {:?} has no {} component", entity, #type_name)))
+                        }
+                    }
+                } else {
+                    // Method returns a value - use reflection to convert to Lua
+                    quote::quote! {
+                        if let Some(comp) = world.get::<#type_path>(entity) {
+                            let result = #method_call;
+                            bevy_lua_ecs::reflection::try_reflect_to_lua_value(lua, &result)
+                        } else {
+                            Err(mlua::Error::RuntimeError(format!("Entity {:?} has no {} component", entity, #type_name)))
+                        }
                     }
                 }
             };
@@ -5875,18 +7238,49 @@ fn write_bindings_to_parent_crate(
         /// Register entity wrapper components at runtime using TypeRegistry
         /// This looks up each discovered type name in the registry and registers
         /// a handler if it's a valid entity wrapper component
+        /// Also registers discovered Component types (like HandBone) as non-reflected components
+        /// for Lua queryability when they lack #[reflect(Component)]
         pub fn register_entity_wrappers_from_registry(
             component_registry: &mut bevy_lua_ecs::ComponentRegistry,
             type_registry: &bevy::ecs::reflect::AppTypeRegistry,
         ) {
+            // Runtime entity wrapper registration (for types with ReflectComponent)
             bevy_lua_ecs::register_entity_wrappers_runtime(
                 component_registry,
                 type_registry,
                 DISCOVERED_ENTITY_WRAPPERS,
             );
+            
+            // Compile-time non-reflected component registration
+            // These enable Lua queries to find Component types from external crates
+            // that don't have #[reflect(Component)] attribute
+            #(#non_reflected_component_registrations)*
+            
+            // Register the serializer callback for non-reflected components
+            // This enables Lua entity:get() to return actual values for enum components
+            component_registry.set_non_reflected_serializer(
+                std::sync::Arc::new(serialize_non_reflected_component)
+            );
+        }
+
+
+        /// Serialize a non-reflected component to a string using Debug trait
+        /// This enables Lua entity:get() to return meaningful values for enum components
+        /// like HandBone that don't implement Reflect
+        /// 
+        /// Returns Some(debug_string) if component exists, None otherwise
+        pub fn serialize_non_reflected_component(
+            entity_ref: &bevy::ecs::world::EntityRef,
+            component_name: &str,
+        ) -> Result<Option<String>, String> {
+            match component_name {
+                #(#non_reflected_serialize_arms)*
+                _ => Err(format!("Unknown non-reflected component: {}", component_name))
+            }
         }
 
         pub fn register_auto_constructors(lua: &mlua::Lua) -> Result<(), mlua::Error> {
+
             #(#constructor_bindings)*
             Ok(())
         }
@@ -6782,136 +8176,504 @@ fn get_known_type_definition(type_name: &str) -> Option<TypeDefinition> {
     }
 }
 
-/// Normalize Bevy crate paths to use bevy:: re-exports accessible from user crates
-/// Returns None if the path cannot be safely normalized (internal modules, etc.)
-///
-/// e.g., bevy_image::image::Image -> bevy::prelude::Image
-///       bevy_mesh::mesh::Mesh -> bevy::prelude::Mesh
-///
-/// Types from internal modules (::forward::, ::prepare::, ::extract::, etc.) are rejected.
+/// Check if a crate path is valid for code generation
+/// 
+/// Now simplified since we use public API scanning:
+/// - Direct dependencies (in Cargo.toml): Use original path unchanged (public API scanning already filtered)
+/// - Transitive bevy_* dependencies (simple names): Transform to bevy::module::TypeName
+/// - Other transitive dependencies: Reject (not directly accessible)
 fn normalize_bevy_path(path: &str) -> Option<String> {
-    // Reject non-core bevy crates (not part of bevy umbrella)
-    let non_core_crates = [
-        "bevy_ecs_tilemap",
-        "bevy_egui",
-        "bevy_rapier2d",
-        "bevy_rapier3d",
-        "bevy_xpbd",
-        "bevy_hanabi",
-        "bevy_kira_audio",
-        "bevy_ufbx",  // Third-party FBX loader
-    ];
-    for crate_name in &non_core_crates {
-        if path.starts_with(&format!("{}::", crate_name)) {
-            return None;
-        }
-    }
-
-    // Reject paths from internal-looking modules
-    let internal_patterns = [
-        "::forward::",
-        "::prepare::",
-        "::extract::",
-        "::render::",
-        "::internal::",
-        "::private::",
-        "::asset::",
-        "::skinning::",
-        "::compensation_curve::",
-        "::gpu_",
-        "_systems::",
-        "::tilemap",
-        "::wireframe",
-        "::pitch::",
-        "::audio_output",
-        "::gizmos::",
-        "::storage::",
-        "::buffer::",
-        "::line_gizmo::",
-        "ColorMaterial",
-        "TextureAtlas", // These types don't exist at simple paths
-        "LineGizmo",
-        "AnimationGraph",
-        "Shader", // Private or inaccessible types
-    ];
-    for pattern in &internal_patterns {
-        if path.contains(pattern) {
-            return None;
-        }
-    }
-
-    // wgpu_types::X -> bevy::render::render_resource::X
-    if path.starts_with("wgpu_types::") {
-        let type_name = path.strip_prefix("wgpu_types::")?;
-        return Some(format!("bevy::render::render_resource::{}", type_name));
-    }
-
-    // Special case: Mesh is re-exported in bevy::prelude
-    if path == "bevy_mesh::mesh::Mesh" || path == "bevy_mesh::Mesh" {
-        return Some("bevy::prelude::Mesh".to_string());
-    }
-
-    // Special case: StandardMaterial is re-exported in bevy::prelude
-    if path == "bevy_pbr::pbr_material::StandardMaterial" || path == "bevy_pbr::StandardMaterial" {
-        return Some("bevy::prelude::StandardMaterial".to_string());
-    }
-
-    // Special case: Image is re-exported in bevy::prelude
-    if path == "bevy_image::image::Image" || path == "bevy_image::Image" {
-        return Some("bevy::prelude::Image".to_string());
-    }
-
-    // bevy_ui types -> bevy::ui
-    if path.contains("UiTargetCamera") {
-        return Some("bevy::ui::UiTargetCamera".to_string());
-    }
-    if path.starts_with("bevy_ui::") {
-        if let Some(type_name) = path.split("::").last() {
-            return Some(format!("bevy::ui::{}", type_name));
-        }
-    }
-
-    // TextureAtlasLayout -> bevy::prelude
-    if path.contains("TextureAtlasLayout") {
-        return Some("bevy::prelude::TextureAtlasLayout".to_string());
-    }
-
-    // bevy_sprite types -> bevy::sprite (only simple paths)
-    if path.starts_with("bevy_sprite::") {
-        if let Some(type_name) = path.split("::").last() {
-            if path.matches("::").count() <= 2 {
-                return Some(format!("bevy::sprite::{}", type_name));
-            }
-        }
-        return None; // Reject complex paths
-    }
-
-    // bevy_text types -> bevy::text (only simple paths)
-    if path.starts_with("bevy_text::") {
-        if let Some(type_name) = path.split("::").last() {
-            if path.matches("::").count() <= 2 {
-                return Some(format!("bevy::text::{}", type_name));
-            }
-        }
+    // Extract crate name from path (first segment before ::)
+    let crate_name = path.split("::").next()?;
+    
+    // Check if this crate is actually linked in the project
+    let linked_crates = get_linked_crates();
+    if !linked_crates.contains(crate_name) {
+        // Crate not in Cargo.lock - not a dependency at all
         return None;
     }
-
-    // For other bevy_* crates, be conservative - only allow simple direct paths
-    if path.starts_with("bevy_") {
-        let parts: Vec<&str> = path.split("::").collect();
-        // Only transform if path has 2-3 segments (crate::Type or crate::module::Type)
-        if parts.len() >= 2 && parts.len() <= 3 {
-            let crate_part = parts[0].strip_prefix("bevy_")?;
-            let type_name = *parts.last()?;
-            return Some(format!("bevy::{}::{}", crate_part, type_name));
+    
+    // Check if this is a DIRECT dependency (in Cargo.toml)
+    let direct_deps = get_direct_dependencies();
+    if direct_deps.contains(crate_name) {
+        // Direct dependency - check if crate has prelude module
+        // If it does, use prelude path instead of internal module path
+        if crate_has_prelude(crate_name) {
+            // Extract just the type name (last segment)
+            let type_name = path.rsplit("::").next()?;
+            return Some(format!("{}::prelude::{}", crate_name, type_name));
         }
-        // Paths with more segments are likely internal, reject them
+        // No prelude - paths from public API scanning are trusted
+        return Some(path.to_string());
+    }
+    
+    // Transitive bevy_* dependencies that are OFFICIAL Bevy internal crates
+    // Transform bevy_xyz::internal::Type to bevy::xyz::Type for official crates
+    // External crates starting with bevy_ (bevy_ecs_tilemap, bevy_mod_xr) are skipped
+    if crate_name.starts_with("bevy_") {
+        if is_bevy_internal_crate(crate_name) {
+            // Extract module name (e.g., "render" from "bevy_render")
+            let module_name = crate_name.strip_prefix("bevy_").unwrap_or(crate_name);
+            // Extract type name (last segment)
+            let type_name = path.rsplit("::").next()?;
+            // Map to bevy::{module}::{type}
+            return Some(format!("bevy::{}::{}", module_name, type_name));
+        }
+        // External bevy_* crates - not accessible via bevy::, skip them
         return None;
     }
+    
+    // Non-bevy transitive dependencies - can't access directly
+    None
 
-    // Non-bevy crate paths (custom crates) pass through unchanged
-    Some(path.to_string())
 }
+
+/// Normalize path for entity wrapper component discovery
+/// Unlike normalize_bevy_path, this SKIPS transitive bevy internal crates
+/// because they have #[reflect(Component)] and are handled via TypeRegistry at runtime
+/// This prevents compile errors from non-public bevy types like AnimationTransitions, Fxaa
+fn normalize_bevy_path_for_entity_wrapper(path: &str) -> Option<String> {
+    // Extract crate name from path (first segment before ::)
+    let crate_name = path.split("::").next()?;
+    
+    // Check if this crate is actually linked in the project
+    let linked_crates = get_linked_crates();
+    if !linked_crates.contains(crate_name) {
+        return None;
+    }
+    
+    // Check if this is a DIRECT dependency (in Cargo.toml)
+    let direct_deps = get_direct_dependencies();
+    if direct_deps.contains(crate_name) {
+        // Direct dependency - use prelude path if available
+        if crate_has_prelude(crate_name) {
+            let type_name = path.rsplit("::").next()?;
+            return Some(format!("{}::prelude::{}", crate_name, type_name));
+        }
+        return Some(path.to_string());
+    }
+    
+    // Transitive bevy_* dependencies - SKIP for entity wrappers
+    // They have #[reflect(Component)] and are handled via TypeRegistry at runtime
+    // This prevents compile errors from non-public bevy types like:
+    //   AnimationTransitions, Fxaa, Smaa, ContrastAdaptiveSharpening, etc.
+    if crate_name.starts_with("bevy_") {
+        // Skip all transitive bevy_* crates for entity wrapper discovery
+        // Both official internal crates and external bevy_* crates
+        return None;
+    }
+    
+    // Non-bevy transitive dependencies - can't access directly
+    None
+}
+
+/// Normalize path for asset type discovery (typed path loaders, cloners)
+/// Unlike normalize_bevy_path_for_entity_wrapper, this INCLUDES transitive bevy internal crates
+/// but blocks specific internal types that are NOT publicly re-exported
+/// This allows Font, AnimationClip, AudioSource while blocking SkinnedMeshInverseBindposes, MeshletMesh
+fn normalize_bevy_path_for_asset_types(path: &str) -> Option<String> {
+    // Extract crate name from path (first segment before ::)
+    let crate_name = path.split("::").next()?;
+    
+    // Check if this crate is actually linked in the project
+    let linked_crates = get_linked_crates();
+    if !linked_crates.contains(crate_name) {
+        return None;
+    }
+    
+    // Extract type name (last segment)
+    let type_name = path.rsplit("::").next()?;
+    
+    // Check if this is a DIRECT dependency (in Cargo.toml)
+    let direct_deps = get_direct_dependencies();
+    if direct_deps.contains(crate_name) {
+        // Direct dependency - use prelude path if available
+        if crate_has_prelude(crate_name) {
+            return Some(format!("{}::prelude::{}", crate_name, type_name));
+        }
+        return Some(path.to_string());
+    }
+    
+    // Transitive bevy_* dependencies - only include if type is in bevy's prelude
+    // This dynamically discovers which types are publicly re-exported
+    // Font, AnimationClip, AudioSource are in prelude; internal types are not
+    if crate_name.starts_with("bevy_") {
+        if is_bevy_internal_crate(crate_name) {
+            // Check if this type is in bevy's main prelude(publicly re-exported there)
+            let bevy_prelude_types = discover_bevy_prelude_types();
+            if bevy_prelude_types.contains(type_name) {
+                // Extract module name (e.g., "text" from "bevy_text")
+                let module_name = crate_name.strip_prefix("bevy_").unwrap_or(crate_name);
+                // Map to bevy::{module}::{type}
+                return Some(format!("bevy::{}::{}", module_name, type_name));
+            }
+            
+            // Also check if type is in the crate's own prelude (e.g., bevy_text::prelude)
+            // This catches types like Font, AnimationClip, AudioSource that are in crate preludes
+            // but not in the main bevy::prelude
+            if type_in_crate_prelude(crate_name, type_name) {
+                let module_name = crate_name.strip_prefix("bevy_").unwrap_or(crate_name);
+                return Some(format!("bevy::{}::{}", module_name, type_name));
+            }
+            
+            // Type is not in any prelude - it's internal and not publicly re-exported
+            return None;
+        }
+
+
+        // External bevy_* crates - not accessible via bevy::, skip them
+        return None;
+    }
+
+    
+    // Non-bevy transitive dependencies - can't access directly
+    None
+}
+
+/// Normalize path for SystemParam types specifically
+
+/// Unlike normalize_bevy_path, this DOES transform transitive bevy internal crates
+/// to bevy::{module}::{Type} paths since SystemParams like MeshRayCast ARE in bevy's public API
+fn normalize_bevy_path_for_systemparam(path: &str) -> Option<String> {
+    // Extract crate name from path (first segment before ::)
+    let crate_name = path.split("::").next()?;
+    
+    // Check if this crate is actually linked in the project
+    let linked_crates = get_linked_crates();
+    if !linked_crates.contains(crate_name) {
+        return None;
+    }
+    
+    // Check if this is a DIRECT dependency (in Cargo.toml)
+    let direct_deps = get_direct_dependencies();
+    if direct_deps.contains(crate_name) {
+        // Direct dependency - check if crate has prelude module
+        if crate_has_prelude(crate_name) {
+            let type_name = path.rsplit("::").next()?;
+            return Some(format!("{}::prelude::{}", crate_name, type_name));
+        }
+        return Some(path.to_string());
+    }
+    
+    // Transitive bevy_* dependencies - transform to bevy::{module}::{Type}
+    // SystemParams like MeshRayCast ARE in bevy's public API at bevy::picking::...
+    if crate_name.starts_with("bevy_") {
+        if is_bevy_internal_crate(crate_name) {
+            // Extract module name (e.g., "picking" from "bevy_picking")
+            let module_name = crate_name.strip_prefix("bevy_").unwrap_or(crate_name);
+            // Extract type name (last segment)
+            let type_name = path.rsplit("::").next()?;
+            // Map to bevy::{module}::{type}
+            return Some(format!("bevy::{}::{}", module_name, type_name));
+        }
+        // External bevy_* crates
+        return None;
+    }
+    
+    None
+}
+
+/// Check if a crate is an official Bevy internal crate by checking if it's a dependency
+/// of the bevy umbrella crate. Caches the result.
+fn is_bevy_internal_crate(crate_name: &str) -> bool {
+    use std::sync::OnceLock;
+    
+    static CACHE: OnceLock<std::collections::HashSet<String>> = OnceLock::new();
+    
+    let internal_crates = CACHE.get_or_init(|| {
+        let mut crates = std::collections::HashSet::new();
+        
+        // Get cargo home
+        let cargo_home = env::var("CARGO_HOME")
+            .or_else(|_| env::var("HOME").map(|h| format!("{}/.cargo", h)))
+            .or_else(|_| env::var("USERPROFILE").map(|h| format!("{}/.cargo", h)))
+            .unwrap_or_default();
+        
+        if cargo_home.is_empty() {
+            return crates;
+        }
+        
+        let registry_src = PathBuf::from(&cargo_home).join("registry").join("src");
+        if !registry_src.exists() {
+            return crates;
+        }
+        
+        // Find bevy and bevy_internal crates and parse their Cargo.toml for dependencies
+        // This includes all official Bevy crates (bevy_ui, bevy_picking, etc.)
+        for index_entry in fs::read_dir(&registry_src).into_iter().flatten().flatten() {
+            let index_dir = index_entry.path();
+            if !index_dir.is_dir() { continue; }
+            
+            for crate_entry in fs::read_dir(&index_dir).into_iter().flatten().flatten() {
+                let crate_dir = crate_entry.path();
+                let dir_name = crate_dir.file_name().and_then(|n| n.to_str()).unwrap_or("");
+                
+                // Look for "bevy-0.x.x" OR "bevy_internal-0.x.x"
+                // Both contain bevy_* dependencies that should be treated as internal
+                let is_bevy_umbrella = dir_name.starts_with("bevy-") && !dir_name.starts_with("bevy_");
+                let is_bevy_internal = dir_name.starts_with("bevy_internal-");
+                
+                if is_bevy_umbrella || is_bevy_internal {
+                    // Parse Cargo.toml to find dependencies
+                    let cargo_toml = crate_dir.join("Cargo.toml");
+                    if let Ok(content) = fs::read_to_string(&cargo_toml) {
+                        if let Ok(manifest) = toml::from_str::<toml::Value>(&content) {
+                            // Check [dependencies] table
+                            if let Some(deps) = manifest.get("dependencies").and_then(|d| d.as_table()) {
+                                for dep_name in deps.keys() {
+                                    if dep_name.starts_with("bevy_") {
+                                        crates.insert(dep_name.clone());
+                                    }
+                                }
+                            }
+                        }
+                    }
+                    // Don't return early - continue scanning to find bevy_internal too
+                }
+            }
+        }
+        
+        crates
+    });
+    
+    internal_crates.contains(crate_name)
+}
+
+
+
+
+/// Check if a crate has a prelude module by scanning cargo registry
+fn crate_has_prelude(crate_name: &str) -> bool {
+    use std::sync::OnceLock;
+    
+    static CACHE: OnceLock<std::collections::HashSet<String>> = OnceLock::new();
+    
+    let prelude_crates = CACHE.get_or_init(|| {
+        let mut crates_with_prelude = std::collections::HashSet::new();
+        
+        // Get cargo home
+        let cargo_home = env::var("CARGO_HOME")
+            .or_else(|_| env::var("HOME").map(|h| format!("{}/.cargo", h)))
+            .or_else(|_| env::var("USERPROFILE").map(|h| format!("{}/.cargo", h)))
+            .unwrap_or_default();
+        
+        if cargo_home.is_empty() {
+            return crates_with_prelude;
+        }
+        
+        let registry_src = PathBuf::from(&cargo_home).join("registry").join("src");
+        if !registry_src.exists() {
+            return crates_with_prelude;
+        }
+        
+        // Scan all crate directories for prelude modules
+        for index_entry in fs::read_dir(&registry_src).into_iter().flatten().flatten() {
+            let index_dir = index_entry.path();
+            if !index_dir.is_dir() { continue; }
+            
+            for crate_entry in fs::read_dir(&index_dir).into_iter().flatten().flatten() {
+                let crate_dir = crate_entry.path();
+                let dir_name = crate_dir.file_name().and_then(|n| n.to_str()).unwrap_or("");
+                
+                // Extract base crate name (e.g., "bevy_ecs_tiled" from "bevy_ecs_tiled-0.5.0")
+                let base = dir_name.split('-').next().unwrap_or(dir_name);
+                
+                // Check if lib.rs contains `pub mod prelude`
+                let lib_path = crate_dir.join("src").join("lib.rs");
+                if let Ok(content) = fs::read_to_string(&lib_path) {
+                    if content.contains("pub mod prelude") {
+                        crates_with_prelude.insert(base.to_string());
+                    }
+                }
+            }
+        }
+        
+        crates_with_prelude
+    });
+    
+    prelude_crates.contains(crate_name)
+}
+
+
+
+
+
+
+/// Check if a module is publicly exported from a crate
+/// Uses actual lib.rs parsing for authoritative `pub mod` declarations:
+/// 1. Workspace dependency source scanning
+/// 2. Cargo registry lib.rs parsing  
+/// 3. Assume public if unknown (be permissive for workspace crates)
+
+fn is_module_public(crate_name: &str, module_name: &str) -> bool {
+    // Strategy 1: Check workspace dependencies by scanning Cargo.toml for path/git deps
+    // and checking their actual lib.rs for `pub mod` declarations (authoritative)
+    if let Some(public_mods) = get_workspace_crate_public_modules(crate_name) {
+        return public_mods.contains(module_name);
+    }
+    
+    // Strategy 2: Check cargo registry crates lib.rs (authoritative)
+    if let Some(public_mods) = get_registry_crate_public_modules(crate_name) {
+        return public_mods.contains(module_name);
+    }
+    
+    // Strategy 3: Unknown crate - assume public (be permissive for workspace crates)
+    // We rely on actual lib.rs parsing above rather than pattern-based heuristics
+    true
+}
+
+
+/// Get public modules for a workspace (path/git) dependency
+fn get_workspace_crate_public_modules(crate_name: &str) -> Option<std::collections::HashSet<String>> {
+    use std::sync::OnceLock;
+    use std::collections::HashMap;
+    
+    static CACHE: OnceLock<HashMap<String, std::collections::HashSet<String>>> = OnceLock::new();
+    
+    let cache = CACHE.get_or_init(|| {
+        let mut map = HashMap::new();
+        
+        // Find workspace root Cargo.toml
+        let workspace_root = env::var("CARGO_MANIFEST_DIR")
+            .ok()
+            .map(|p| PathBuf::from(p).parent().map(|p| p.to_path_buf()))
+            .flatten();
+        
+        if let Some(root) = workspace_root {
+            // Check workspace Cargo.toml for [workspace.dependencies] with path
+            let workspace_toml = root.join("Cargo.toml");
+            if let Ok(content) = fs::read_to_string(&workspace_toml) {
+                // Parse workspace dependencies looking for path = "..." entries
+                let mut current_crate: Option<String> = None;
+                for line in content.lines() {
+                    let line = line.trim();
+                    // Look for [workspace.dependencies.crate_name] or crate_name = { path = "..." }
+                    if line.starts_with('[') && line.contains("workspace.dependencies") {
+                        // Could be section header
+                        continue;
+                    }
+                    if let Some(eq_pos) = line.find(" = ") {
+                        let key = line[..eq_pos].trim().replace('-', "_");
+                        if line.contains("path = ") {
+                            // Extract path value
+                            if let Some(path_start) = line.find("path = \"") {
+                                let rest = &line[path_start + 8..];
+                                if let Some(path_end) = rest.find('"') {
+                                    let path = &rest[..path_end];
+                                    let full_path = root.join(path);
+                                    // Parse this crate's lib.rs
+                                    if let Some(mods) = parse_lib_rs_for_public_mods(&full_path) {
+                                        map.insert(key, mods);
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        
+        map
+    });
+    
+    cache.get(crate_name).cloned()
+}
+
+/// Get public modules for a cargo registry crate  
+fn get_registry_crate_public_modules(crate_name: &str) -> Option<std::collections::HashSet<String>> {
+    use std::sync::OnceLock;
+    use std::collections::HashMap;
+    
+    static CACHE: OnceLock<HashMap<String, std::collections::HashSet<String>>> = OnceLock::new();
+    
+    let cache = CACHE.get_or_init(|| {
+        let mut map = HashMap::new();
+        
+        let cargo_home = env::var("CARGO_HOME")
+            .ok()
+            .map(PathBuf::from)
+            .or_else(|| {
+                env::var("USERPROFILE")
+                    .or_else(|_| env::var("HOME"))
+                    .ok()
+                    .map(|h| PathBuf::from(h).join(".cargo"))
+            });
+        
+        if let Some(cargo) = cargo_home {
+            let registry_src = cargo.join("registry").join("src");
+            if registry_src.exists() {
+                if let Ok(entries) = fs::read_dir(&registry_src) {
+                    for entry in entries.flatten() {
+                        let index_path = entry.path();
+                        if !index_path.is_dir() { continue; }
+                        
+                        if let Ok(crate_entries) = fs::read_dir(&index_path) {
+                            for crate_entry in crate_entries.flatten() {
+                                let crate_dir = crate_entry.path();
+                                let dir_name = crate_dir.file_name().and_then(|n| n.to_str()).unwrap_or("");
+                                let parsed_crate = dir_name.split('-').next().unwrap_or("").replace('-', "_");
+                                
+                                if let Some(mods) = parse_lib_rs_for_public_mods(&crate_dir) {
+                                    map.insert(parsed_crate, mods);
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        
+        map
+    });
+    
+    cache.get(crate_name).cloned()
+}
+
+/// Parse a crate's lib.rs to find public modules
+fn parse_lib_rs_for_public_mods(crate_path: &Path) -> Option<std::collections::HashSet<String>> {
+    let lib_path = crate_path.join("src").join("lib.rs");
+    if !lib_path.exists() {
+        return None;
+    }
+    
+    let content = fs::read_to_string(&lib_path).ok()?;
+    let mut public_mods = std::collections::HashSet::new();
+    
+    for line in content.lines() {
+        let line = line.trim();
+        // Check for `pub mod modname;`
+        if line.starts_with("pub mod ") {
+            let mod_name = line
+                .strip_prefix("pub mod ")
+                .and_then(|s| s.strip_suffix(';'))
+                .or_else(|| line.strip_prefix("pub mod "))
+                .map(|s| s.split_whitespace().next())
+                .flatten()
+                .unwrap_or("");
+            if !mod_name.is_empty() && !mod_name.starts_with('{') {
+                public_mods.insert(mod_name.to_string());
+            }
+        }
+        // Check for `pub use modname::` re-exports
+        if line.starts_with("pub use ") {
+            if let Some(rest) = line.strip_prefix("pub use ") {
+                let mod_part = rest.split("::").next().unwrap_or("");
+                if !mod_part.is_empty() && !["crate", "self", "super"].contains(&mod_part) {
+                    public_mods.insert(mod_part.to_string());
+                }
+            }
+        }
+    }
+    
+    if public_mods.is_empty() { None } else { Some(public_mods) }
+}
+
+
+
+
+
+
+
 
 /// A field in a struct
 #[derive(Debug, Clone)]

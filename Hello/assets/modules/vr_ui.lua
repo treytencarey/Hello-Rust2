@@ -15,6 +15,7 @@
 local VrInput = require("modules/vr_input.lua")
 local VrPanel = require("modules/vr_panel.lua")
 local VrPointer = require("modules/vr_pointer.lua")
+local VrHands = require("modules/vr_hands.lua")
 
 local VrUI = {}
 
@@ -29,7 +30,6 @@ local active_pointer_hand = "right"  -- Which hand is currently the pointer (opp
 local BASE_DISTANCE = 0.6  -- Base distance from HMD in meters
 local Z_INDEX_SCALE = 0.0003  -- How much closer per z-index point
 local MIN_DISTANCE = 0.25  -- Minimum distance from HMD
-local PENDING_DELAY_FRAMES = 10  -- Frames to wait before wrapping (allows Children component to be applied)
 
 -- Pending nodes (waiting for delay)
 local pending_nodes = {}  -- entity_id -> { frame_count, entity_data }
@@ -198,11 +198,6 @@ local function process_pending_nodes(world)
     
     for entity_id, data in pairs(pending_nodes) do
         data.frame_count = data.frame_count + 1
-        
-        -- Wait for delay
-        if data.frame_count < PENDING_DELAY_FRAMES then
-            goto continue
-        end
         
         -- Check if entity still exists and is still a root (no parent added)
         local entity = world:get_entity(entity_id)
@@ -400,8 +395,9 @@ function VrUI.get_pointer_hand()
     return active_pointer_hand
 end
 
--- Initialize VR pointer
+-- Initialize VR pointer and hands
 VrPointer.init()
+VrHands.init()
 
 -- Main Update system
 register_system("Update", function(world)
@@ -432,6 +428,9 @@ register_system("First", function(world)
     
     -- Update VR pointer (auto-detects panels via VrPanelMarker)
     VrPointer.update(world)
+    
+    -- Update hand mesh poses from XR tracking
+    VrHands.update(world)
 end)
 
 print("[VR_UI] Module loaded - will auto-wrap UI nodes when VR is detected")

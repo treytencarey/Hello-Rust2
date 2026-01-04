@@ -603,11 +603,17 @@ pub fn execute_query(
         
         // Serialize Rust components
         for name in &rust_component_names {
-            // Non-reflected component
+            // Non-reflected component - try to serialize via registered callback
             if component_registry.get_non_reflected_type_id(name).is_some() {
-                component_data.insert(name.clone(), "{}".to_string());
+                if let Some(serialized) = component_registry.serialize_non_reflected(&entity_ref, name) {
+                    component_data.insert(name.clone(), serialized);
+                } else {
+                    // Fallback to empty if no serializer or component not found
+                    component_data.insert(name.clone(), "{}".to_string());
+                }
                 continue;
             }
+
             
             // Reflected component
             if let Some(type_path) = component_registry.get_type_path(name) {

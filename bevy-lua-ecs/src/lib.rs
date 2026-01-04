@@ -49,7 +49,8 @@ pub use bitflags_registry::BitflagsRegistry;
 pub use component_lua_trait::LuaComponentRegistry;
 pub use component_update_queue::ComponentUpdateQueue;
 pub use component_updater::process_component_updates;
-pub use components::{register_entity_wrappers_runtime, ComponentRegistry, LuaCustomComponents};
+pub use components::{register_entity_wrappers_runtime, ComponentRegistry, LuaCustomComponents, NonReflectedSerializer};
+
 pub use despawn_queue::{process_despawn_queue, DespawnQueue};
 pub use entity_spawner::process_spawn_queue;
 pub use event_reader::{
@@ -64,7 +65,7 @@ pub use lua_observers::{
 };
 pub use lua_spawn_builder::LuaSpawnBuilder;
 pub use lua_frame_budget::{LuaFrameBudget, LuaSystemProgress};
-pub use lua_systems::{run_lua_systems, LuaSystemRegistry};
+pub use lua_systems::{run_lua_systems, LuaSystemEntry, LuaSystemRegistry};
 pub use lua_world_api::{execute_query, LuaEntitySnapshot, LuaQueryBuilder};
 pub use network_asset_trait::{AssetDownloadStatus, NetworkAssetLoader, NetworkAssetRequestor};
 pub use path_utils::{normalize_path, normalize_path_separators, to_forward_slash};

@@ -7,29 +7,49 @@ use bevy::prelude::*;
 use mlua::prelude::*;
 use std::sync::{Arc, Mutex};
 
+/// Entry for a registered Lua system with per-system tick tracking
+/// 
+/// Each system has its own `last_run` tick, updated after IT runs.
+/// This ensures cross-system change detection works correctly even when
+/// budget time-slicing spreads systems across multiple frames.
+#[derive(Clone)]
+pub struct LuaSystemEntry {
+    pub instance_id: u64,
+    pub system_key: Arc<LuaRegistryKey>,
+    pub last_run: u32,  // Per-system tick for change detection
+}
+
 /// Resource that stores registered Lua systems
 #[derive(Resource, Clone)]
 pub struct LuaSystemRegistry {
-    pub update_systems: Arc<Mutex<Vec<(u64, Arc<LuaRegistryKey>)>>>, // (instance_id, system)
-    pub last_run: Arc<Mutex<u32>>,
+    pub update_systems: Arc<Mutex<Vec<LuaSystemEntry>>>,
 }
 
 impl Default for LuaSystemRegistry {
     fn default() -> Self {
         Self {
             update_systems: Arc::new(Mutex::new(Vec::new())),
-            last_run: Arc::new(Mutex::new(0)),
         }
     }
 }
 
 impl LuaSystemRegistry {
+    /// Register a new system with initial tick of 0
+    pub fn register_system(&self, instance_id: u64, system_key: Arc<LuaRegistryKey>) {
+        let mut systems = self.update_systems.lock().unwrap();
+        systems.push(LuaSystemEntry {
+            instance_id,
+            system_key,
+            last_run: 0,
+        });
+    }
+    
     /// Clear all systems registered by a specific script instance
     pub fn clear_instance_systems(&self, instance_id: u64) {
         let mut systems = self.update_systems.lock().unwrap();
         let initial_count = systems.len();
 
-        systems.retain(|(id, _key)| *id != instance_id);
+        systems.retain(|entry| entry.instance_id != instance_id);
 
         let removed_count = initial_count - systems.len();
         if removed_count > 0 {
@@ -90,15 +110,11 @@ pub fn run_lua_systems(world: &mut World) {
     
     // Signal new frame to progress tracker (auto-resets per-frame state)
     progress.new_frame(current_frame);
-
-    // Get change detection ticks
+    
+    // Get current change tick (all systems will use this as their this_run)
     let this_run = world.read_change_tick().get();
-    let mut last_run = registry.last_run.lock().unwrap();
-    let last_run_tick = *last_run;
-    *last_run = this_run;
-    drop(last_run);
 
-    // Get the list of systems
+    // Get the list of systems (with per-system last_run ticks)
     let systems = registry.update_systems.lock().unwrap().clone();
     let total_systems = systems.len();
     
@@ -112,17 +128,23 @@ pub fn run_lua_systems(world: &mut World) {
     // Track how many systems we've run this frame
     let mut systems_run = 0;
     
+    // Track which system indices need their ticks updated (index -> new_tick)
+    let mut systems_to_update: Vec<(usize, u32)> = Vec::new();
+    
     // Run systems in round-robin order
     for i in 0..total_systems {
         let actual_index = (start_index + i) % total_systems;
-        let (instance_id, system_key) = &systems[actual_index];
+        let entry = &systems[actual_index];
+        
+        // Get this system's own last_run tick (per-system, not per-instance!)
+        let last_run_for_system = entry.last_run;
         
         // Time this system
         let timer = crate::lua_frame_budget::SystemTimer::start();
         
         if let Err(e) = run_single_lua_system_fast(
             &lua_ctx.lua,
-            system_key,
+            &entry.system_key,
             world,
             component_registry,
             &update_queue,
@@ -132,7 +154,7 @@ pub fn run_lua_systems(world: &mut World) {
             &registry,
             &despawn_queue,
             &pending_messages,
-            last_run_tick,
+            last_run_for_system,
             this_run,
             query_cache.as_ref(),
             current_frame,
@@ -140,18 +162,21 @@ pub fn run_lua_systems(world: &mut World) {
             error!("Error running Lua system: {}", e);
         }
         
+        // Mark this system for tick update (updated immediately after it runs)
+        systems_to_update.push((actual_index, this_run));
+        
         // Record elapsed time and check budget
         let elapsed = timer.elapsed();
         
         // Log slow systems (>1ms)
         if elapsed.as_millis() >= 1 {
             let script_path = script_registry
-                .get_instance_path(*instance_id)
+                .get_instance_path(entry.instance_id)
                 .map(|p| p.display().to_string())
                 .unwrap_or_else(|| "unknown".to_string());
             debug!(
                 "[LUA_SYSTEM] instance={} script={} took {:?}",
-                instance_id, script_path, elapsed
+                entry.instance_id, script_path, elapsed
             );
         }
         
@@ -168,6 +193,17 @@ pub fn run_lua_systems(world: &mut World) {
                 systems_run, total_systems, progress.time_this_frame()
             );
             break;
+        }
+    }
+    
+    // Update ticks for systems that ran (per-SYSTEM, not per-instance!)
+    // Each system gets its tick updated so cross-system changes are detected
+    if !systems_to_update.is_empty() {
+        let mut systems_lock = registry.update_systems.lock().unwrap();
+        for (idx, new_tick) in systems_to_update {
+            if idx < systems_lock.len() {
+                systems_lock[idx].last_run = new_tick;
+            }
         }
     }
 }
@@ -583,6 +619,7 @@ fn run_single_lua_system(
                     .clone();
 
                 // Clear all systems registered by this instance
+                // Note: Per-system ticks are cleaned up automatically with the system entries
                 system_registry.clear_instance_systems(instance_id);
 
                 // Get list of resources inserted by this instance

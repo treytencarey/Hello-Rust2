@@ -136,11 +136,7 @@ impl LuaScriptContext {
                 let instance_id: u64 = lua_ctx.globals().get("__INSTANCE_ID__").unwrap_or(0);
 
                 let registry_key = lua_ctx.create_registry_value(func)?;
-                system_reg
-                    .update_systems
-                    .lock()
-                    .unwrap()
-                    .push((instance_id, Arc::new(registry_key)));
+                system_reg.register_system(instance_id, Arc::new(registry_key));
                 Ok(())
             },
         )?;
@@ -1532,6 +1528,7 @@ fn cleanup_script_instance(instance_id: u64, world: &World, recursive: bool) {
     }
 
     // 3. Clear all systems registered by this instance
+    // Note: Per-system ticks are cleaned up automatically with the system entries
     let system_registry = world.resource::<LuaSystemRegistry>().clone();
     system_registry.clear_instance_systems(instance_id);
 
