@@ -5,9 +5,9 @@ use bevy::prelude::*;
 use bevy_lua_ecs::{LuaScriptContext, ScriptInstance, ScriptRegistry};
 use mlua::prelude::*;
 
-/// Resource to specify which script to run on startup
-#[derive(Resource, Clone)]
-pub struct MainScript(pub String);
+/// Resource to specify which scripts to run on startup
+#[derive(Resource, Clone, Default)]
+pub struct MainScripts(pub Vec<String>);
 
 /// Core Hello plugin - always required
 /// Wraps LuaBindingsPlugin (which includes LuaSpawnPlugin)
@@ -27,7 +27,9 @@ impl Plugin for HelloCorePlugin {
         // Register application-specific Lua functions (run in PostStartup before initial script)
         app.add_systems(PostStartup, (
             register_hello_lua_functions,
-            run_initial_script.run_if(resource_exists::<MainScript>),
+            run_initial_scripts.run_if(|scripts: Option<Res<MainScripts>>| {
+                scripts.map(|s| !s.0.is_empty()).unwrap_or(false)
+            }),
         ).chain());
     }
 }
@@ -69,26 +71,28 @@ fn register_hello_lua_functions(lua_ctx: Res<LuaScriptContext>) {
     }
 }
 
-fn run_initial_script(
-    script: Res<MainScript>,
+pub fn run_initial_scripts(
+    scripts: Res<MainScripts>,
     lua_ctx: Res<LuaScriptContext>,
     script_instance: Res<ScriptInstance>,
     script_registry: Res<ScriptRegistry>,
 ) {
-    let script_path = std::path::PathBuf::from(format!("assets/{}", script.0));
-    match std::fs::read_to_string(&script_path) {
-        Ok(content) => {
-            info!("🚀 Running initial script: {}", script.0);
-            if let Err(e) = lua_ctx.execute_script(
-                &content, 
-                &script.0, 
-                script_path, 
-                &script_instance, 
-                &script_registry
-            ) {
-                error!("Failed to execute script: {}", e);
+    for script_name in &scripts.0 {
+        let script_path = std::path::PathBuf::from(format!("assets/{}", script_name));
+        match std::fs::read_to_string(&script_path) {
+            Ok(content) => {
+                info!("🚀 Running initial script: {}", script_name);
+                if let Err(e) = lua_ctx.execute_script(
+                    &content, 
+                    script_name, 
+                    script_path, 
+                    &script_instance, 
+                    &script_registry
+                ) {
+                    error!("Failed to execute script: {}", e);
+                }
             }
+            Err(e) => error!("Failed to load script {}: {}", script_name, e),
         }
-        Err(e) => error!("Failed to load script {}: {}", script.0, e),
     }
 }

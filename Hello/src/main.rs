@@ -14,7 +14,7 @@ use bevy::asset::{AssetPlugin, AssetMode};
 use clap::Parser;
 
 // Import from library crate
-use hello::plugins::{HelloCorePlugin, MainScript};
+use hello::plugins::{HelloCorePlugin, MainScripts};
 
 #[cfg(feature = "physics")]
 use hello::plugins::HelloPhysicsPlugin;
@@ -180,24 +180,29 @@ fn main() {
         _ => None,
     };
     
-    // Determine which script to run based on network mode
-    let script_path = if let Some(ref script) = args.script {
-        Some(script.clone())
+    // Determine which script(s) to run based on network mode
+    let script_paths: Vec<String> = if let Some(ref script) = args.script {
+        vec![script.clone()]
     } else if let Some(ref demo_name) = args.demo {
         // Find the demo
         DEMOS.iter()
             .find(|(name, _, _, _)| *name == demo_name.as_str())
-            .map(|(_, script, _, _)| script.to_string())
+            .map(|(_, script, _, _)| vec![script.to_string()])
+            .unwrap_or_default()
     } else {
         // Network mode specific scripts
         #[cfg(feature = "networking")]
         match network_mode {
-            Some(NetworkMode::ServerOnly) => Some("scripts/server/main.lua".to_string()),
-            Some(NetworkMode::ClientOnly) | Some(NetworkMode::Both) => Some("scripts/main.lua".to_string()),
-            None => None,
+            Some(NetworkMode::ServerOnly) => vec!["scripts/server/main.lua".to_string()],
+            Some(NetworkMode::ClientOnly) => vec!["scripts/main.lua".to_string()],
+            Some(NetworkMode::Both) => vec![
+                "scripts/server/main.lua".to_string(),
+                "scripts/main.lua".to_string(),
+            ],
+            None => vec![],
         }
         #[cfg(not(feature = "networking"))]
-        None
+        vec![]
     };
     
     // Add feature-specific plugins based on demo or network mode
@@ -233,9 +238,9 @@ fn main() {
         }
     }
     
-    // Set initial script if we have one
-    if let Some(path) = script_path {
-        app.insert_resource(MainScript(path));
+    // Set initial scripts if we have any
+    if !script_paths.is_empty() {
+        app.insert_resource(MainScripts(script_paths));
     }
     
     app.run();

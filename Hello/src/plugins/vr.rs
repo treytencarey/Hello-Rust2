@@ -270,8 +270,6 @@ fn spawn_controllers(
         .create_action_space(&actions.left_pose, openxr::Path::NULL, Isometry3d::IDENTITY)
         .unwrap();
     cmds.spawn((
-        Mesh3d(meshes.add(Cuboid::new(0.1, 0.1, 0.05))),
-        MeshMaterial3d(materials.add(Color::srgb_u8(124, 144, 255))),
         left_space,
         Controller { hand: Hand::Left },
     ));
@@ -281,8 +279,6 @@ fn spawn_controllers(
         .create_action_space(&actions.right_pose, openxr::Path::NULL, Isometry3d::IDENTITY)
         .unwrap();
     cmds.spawn((
-        Mesh3d(meshes.add(Cuboid::new(0.1, 0.1, 0.05))),
-        MeshMaterial3d(materials.add(Color::srgb_u8(255, 144, 124))),
         right_space,
         Controller { hand: Hand::Right },
     ));
