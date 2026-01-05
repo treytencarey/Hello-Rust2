@@ -808,8 +808,8 @@ pub const DISCOVERED_ASSET_TYPES: &[&str] = &[
     "StandardTilemapMaterial",
     "GizmoAsset",
     "GltfPrimitive",
-    "GltfNode",
     "GltfSkin",
+    "GltfNode",
     "Gltf",
     "GltfMesh",
     "Image",
@@ -5355,6 +5355,8138 @@ pub fn dispatch_component_method(
         ))),
     }
 }
+#[doc = r" Dispatch a static method call from Lua for math types (Quat, Vec3, etc.)"]
+#[doc = r" These do not require entity access or World - they operate on pure data"]
+#[doc = r" Methods are generated based on [package.metadata.lua_methods] static_types config"]
+pub fn dispatch_static_method(
+    lua: &mlua::Lua,
+    world: &bevy::prelude::World,
+    type_name: &str,
+    method_name: &str,
+    args: mlua::MultiValue,
+) -> mlua::Result<mlua::Value> {
+    let mut args: std::collections::VecDeque<mlua::Value> = args.into_iter().collect();
+    match (type_name, method_name) {
+        ("Quat", "from_xyzw") => {
+            let app_type_registry = world.resource::<bevy::ecs::reflect::AppTypeRegistry>();
+            let type_registry = app_type_registry.read();
+            let typed_param_0: f32 = {
+                if let Some(arg_val) = args.pop_front() {
+                    bevy_lua_ecs::reflection::lua_value_to_type::<f32>(
+                        lua,
+                        arg_val,
+                        &app_type_registry,
+                    )
+                    .map_err(|e| {
+                        mlua::Error::RuntimeError(format!(
+                            "Failed to convert parameter '{}': {}",
+                            "f32", e
+                        ))
+                    })?
+                } else {
+                    let reflect_default = type_registry
+                        .get_with_short_type_path("f32")
+                        .and_then(|reg| reg.data::<bevy::prelude::ReflectDefault>());
+                    if let Some(rd) = reflect_default {
+                        let param_instance = rd.default();
+                        *param_instance.downcast::<f32>().map_err(|_| {
+                            mlua::Error::RuntimeError(format!(
+                                "Failed to downcast default to '{}'",
+                                "f32"
+                            ))
+                        })?
+                    } else {
+                        return Err (mlua :: Error :: RuntimeError (format ! ("Cannot construct parameter type '{}' - no argument provided and no Default" , "f32"))) ;
+                    }
+                }
+            };
+            let typed_param_1: f32 = {
+                if let Some(arg_val) = args.pop_front() {
+                    bevy_lua_ecs::reflection::lua_value_to_type::<f32>(
+                        lua,
+                        arg_val,
+                        &app_type_registry,
+                    )
+                    .map_err(|e| {
+                        mlua::Error::RuntimeError(format!(
+                            "Failed to convert parameter '{}': {}",
+                            "f32", e
+                        ))
+                    })?
+                } else {
+                    let reflect_default = type_registry
+                        .get_with_short_type_path("f32")
+                        .and_then(|reg| reg.data::<bevy::prelude::ReflectDefault>());
+                    if let Some(rd) = reflect_default {
+                        let param_instance = rd.default();
+                        *param_instance.downcast::<f32>().map_err(|_| {
+                            mlua::Error::RuntimeError(format!(
+                                "Failed to downcast default to '{}'",
+                                "f32"
+                            ))
+                        })?
+                    } else {
+                        return Err (mlua :: Error :: RuntimeError (format ! ("Cannot construct parameter type '{}' - no argument provided and no Default" , "f32"))) ;
+                    }
+                }
+            };
+            let typed_param_2: f32 = {
+                if let Some(arg_val) = args.pop_front() {
+                    bevy_lua_ecs::reflection::lua_value_to_type::<f32>(
+                        lua,
+                        arg_val,
+                        &app_type_registry,
+                    )
+                    .map_err(|e| {
+                        mlua::Error::RuntimeError(format!(
+                            "Failed to convert parameter '{}': {}",
+                            "f32", e
+                        ))
+                    })?
+                } else {
+                    let reflect_default = type_registry
+                        .get_with_short_type_path("f32")
+                        .and_then(|reg| reg.data::<bevy::prelude::ReflectDefault>());
+                    if let Some(rd) = reflect_default {
+                        let param_instance = rd.default();
+                        *param_instance.downcast::<f32>().map_err(|_| {
+                            mlua::Error::RuntimeError(format!(
+                                "Failed to downcast default to '{}'",
+                                "f32"
+                            ))
+                        })?
+                    } else {
+                        return Err (mlua :: Error :: RuntimeError (format ! ("Cannot construct parameter type '{}' - no argument provided and no Default" , "f32"))) ;
+                    }
+                }
+            };
+            let typed_param_3: f32 = {
+                if let Some(arg_val) = args.pop_front() {
+                    bevy_lua_ecs::reflection::lua_value_to_type::<f32>(
+                        lua,
+                        arg_val,
+                        &app_type_registry,
+                    )
+                    .map_err(|e| {
+                        mlua::Error::RuntimeError(format!(
+                            "Failed to convert parameter '{}': {}",
+                            "f32", e
+                        ))
+                    })?
+                } else {
+                    let reflect_default = type_registry
+                        .get_with_short_type_path("f32")
+                        .and_then(|reg| reg.data::<bevy::prelude::ReflectDefault>());
+                    if let Some(rd) = reflect_default {
+                        let param_instance = rd.default();
+                        *param_instance.downcast::<f32>().map_err(|_| {
+                            mlua::Error::RuntimeError(format!(
+                                "Failed to downcast default to '{}'",
+                                "f32"
+                            ))
+                        })?
+                    } else {
+                        return Err (mlua :: Error :: RuntimeError (format ! ("Cannot construct parameter type '{}' - no argument provided and no Default" , "f32"))) ;
+                    }
+                }
+            };
+            let result =
+                Quat::from_xyzw(typed_param_0, typed_param_1, typed_param_2, typed_param_3);
+            bevy_lua_ecs::reflection::try_reflect_to_lua_value(lua, &result)
+        }
+        ("Quat", "from_axis_angle") => {
+            let app_type_registry = world.resource::<bevy::ecs::reflect::AppTypeRegistry>();
+            let type_registry = app_type_registry.read();
+            let typed_param_0: Vec3 = {
+                if let Some(arg_val) = args.pop_front() {
+                    bevy_lua_ecs::reflection::lua_value_to_type::<Vec3>(
+                        lua,
+                        arg_val,
+                        &app_type_registry,
+                    )
+                    .map_err(|e| {
+                        mlua::Error::RuntimeError(format!(
+                            "Failed to convert parameter '{}': {}",
+                            "Vec3", e
+                        ))
+                    })?
+                } else {
+                    let reflect_default = type_registry
+                        .get_with_short_type_path("Vec3")
+                        .and_then(|reg| reg.data::<bevy::prelude::ReflectDefault>());
+                    if let Some(rd) = reflect_default {
+                        let param_instance = rd.default();
+                        *param_instance.downcast::<Vec3>().map_err(|_| {
+                            mlua::Error::RuntimeError(format!(
+                                "Failed to downcast default to '{}'",
+                                "Vec3"
+                            ))
+                        })?
+                    } else {
+                        return Err (mlua :: Error :: RuntimeError (format ! ("Cannot construct parameter type '{}' - no argument provided and no Default" , "Vec3"))) ;
+                    }
+                }
+            };
+            let typed_param_1: f32 = {
+                if let Some(arg_val) = args.pop_front() {
+                    bevy_lua_ecs::reflection::lua_value_to_type::<f32>(
+                        lua,
+                        arg_val,
+                        &app_type_registry,
+                    )
+                    .map_err(|e| {
+                        mlua::Error::RuntimeError(format!(
+                            "Failed to convert parameter '{}': {}",
+                            "f32", e
+                        ))
+                    })?
+                } else {
+                    let reflect_default = type_registry
+                        .get_with_short_type_path("f32")
+                        .and_then(|reg| reg.data::<bevy::prelude::ReflectDefault>());
+                    if let Some(rd) = reflect_default {
+                        let param_instance = rd.default();
+                        *param_instance.downcast::<f32>().map_err(|_| {
+                            mlua::Error::RuntimeError(format!(
+                                "Failed to downcast default to '{}'",
+                                "f32"
+                            ))
+                        })?
+                    } else {
+                        return Err (mlua :: Error :: RuntimeError (format ! ("Cannot construct parameter type '{}' - no argument provided and no Default" , "f32"))) ;
+                    }
+                }
+            };
+            let result = Quat::from_axis_angle(typed_param_0, typed_param_1);
+            bevy_lua_ecs::reflection::try_reflect_to_lua_value(lua, &result)
+        }
+        ("Quat", "from_scaled_axis") => {
+            let app_type_registry = world.resource::<bevy::ecs::reflect::AppTypeRegistry>();
+            let type_registry = app_type_registry.read();
+            let typed_param_0: Vec3 = {
+                if let Some(arg_val) = args.pop_front() {
+                    bevy_lua_ecs::reflection::lua_value_to_type::<Vec3>(
+                        lua,
+                        arg_val,
+                        &app_type_registry,
+                    )
+                    .map_err(|e| {
+                        mlua::Error::RuntimeError(format!(
+                            "Failed to convert parameter '{}': {}",
+                            "Vec3", e
+                        ))
+                    })?
+                } else {
+                    let reflect_default = type_registry
+                        .get_with_short_type_path("Vec3")
+                        .and_then(|reg| reg.data::<bevy::prelude::ReflectDefault>());
+                    if let Some(rd) = reflect_default {
+                        let param_instance = rd.default();
+                        *param_instance.downcast::<Vec3>().map_err(|_| {
+                            mlua::Error::RuntimeError(format!(
+                                "Failed to downcast default to '{}'",
+                                "Vec3"
+                            ))
+                        })?
+                    } else {
+                        return Err (mlua :: Error :: RuntimeError (format ! ("Cannot construct parameter type '{}' - no argument provided and no Default" , "Vec3"))) ;
+                    }
+                }
+            };
+            let result = Quat::from_scaled_axis(typed_param_0);
+            bevy_lua_ecs::reflection::try_reflect_to_lua_value(lua, &result)
+        }
+        ("Quat", "from_rotation_x") => {
+            let app_type_registry = world.resource::<bevy::ecs::reflect::AppTypeRegistry>();
+            let type_registry = app_type_registry.read();
+            let typed_param_0: f32 = {
+                if let Some(arg_val) = args.pop_front() {
+                    bevy_lua_ecs::reflection::lua_value_to_type::<f32>(
+                        lua,
+                        arg_val,
+                        &app_type_registry,
+                    )
+                    .map_err(|e| {
+                        mlua::Error::RuntimeError(format!(
+                            "Failed to convert parameter '{}': {}",
+                            "f32", e
+                        ))
+                    })?
+                } else {
+                    let reflect_default = type_registry
+                        .get_with_short_type_path("f32")
+                        .and_then(|reg| reg.data::<bevy::prelude::ReflectDefault>());
+                    if let Some(rd) = reflect_default {
+                        let param_instance = rd.default();
+                        *param_instance.downcast::<f32>().map_err(|_| {
+                            mlua::Error::RuntimeError(format!(
+                                "Failed to downcast default to '{}'",
+                                "f32"
+                            ))
+                        })?
+                    } else {
+                        return Err (mlua :: Error :: RuntimeError (format ! ("Cannot construct parameter type '{}' - no argument provided and no Default" , "f32"))) ;
+                    }
+                }
+            };
+            let result = Quat::from_rotation_x(typed_param_0);
+            bevy_lua_ecs::reflection::try_reflect_to_lua_value(lua, &result)
+        }
+        ("Quat", "from_rotation_y") => {
+            let app_type_registry = world.resource::<bevy::ecs::reflect::AppTypeRegistry>();
+            let type_registry = app_type_registry.read();
+            let typed_param_0: f32 = {
+                if let Some(arg_val) = args.pop_front() {
+                    bevy_lua_ecs::reflection::lua_value_to_type::<f32>(
+                        lua,
+                        arg_val,
+                        &app_type_registry,
+                    )
+                    .map_err(|e| {
+                        mlua::Error::RuntimeError(format!(
+                            "Failed to convert parameter '{}': {}",
+                            "f32", e
+                        ))
+                    })?
+                } else {
+                    let reflect_default = type_registry
+                        .get_with_short_type_path("f32")
+                        .and_then(|reg| reg.data::<bevy::prelude::ReflectDefault>());
+                    if let Some(rd) = reflect_default {
+                        let param_instance = rd.default();
+                        *param_instance.downcast::<f32>().map_err(|_| {
+                            mlua::Error::RuntimeError(format!(
+                                "Failed to downcast default to '{}'",
+                                "f32"
+                            ))
+                        })?
+                    } else {
+                        return Err (mlua :: Error :: RuntimeError (format ! ("Cannot construct parameter type '{}' - no argument provided and no Default" , "f32"))) ;
+                    }
+                }
+            };
+            let result = Quat::from_rotation_y(typed_param_0);
+            bevy_lua_ecs::reflection::try_reflect_to_lua_value(lua, &result)
+        }
+        ("Quat", "from_rotation_z") => {
+            let app_type_registry = world.resource::<bevy::ecs::reflect::AppTypeRegistry>();
+            let type_registry = app_type_registry.read();
+            let typed_param_0: f32 = {
+                if let Some(arg_val) = args.pop_front() {
+                    bevy_lua_ecs::reflection::lua_value_to_type::<f32>(
+                        lua,
+                        arg_val,
+                        &app_type_registry,
+                    )
+                    .map_err(|e| {
+                        mlua::Error::RuntimeError(format!(
+                            "Failed to convert parameter '{}': {}",
+                            "f32", e
+                        ))
+                    })?
+                } else {
+                    let reflect_default = type_registry
+                        .get_with_short_type_path("f32")
+                        .and_then(|reg| reg.data::<bevy::prelude::ReflectDefault>());
+                    if let Some(rd) = reflect_default {
+                        let param_instance = rd.default();
+                        *param_instance.downcast::<f32>().map_err(|_| {
+                            mlua::Error::RuntimeError(format!(
+                                "Failed to downcast default to '{}'",
+                                "f32"
+                            ))
+                        })?
+                    } else {
+                        return Err (mlua :: Error :: RuntimeError (format ! ("Cannot construct parameter type '{}' - no argument provided and no Default" , "f32"))) ;
+                    }
+                }
+            };
+            let result = Quat::from_rotation_z(typed_param_0);
+            bevy_lua_ecs::reflection::try_reflect_to_lua_value(lua, &result)
+        }
+        ("Quat", "from_euler") => {
+            let app_type_registry = world.resource::<bevy::ecs::reflect::AppTypeRegistry>();
+            let type_registry = app_type_registry.read();
+            let typed_param_0: EulerRot = {
+                if let Some(arg_val) = args.pop_front() {
+                    bevy_lua_ecs::reflection::lua_value_to_type::<EulerRot>(
+                        lua,
+                        arg_val,
+                        &app_type_registry,
+                    )
+                    .map_err(|e| {
+                        mlua::Error::RuntimeError(format!(
+                            "Failed to convert parameter '{}': {}",
+                            "EulerRot", e
+                        ))
+                    })?
+                } else {
+                    let reflect_default = type_registry
+                        .get_with_short_type_path("EulerRot")
+                        .and_then(|reg| reg.data::<bevy::prelude::ReflectDefault>());
+                    if let Some(rd) = reflect_default {
+                        let param_instance = rd.default();
+                        *param_instance.downcast::<EulerRot>().map_err(|_| {
+                            mlua::Error::RuntimeError(format!(
+                                "Failed to downcast default to '{}'",
+                                "EulerRot"
+                            ))
+                        })?
+                    } else {
+                        return Err (mlua :: Error :: RuntimeError (format ! ("Cannot construct parameter type '{}' - no argument provided and no Default" , "EulerRot"))) ;
+                    }
+                }
+            };
+            let typed_param_1: f32 = {
+                if let Some(arg_val) = args.pop_front() {
+                    bevy_lua_ecs::reflection::lua_value_to_type::<f32>(
+                        lua,
+                        arg_val,
+                        &app_type_registry,
+                    )
+                    .map_err(|e| {
+                        mlua::Error::RuntimeError(format!(
+                            "Failed to convert parameter '{}': {}",
+                            "f32", e
+                        ))
+                    })?
+                } else {
+                    let reflect_default = type_registry
+                        .get_with_short_type_path("f32")
+                        .and_then(|reg| reg.data::<bevy::prelude::ReflectDefault>());
+                    if let Some(rd) = reflect_default {
+                        let param_instance = rd.default();
+                        *param_instance.downcast::<f32>().map_err(|_| {
+                            mlua::Error::RuntimeError(format!(
+                                "Failed to downcast default to '{}'",
+                                "f32"
+                            ))
+                        })?
+                    } else {
+                        return Err (mlua :: Error :: RuntimeError (format ! ("Cannot construct parameter type '{}' - no argument provided and no Default" , "f32"))) ;
+                    }
+                }
+            };
+            let typed_param_2: f32 = {
+                if let Some(arg_val) = args.pop_front() {
+                    bevy_lua_ecs::reflection::lua_value_to_type::<f32>(
+                        lua,
+                        arg_val,
+                        &app_type_registry,
+                    )
+                    .map_err(|e| {
+                        mlua::Error::RuntimeError(format!(
+                            "Failed to convert parameter '{}': {}",
+                            "f32", e
+                        ))
+                    })?
+                } else {
+                    let reflect_default = type_registry
+                        .get_with_short_type_path("f32")
+                        .and_then(|reg| reg.data::<bevy::prelude::ReflectDefault>());
+                    if let Some(rd) = reflect_default {
+                        let param_instance = rd.default();
+                        *param_instance.downcast::<f32>().map_err(|_| {
+                            mlua::Error::RuntimeError(format!(
+                                "Failed to downcast default to '{}'",
+                                "f32"
+                            ))
+                        })?
+                    } else {
+                        return Err (mlua :: Error :: RuntimeError (format ! ("Cannot construct parameter type '{}' - no argument provided and no Default" , "f32"))) ;
+                    }
+                }
+            };
+            let typed_param_3: f32 = {
+                if let Some(arg_val) = args.pop_front() {
+                    bevy_lua_ecs::reflection::lua_value_to_type::<f32>(
+                        lua,
+                        arg_val,
+                        &app_type_registry,
+                    )
+                    .map_err(|e| {
+                        mlua::Error::RuntimeError(format!(
+                            "Failed to convert parameter '{}': {}",
+                            "f32", e
+                        ))
+                    })?
+                } else {
+                    let reflect_default = type_registry
+                        .get_with_short_type_path("f32")
+                        .and_then(|reg| reg.data::<bevy::prelude::ReflectDefault>());
+                    if let Some(rd) = reflect_default {
+                        let param_instance = rd.default();
+                        *param_instance.downcast::<f32>().map_err(|_| {
+                            mlua::Error::RuntimeError(format!(
+                                "Failed to downcast default to '{}'",
+                                "f32"
+                            ))
+                        })?
+                    } else {
+                        return Err (mlua :: Error :: RuntimeError (format ! ("Cannot construct parameter type '{}' - no argument provided and no Default" , "f32"))) ;
+                    }
+                }
+            };
+            let result =
+                Quat::from_euler(typed_param_0, typed_param_1, typed_param_2, typed_param_3);
+            bevy_lua_ecs::reflection::try_reflect_to_lua_value(lua, &result)
+        }
+        ("Quat", "from_rotation_arc") => {
+            let app_type_registry = world.resource::<bevy::ecs::reflect::AppTypeRegistry>();
+            let type_registry = app_type_registry.read();
+            let typed_param_0: Vec3 = {
+                if let Some(arg_val) = args.pop_front() {
+                    bevy_lua_ecs::reflection::lua_value_to_type::<Vec3>(
+                        lua,
+                        arg_val,
+                        &app_type_registry,
+                    )
+                    .map_err(|e| {
+                        mlua::Error::RuntimeError(format!(
+                            "Failed to convert parameter '{}': {}",
+                            "Vec3", e
+                        ))
+                    })?
+                } else {
+                    let reflect_default = type_registry
+                        .get_with_short_type_path("Vec3")
+                        .and_then(|reg| reg.data::<bevy::prelude::ReflectDefault>());
+                    if let Some(rd) = reflect_default {
+                        let param_instance = rd.default();
+                        *param_instance.downcast::<Vec3>().map_err(|_| {
+                            mlua::Error::RuntimeError(format!(
+                                "Failed to downcast default to '{}'",
+                                "Vec3"
+                            ))
+                        })?
+                    } else {
+                        return Err (mlua :: Error :: RuntimeError (format ! ("Cannot construct parameter type '{}' - no argument provided and no Default" , "Vec3"))) ;
+                    }
+                }
+            };
+            let typed_param_1: Vec3 = {
+                if let Some(arg_val) = args.pop_front() {
+                    bevy_lua_ecs::reflection::lua_value_to_type::<Vec3>(
+                        lua,
+                        arg_val,
+                        &app_type_registry,
+                    )
+                    .map_err(|e| {
+                        mlua::Error::RuntimeError(format!(
+                            "Failed to convert parameter '{}': {}",
+                            "Vec3", e
+                        ))
+                    })?
+                } else {
+                    let reflect_default = type_registry
+                        .get_with_short_type_path("Vec3")
+                        .and_then(|reg| reg.data::<bevy::prelude::ReflectDefault>());
+                    if let Some(rd) = reflect_default {
+                        let param_instance = rd.default();
+                        *param_instance.downcast::<Vec3>().map_err(|_| {
+                            mlua::Error::RuntimeError(format!(
+                                "Failed to downcast default to '{}'",
+                                "Vec3"
+                            ))
+                        })?
+                    } else {
+                        return Err (mlua :: Error :: RuntimeError (format ! ("Cannot construct parameter type '{}' - no argument provided and no Default" , "Vec3"))) ;
+                    }
+                }
+            };
+            let result = Quat::from_rotation_arc(typed_param_0, typed_param_1);
+            bevy_lua_ecs::reflection::try_reflect_to_lua_value(lua, &result)
+        }
+        ("Quat", "from_rotation_arc_colinear") => {
+            let app_type_registry = world.resource::<bevy::ecs::reflect::AppTypeRegistry>();
+            let type_registry = app_type_registry.read();
+            let typed_param_0: Vec3 = {
+                if let Some(arg_val) = args.pop_front() {
+                    bevy_lua_ecs::reflection::lua_value_to_type::<Vec3>(
+                        lua,
+                        arg_val,
+                        &app_type_registry,
+                    )
+                    .map_err(|e| {
+                        mlua::Error::RuntimeError(format!(
+                            "Failed to convert parameter '{}': {}",
+                            "Vec3", e
+                        ))
+                    })?
+                } else {
+                    let reflect_default = type_registry
+                        .get_with_short_type_path("Vec3")
+                        .and_then(|reg| reg.data::<bevy::prelude::ReflectDefault>());
+                    if let Some(rd) = reflect_default {
+                        let param_instance = rd.default();
+                        *param_instance.downcast::<Vec3>().map_err(|_| {
+                            mlua::Error::RuntimeError(format!(
+                                "Failed to downcast default to '{}'",
+                                "Vec3"
+                            ))
+                        })?
+                    } else {
+                        return Err (mlua :: Error :: RuntimeError (format ! ("Cannot construct parameter type '{}' - no argument provided and no Default" , "Vec3"))) ;
+                    }
+                }
+            };
+            let typed_param_1: Vec3 = {
+                if let Some(arg_val) = args.pop_front() {
+                    bevy_lua_ecs::reflection::lua_value_to_type::<Vec3>(
+                        lua,
+                        arg_val,
+                        &app_type_registry,
+                    )
+                    .map_err(|e| {
+                        mlua::Error::RuntimeError(format!(
+                            "Failed to convert parameter '{}': {}",
+                            "Vec3", e
+                        ))
+                    })?
+                } else {
+                    let reflect_default = type_registry
+                        .get_with_short_type_path("Vec3")
+                        .and_then(|reg| reg.data::<bevy::prelude::ReflectDefault>());
+                    if let Some(rd) = reflect_default {
+                        let param_instance = rd.default();
+                        *param_instance.downcast::<Vec3>().map_err(|_| {
+                            mlua::Error::RuntimeError(format!(
+                                "Failed to downcast default to '{}'",
+                                "Vec3"
+                            ))
+                        })?
+                    } else {
+                        return Err (mlua :: Error :: RuntimeError (format ! ("Cannot construct parameter type '{}' - no argument provided and no Default" , "Vec3"))) ;
+                    }
+                }
+            };
+            let result = Quat::from_rotation_arc_colinear(typed_param_0, typed_param_1);
+            bevy_lua_ecs::reflection::try_reflect_to_lua_value(lua, &result)
+        }
+        ("Quat", "look_to_lh") => {
+            let app_type_registry = world.resource::<bevy::ecs::reflect::AppTypeRegistry>();
+            let type_registry = app_type_registry.read();
+            let typed_param_0: Vec3 = {
+                if let Some(arg_val) = args.pop_front() {
+                    bevy_lua_ecs::reflection::lua_value_to_type::<Vec3>(
+                        lua,
+                        arg_val,
+                        &app_type_registry,
+                    )
+                    .map_err(|e| {
+                        mlua::Error::RuntimeError(format!(
+                            "Failed to convert parameter '{}': {}",
+                            "Vec3", e
+                        ))
+                    })?
+                } else {
+                    let reflect_default = type_registry
+                        .get_with_short_type_path("Vec3")
+                        .and_then(|reg| reg.data::<bevy::prelude::ReflectDefault>());
+                    if let Some(rd) = reflect_default {
+                        let param_instance = rd.default();
+                        *param_instance.downcast::<Vec3>().map_err(|_| {
+                            mlua::Error::RuntimeError(format!(
+                                "Failed to downcast default to '{}'",
+                                "Vec3"
+                            ))
+                        })?
+                    } else {
+                        return Err (mlua :: Error :: RuntimeError (format ! ("Cannot construct parameter type '{}' - no argument provided and no Default" , "Vec3"))) ;
+                    }
+                }
+            };
+            let typed_param_1: Vec3 = {
+                if let Some(arg_val) = args.pop_front() {
+                    bevy_lua_ecs::reflection::lua_value_to_type::<Vec3>(
+                        lua,
+                        arg_val,
+                        &app_type_registry,
+                    )
+                    .map_err(|e| {
+                        mlua::Error::RuntimeError(format!(
+                            "Failed to convert parameter '{}': {}",
+                            "Vec3", e
+                        ))
+                    })?
+                } else {
+                    let reflect_default = type_registry
+                        .get_with_short_type_path("Vec3")
+                        .and_then(|reg| reg.data::<bevy::prelude::ReflectDefault>());
+                    if let Some(rd) = reflect_default {
+                        let param_instance = rd.default();
+                        *param_instance.downcast::<Vec3>().map_err(|_| {
+                            mlua::Error::RuntimeError(format!(
+                                "Failed to downcast default to '{}'",
+                                "Vec3"
+                            ))
+                        })?
+                    } else {
+                        return Err (mlua :: Error :: RuntimeError (format ! ("Cannot construct parameter type '{}' - no argument provided and no Default" , "Vec3"))) ;
+                    }
+                }
+            };
+            let result = Quat::look_to_lh(typed_param_0, typed_param_1);
+            bevy_lua_ecs::reflection::try_reflect_to_lua_value(lua, &result)
+        }
+        ("Quat", "look_to_rh") => {
+            let app_type_registry = world.resource::<bevy::ecs::reflect::AppTypeRegistry>();
+            let type_registry = app_type_registry.read();
+            let typed_param_0: Vec3 = {
+                if let Some(arg_val) = args.pop_front() {
+                    bevy_lua_ecs::reflection::lua_value_to_type::<Vec3>(
+                        lua,
+                        arg_val,
+                        &app_type_registry,
+                    )
+                    .map_err(|e| {
+                        mlua::Error::RuntimeError(format!(
+                            "Failed to convert parameter '{}': {}",
+                            "Vec3", e
+                        ))
+                    })?
+                } else {
+                    let reflect_default = type_registry
+                        .get_with_short_type_path("Vec3")
+                        .and_then(|reg| reg.data::<bevy::prelude::ReflectDefault>());
+                    if let Some(rd) = reflect_default {
+                        let param_instance = rd.default();
+                        *param_instance.downcast::<Vec3>().map_err(|_| {
+                            mlua::Error::RuntimeError(format!(
+                                "Failed to downcast default to '{}'",
+                                "Vec3"
+                            ))
+                        })?
+                    } else {
+                        return Err (mlua :: Error :: RuntimeError (format ! ("Cannot construct parameter type '{}' - no argument provided and no Default" , "Vec3"))) ;
+                    }
+                }
+            };
+            let typed_param_1: Vec3 = {
+                if let Some(arg_val) = args.pop_front() {
+                    bevy_lua_ecs::reflection::lua_value_to_type::<Vec3>(
+                        lua,
+                        arg_val,
+                        &app_type_registry,
+                    )
+                    .map_err(|e| {
+                        mlua::Error::RuntimeError(format!(
+                            "Failed to convert parameter '{}': {}",
+                            "Vec3", e
+                        ))
+                    })?
+                } else {
+                    let reflect_default = type_registry
+                        .get_with_short_type_path("Vec3")
+                        .and_then(|reg| reg.data::<bevy::prelude::ReflectDefault>());
+                    if let Some(rd) = reflect_default {
+                        let param_instance = rd.default();
+                        *param_instance.downcast::<Vec3>().map_err(|_| {
+                            mlua::Error::RuntimeError(format!(
+                                "Failed to downcast default to '{}'",
+                                "Vec3"
+                            ))
+                        })?
+                    } else {
+                        return Err (mlua :: Error :: RuntimeError (format ! ("Cannot construct parameter type '{}' - no argument provided and no Default" , "Vec3"))) ;
+                    }
+                }
+            };
+            let result = Quat::look_to_rh(typed_param_0, typed_param_1);
+            bevy_lua_ecs::reflection::try_reflect_to_lua_value(lua, &result)
+        }
+        ("Quat", "look_at_lh") => {
+            let app_type_registry = world.resource::<bevy::ecs::reflect::AppTypeRegistry>();
+            let type_registry = app_type_registry.read();
+            let typed_param_0: Vec3 = {
+                if let Some(arg_val) = args.pop_front() {
+                    bevy_lua_ecs::reflection::lua_value_to_type::<Vec3>(
+                        lua,
+                        arg_val,
+                        &app_type_registry,
+                    )
+                    .map_err(|e| {
+                        mlua::Error::RuntimeError(format!(
+                            "Failed to convert parameter '{}': {}",
+                            "Vec3", e
+                        ))
+                    })?
+                } else {
+                    let reflect_default = type_registry
+                        .get_with_short_type_path("Vec3")
+                        .and_then(|reg| reg.data::<bevy::prelude::ReflectDefault>());
+                    if let Some(rd) = reflect_default {
+                        let param_instance = rd.default();
+                        *param_instance.downcast::<Vec3>().map_err(|_| {
+                            mlua::Error::RuntimeError(format!(
+                                "Failed to downcast default to '{}'",
+                                "Vec3"
+                            ))
+                        })?
+                    } else {
+                        return Err (mlua :: Error :: RuntimeError (format ! ("Cannot construct parameter type '{}' - no argument provided and no Default" , "Vec3"))) ;
+                    }
+                }
+            };
+            let typed_param_1: Vec3 = {
+                if let Some(arg_val) = args.pop_front() {
+                    bevy_lua_ecs::reflection::lua_value_to_type::<Vec3>(
+                        lua,
+                        arg_val,
+                        &app_type_registry,
+                    )
+                    .map_err(|e| {
+                        mlua::Error::RuntimeError(format!(
+                            "Failed to convert parameter '{}': {}",
+                            "Vec3", e
+                        ))
+                    })?
+                } else {
+                    let reflect_default = type_registry
+                        .get_with_short_type_path("Vec3")
+                        .and_then(|reg| reg.data::<bevy::prelude::ReflectDefault>());
+                    if let Some(rd) = reflect_default {
+                        let param_instance = rd.default();
+                        *param_instance.downcast::<Vec3>().map_err(|_| {
+                            mlua::Error::RuntimeError(format!(
+                                "Failed to downcast default to '{}'",
+                                "Vec3"
+                            ))
+                        })?
+                    } else {
+                        return Err (mlua :: Error :: RuntimeError (format ! ("Cannot construct parameter type '{}' - no argument provided and no Default" , "Vec3"))) ;
+                    }
+                }
+            };
+            let typed_param_2: Vec3 = {
+                if let Some(arg_val) = args.pop_front() {
+                    bevy_lua_ecs::reflection::lua_value_to_type::<Vec3>(
+                        lua,
+                        arg_val,
+                        &app_type_registry,
+                    )
+                    .map_err(|e| {
+                        mlua::Error::RuntimeError(format!(
+                            "Failed to convert parameter '{}': {}",
+                            "Vec3", e
+                        ))
+                    })?
+                } else {
+                    let reflect_default = type_registry
+                        .get_with_short_type_path("Vec3")
+                        .and_then(|reg| reg.data::<bevy::prelude::ReflectDefault>());
+                    if let Some(rd) = reflect_default {
+                        let param_instance = rd.default();
+                        *param_instance.downcast::<Vec3>().map_err(|_| {
+                            mlua::Error::RuntimeError(format!(
+                                "Failed to downcast default to '{}'",
+                                "Vec3"
+                            ))
+                        })?
+                    } else {
+                        return Err (mlua :: Error :: RuntimeError (format ! ("Cannot construct parameter type '{}' - no argument provided and no Default" , "Vec3"))) ;
+                    }
+                }
+            };
+            let result = Quat::look_at_lh(typed_param_0, typed_param_1, typed_param_2);
+            bevy_lua_ecs::reflection::try_reflect_to_lua_value(lua, &result)
+        }
+        ("Quat", "look_at_rh") => {
+            let app_type_registry = world.resource::<bevy::ecs::reflect::AppTypeRegistry>();
+            let type_registry = app_type_registry.read();
+            let typed_param_0: Vec3 = {
+                if let Some(arg_val) = args.pop_front() {
+                    bevy_lua_ecs::reflection::lua_value_to_type::<Vec3>(
+                        lua,
+                        arg_val,
+                        &app_type_registry,
+                    )
+                    .map_err(|e| {
+                        mlua::Error::RuntimeError(format!(
+                            "Failed to convert parameter '{}': {}",
+                            "Vec3", e
+                        ))
+                    })?
+                } else {
+                    let reflect_default = type_registry
+                        .get_with_short_type_path("Vec3")
+                        .and_then(|reg| reg.data::<bevy::prelude::ReflectDefault>());
+                    if let Some(rd) = reflect_default {
+                        let param_instance = rd.default();
+                        *param_instance.downcast::<Vec3>().map_err(|_| {
+                            mlua::Error::RuntimeError(format!(
+                                "Failed to downcast default to '{}'",
+                                "Vec3"
+                            ))
+                        })?
+                    } else {
+                        return Err (mlua :: Error :: RuntimeError (format ! ("Cannot construct parameter type '{}' - no argument provided and no Default" , "Vec3"))) ;
+                    }
+                }
+            };
+            let typed_param_1: Vec3 = {
+                if let Some(arg_val) = args.pop_front() {
+                    bevy_lua_ecs::reflection::lua_value_to_type::<Vec3>(
+                        lua,
+                        arg_val,
+                        &app_type_registry,
+                    )
+                    .map_err(|e| {
+                        mlua::Error::RuntimeError(format!(
+                            "Failed to convert parameter '{}': {}",
+                            "Vec3", e
+                        ))
+                    })?
+                } else {
+                    let reflect_default = type_registry
+                        .get_with_short_type_path("Vec3")
+                        .and_then(|reg| reg.data::<bevy::prelude::ReflectDefault>());
+                    if let Some(rd) = reflect_default {
+                        let param_instance = rd.default();
+                        *param_instance.downcast::<Vec3>().map_err(|_| {
+                            mlua::Error::RuntimeError(format!(
+                                "Failed to downcast default to '{}'",
+                                "Vec3"
+                            ))
+                        })?
+                    } else {
+                        return Err (mlua :: Error :: RuntimeError (format ! ("Cannot construct parameter type '{}' - no argument provided and no Default" , "Vec3"))) ;
+                    }
+                }
+            };
+            let typed_param_2: Vec3 = {
+                if let Some(arg_val) = args.pop_front() {
+                    bevy_lua_ecs::reflection::lua_value_to_type::<Vec3>(
+                        lua,
+                        arg_val,
+                        &app_type_registry,
+                    )
+                    .map_err(|e| {
+                        mlua::Error::RuntimeError(format!(
+                            "Failed to convert parameter '{}': {}",
+                            "Vec3", e
+                        ))
+                    })?
+                } else {
+                    let reflect_default = type_registry
+                        .get_with_short_type_path("Vec3")
+                        .and_then(|reg| reg.data::<bevy::prelude::ReflectDefault>());
+                    if let Some(rd) = reflect_default {
+                        let param_instance = rd.default();
+                        *param_instance.downcast::<Vec3>().map_err(|_| {
+                            mlua::Error::RuntimeError(format!(
+                                "Failed to downcast default to '{}'",
+                                "Vec3"
+                            ))
+                        })?
+                    } else {
+                        return Err (mlua :: Error :: RuntimeError (format ! ("Cannot construct parameter type '{}' - no argument provided and no Default" , "Vec3"))) ;
+                    }
+                }
+            };
+            let result = Quat::look_at_rh(typed_param_0, typed_param_1, typed_param_2);
+            bevy_lua_ecs::reflection::try_reflect_to_lua_value(lua, &result)
+        }
+        ("Quat", "to_scaled_axis") => {
+            let app_type_registry = world.resource::<bevy::ecs::reflect::AppTypeRegistry>();
+            let type_registry = app_type_registry.read();
+            let self_instance: Quat = {
+                let self_arg = args.pop_front().ok_or_else(|| {
+                    mlua::Error::RuntimeError(format!(
+                        "{}::{} requires a self argument",
+                        "Quat", "to_scaled_axis"
+                    ))
+                })?;
+                if let mlua::Value::Table(ref arg_table) = self_arg {
+                    if let Some(reg) = type_registry.get_with_short_type_path("Quat") {
+                        if let Some(rfr) = reg.data::<bevy::reflect::ReflectFromReflect>() {
+                            let type_info = reg.type_info();
+                            let dynamic = bevy_lua_ecs::lua_table_to_dynamic(
+                                lua,
+                                arg_table,
+                                type_info,
+                                &app_type_registry,
+                            )
+                            .map_err(|e| {
+                                mlua::Error::RuntimeError(format!(
+                                    "Failed to build self '{}': {}",
+                                    "Quat", e
+                                ))
+                            })?;
+                            if let Some(concrete) = rfr.from_reflect(&dynamic) {
+                                *concrete.downcast::<Quat>().map_err(|_| {
+                                    mlua::Error::RuntimeError(format!(
+                                        "Failed to downcast self to {}",
+                                        "Quat"
+                                    ))
+                                })?
+                            } else {
+                                return Err(mlua::Error::RuntimeError(format!(
+                                    "Failed to construct self type '{}' via FromReflect",
+                                    "Quat"
+                                )));
+                            }
+                        } else {
+                            return Err(mlua::Error::RuntimeError(format!(
+                                "Type '{}' has no FromReflect implementation",
+                                "Quat"
+                            )));
+                        }
+                    } else {
+                        return Err(mlua::Error::RuntimeError(format!(
+                            "Type '{}' not found in TypeRegistry",
+                            "Quat"
+                        )));
+                    }
+                } else {
+                    return Err(mlua::Error::RuntimeError(format!(
+                        "{}::{} self argument expected table, got {:?}",
+                        "Quat",
+                        "to_scaled_axis",
+                        self_arg.type_name()
+                    )));
+                }
+            };
+            let result = self_instance.to_scaled_axis();
+            bevy_lua_ecs::reflection::try_reflect_to_lua_value(lua, &result)
+        }
+        ("Quat", "xyz") => {
+            let app_type_registry = world.resource::<bevy::ecs::reflect::AppTypeRegistry>();
+            let type_registry = app_type_registry.read();
+            let self_instance: Quat = {
+                let self_arg = args.pop_front().ok_or_else(|| {
+                    mlua::Error::RuntimeError(format!(
+                        "{}::{} requires a self argument",
+                        "Quat", "xyz"
+                    ))
+                })?;
+                if let mlua::Value::Table(ref arg_table) = self_arg {
+                    if let Some(reg) = type_registry.get_with_short_type_path("Quat") {
+                        if let Some(rfr) = reg.data::<bevy::reflect::ReflectFromReflect>() {
+                            let type_info = reg.type_info();
+                            let dynamic = bevy_lua_ecs::lua_table_to_dynamic(
+                                lua,
+                                arg_table,
+                                type_info,
+                                &app_type_registry,
+                            )
+                            .map_err(|e| {
+                                mlua::Error::RuntimeError(format!(
+                                    "Failed to build self '{}': {}",
+                                    "Quat", e
+                                ))
+                            })?;
+                            if let Some(concrete) = rfr.from_reflect(&dynamic) {
+                                *concrete.downcast::<Quat>().map_err(|_| {
+                                    mlua::Error::RuntimeError(format!(
+                                        "Failed to downcast self to {}",
+                                        "Quat"
+                                    ))
+                                })?
+                            } else {
+                                return Err(mlua::Error::RuntimeError(format!(
+                                    "Failed to construct self type '{}' via FromReflect",
+                                    "Quat"
+                                )));
+                            }
+                        } else {
+                            return Err(mlua::Error::RuntimeError(format!(
+                                "Type '{}' has no FromReflect implementation",
+                                "Quat"
+                            )));
+                        }
+                    } else {
+                        return Err(mlua::Error::RuntimeError(format!(
+                            "Type '{}' not found in TypeRegistry",
+                            "Quat"
+                        )));
+                    }
+                } else {
+                    return Err(mlua::Error::RuntimeError(format!(
+                        "{}::{} self argument expected table, got {:?}",
+                        "Quat",
+                        "xyz",
+                        self_arg.type_name()
+                    )));
+                }
+            };
+            let result = self_instance.xyz();
+            bevy_lua_ecs::reflection::try_reflect_to_lua_value(lua, &result)
+        }
+        ("Quat", "conjugate") => {
+            let app_type_registry = world.resource::<bevy::ecs::reflect::AppTypeRegistry>();
+            let type_registry = app_type_registry.read();
+            let self_instance: Quat = {
+                let self_arg = args.pop_front().ok_or_else(|| {
+                    mlua::Error::RuntimeError(format!(
+                        "{}::{} requires a self argument",
+                        "Quat", "conjugate"
+                    ))
+                })?;
+                if let mlua::Value::Table(ref arg_table) = self_arg {
+                    if let Some(reg) = type_registry.get_with_short_type_path("Quat") {
+                        if let Some(rfr) = reg.data::<bevy::reflect::ReflectFromReflect>() {
+                            let type_info = reg.type_info();
+                            let dynamic = bevy_lua_ecs::lua_table_to_dynamic(
+                                lua,
+                                arg_table,
+                                type_info,
+                                &app_type_registry,
+                            )
+                            .map_err(|e| {
+                                mlua::Error::RuntimeError(format!(
+                                    "Failed to build self '{}': {}",
+                                    "Quat", e
+                                ))
+                            })?;
+                            if let Some(concrete) = rfr.from_reflect(&dynamic) {
+                                *concrete.downcast::<Quat>().map_err(|_| {
+                                    mlua::Error::RuntimeError(format!(
+                                        "Failed to downcast self to {}",
+                                        "Quat"
+                                    ))
+                                })?
+                            } else {
+                                return Err(mlua::Error::RuntimeError(format!(
+                                    "Failed to construct self type '{}' via FromReflect",
+                                    "Quat"
+                                )));
+                            }
+                        } else {
+                            return Err(mlua::Error::RuntimeError(format!(
+                                "Type '{}' has no FromReflect implementation",
+                                "Quat"
+                            )));
+                        }
+                    } else {
+                        return Err(mlua::Error::RuntimeError(format!(
+                            "Type '{}' not found in TypeRegistry",
+                            "Quat"
+                        )));
+                    }
+                } else {
+                    return Err(mlua::Error::RuntimeError(format!(
+                        "{}::{} self argument expected table, got {:?}",
+                        "Quat",
+                        "conjugate",
+                        self_arg.type_name()
+                    )));
+                }
+            };
+            let result = self_instance.conjugate();
+            bevy_lua_ecs::reflection::try_reflect_to_lua_value(lua, &result)
+        }
+        ("Quat", "inverse") => {
+            let app_type_registry = world.resource::<bevy::ecs::reflect::AppTypeRegistry>();
+            let type_registry = app_type_registry.read();
+            let self_instance: Quat = {
+                let self_arg = args.pop_front().ok_or_else(|| {
+                    mlua::Error::RuntimeError(format!(
+                        "{}::{} requires a self argument",
+                        "Quat", "inverse"
+                    ))
+                })?;
+                if let mlua::Value::Table(ref arg_table) = self_arg {
+                    if let Some(reg) = type_registry.get_with_short_type_path("Quat") {
+                        if let Some(rfr) = reg.data::<bevy::reflect::ReflectFromReflect>() {
+                            let type_info = reg.type_info();
+                            let dynamic = bevy_lua_ecs::lua_table_to_dynamic(
+                                lua,
+                                arg_table,
+                                type_info,
+                                &app_type_registry,
+                            )
+                            .map_err(|e| {
+                                mlua::Error::RuntimeError(format!(
+                                    "Failed to build self '{}': {}",
+                                    "Quat", e
+                                ))
+                            })?;
+                            if let Some(concrete) = rfr.from_reflect(&dynamic) {
+                                *concrete.downcast::<Quat>().map_err(|_| {
+                                    mlua::Error::RuntimeError(format!(
+                                        "Failed to downcast self to {}",
+                                        "Quat"
+                                    ))
+                                })?
+                            } else {
+                                return Err(mlua::Error::RuntimeError(format!(
+                                    "Failed to construct self type '{}' via FromReflect",
+                                    "Quat"
+                                )));
+                            }
+                        } else {
+                            return Err(mlua::Error::RuntimeError(format!(
+                                "Type '{}' has no FromReflect implementation",
+                                "Quat"
+                            )));
+                        }
+                    } else {
+                        return Err(mlua::Error::RuntimeError(format!(
+                            "Type '{}' not found in TypeRegistry",
+                            "Quat"
+                        )));
+                    }
+                } else {
+                    return Err(mlua::Error::RuntimeError(format!(
+                        "{}::{} self argument expected table, got {:?}",
+                        "Quat",
+                        "inverse",
+                        self_arg.type_name()
+                    )));
+                }
+            };
+            let result = self_instance.inverse();
+            bevy_lua_ecs::reflection::try_reflect_to_lua_value(lua, &result)
+        }
+        ("Quat", "dot") => {
+            let app_type_registry = world.resource::<bevy::ecs::reflect::AppTypeRegistry>();
+            let type_registry = app_type_registry.read();
+            let self_instance: Quat = {
+                let self_arg = args.pop_front().ok_or_else(|| {
+                    mlua::Error::RuntimeError(format!(
+                        "{}::{} requires a self argument",
+                        "Quat", "dot"
+                    ))
+                })?;
+                if let mlua::Value::Table(ref arg_table) = self_arg {
+                    if let Some(reg) = type_registry.get_with_short_type_path("Quat") {
+                        if let Some(rfr) = reg.data::<bevy::reflect::ReflectFromReflect>() {
+                            let type_info = reg.type_info();
+                            let dynamic = bevy_lua_ecs::lua_table_to_dynamic(
+                                lua,
+                                arg_table,
+                                type_info,
+                                &app_type_registry,
+                            )
+                            .map_err(|e| {
+                                mlua::Error::RuntimeError(format!(
+                                    "Failed to build self '{}': {}",
+                                    "Quat", e
+                                ))
+                            })?;
+                            if let Some(concrete) = rfr.from_reflect(&dynamic) {
+                                *concrete.downcast::<Quat>().map_err(|_| {
+                                    mlua::Error::RuntimeError(format!(
+                                        "Failed to downcast self to {}",
+                                        "Quat"
+                                    ))
+                                })?
+                            } else {
+                                return Err(mlua::Error::RuntimeError(format!(
+                                    "Failed to construct self type '{}' via FromReflect",
+                                    "Quat"
+                                )));
+                            }
+                        } else {
+                            return Err(mlua::Error::RuntimeError(format!(
+                                "Type '{}' has no FromReflect implementation",
+                                "Quat"
+                            )));
+                        }
+                    } else {
+                        return Err(mlua::Error::RuntimeError(format!(
+                            "Type '{}' not found in TypeRegistry",
+                            "Quat"
+                        )));
+                    }
+                } else {
+                    return Err(mlua::Error::RuntimeError(format!(
+                        "{}::{} self argument expected table, got {:?}",
+                        "Quat",
+                        "dot",
+                        self_arg.type_name()
+                    )));
+                }
+            };
+            let typed_param_0: Quat = {
+                if let Some(arg_val) = args.pop_front() {
+                    bevy_lua_ecs::reflection::lua_value_to_type::<Quat>(
+                        lua,
+                        arg_val,
+                        &app_type_registry,
+                    )
+                    .map_err(|e| {
+                        mlua::Error::RuntimeError(format!(
+                            "Failed to convert parameter '{}': {}",
+                            "Quat", e
+                        ))
+                    })?
+                } else {
+                    let reflect_default = type_registry
+                        .get_with_short_type_path("Quat")
+                        .and_then(|reg| reg.data::<bevy::prelude::ReflectDefault>());
+                    if let Some(rd) = reflect_default {
+                        let param_instance = rd.default();
+                        *param_instance.downcast::<Quat>().map_err(|_| {
+                            mlua::Error::RuntimeError(format!(
+                                "Failed to downcast default to '{}'",
+                                "Quat"
+                            ))
+                        })?
+                    } else {
+                        return Err (mlua :: Error :: RuntimeError (format ! ("Cannot construct parameter type '{}' - no argument provided and no Default" , "Quat"))) ;
+                    }
+                }
+            };
+            let result = self_instance.dot(typed_param_0);
+            bevy_lua_ecs::reflection::try_reflect_to_lua_value(lua, &result)
+        }
+        ("Quat", "length") => {
+            let app_type_registry = world.resource::<bevy::ecs::reflect::AppTypeRegistry>();
+            let type_registry = app_type_registry.read();
+            let self_instance: Quat = {
+                let self_arg = args.pop_front().ok_or_else(|| {
+                    mlua::Error::RuntimeError(format!(
+                        "{}::{} requires a self argument",
+                        "Quat", "length"
+                    ))
+                })?;
+                if let mlua::Value::Table(ref arg_table) = self_arg {
+                    if let Some(reg) = type_registry.get_with_short_type_path("Quat") {
+                        if let Some(rfr) = reg.data::<bevy::reflect::ReflectFromReflect>() {
+                            let type_info = reg.type_info();
+                            let dynamic = bevy_lua_ecs::lua_table_to_dynamic(
+                                lua,
+                                arg_table,
+                                type_info,
+                                &app_type_registry,
+                            )
+                            .map_err(|e| {
+                                mlua::Error::RuntimeError(format!(
+                                    "Failed to build self '{}': {}",
+                                    "Quat", e
+                                ))
+                            })?;
+                            if let Some(concrete) = rfr.from_reflect(&dynamic) {
+                                *concrete.downcast::<Quat>().map_err(|_| {
+                                    mlua::Error::RuntimeError(format!(
+                                        "Failed to downcast self to {}",
+                                        "Quat"
+                                    ))
+                                })?
+                            } else {
+                                return Err(mlua::Error::RuntimeError(format!(
+                                    "Failed to construct self type '{}' via FromReflect",
+                                    "Quat"
+                                )));
+                            }
+                        } else {
+                            return Err(mlua::Error::RuntimeError(format!(
+                                "Type '{}' has no FromReflect implementation",
+                                "Quat"
+                            )));
+                        }
+                    } else {
+                        return Err(mlua::Error::RuntimeError(format!(
+                            "Type '{}' not found in TypeRegistry",
+                            "Quat"
+                        )));
+                    }
+                } else {
+                    return Err(mlua::Error::RuntimeError(format!(
+                        "{}::{} self argument expected table, got {:?}",
+                        "Quat",
+                        "length",
+                        self_arg.type_name()
+                    )));
+                }
+            };
+            let result = self_instance.length();
+            bevy_lua_ecs::reflection::try_reflect_to_lua_value(lua, &result)
+        }
+        ("Quat", "length_squared") => {
+            let app_type_registry = world.resource::<bevy::ecs::reflect::AppTypeRegistry>();
+            let type_registry = app_type_registry.read();
+            let self_instance: Quat = {
+                let self_arg = args.pop_front().ok_or_else(|| {
+                    mlua::Error::RuntimeError(format!(
+                        "{}::{} requires a self argument",
+                        "Quat", "length_squared"
+                    ))
+                })?;
+                if let mlua::Value::Table(ref arg_table) = self_arg {
+                    if let Some(reg) = type_registry.get_with_short_type_path("Quat") {
+                        if let Some(rfr) = reg.data::<bevy::reflect::ReflectFromReflect>() {
+                            let type_info = reg.type_info();
+                            let dynamic = bevy_lua_ecs::lua_table_to_dynamic(
+                                lua,
+                                arg_table,
+                                type_info,
+                                &app_type_registry,
+                            )
+                            .map_err(|e| {
+                                mlua::Error::RuntimeError(format!(
+                                    "Failed to build self '{}': {}",
+                                    "Quat", e
+                                ))
+                            })?;
+                            if let Some(concrete) = rfr.from_reflect(&dynamic) {
+                                *concrete.downcast::<Quat>().map_err(|_| {
+                                    mlua::Error::RuntimeError(format!(
+                                        "Failed to downcast self to {}",
+                                        "Quat"
+                                    ))
+                                })?
+                            } else {
+                                return Err(mlua::Error::RuntimeError(format!(
+                                    "Failed to construct self type '{}' via FromReflect",
+                                    "Quat"
+                                )));
+                            }
+                        } else {
+                            return Err(mlua::Error::RuntimeError(format!(
+                                "Type '{}' has no FromReflect implementation",
+                                "Quat"
+                            )));
+                        }
+                    } else {
+                        return Err(mlua::Error::RuntimeError(format!(
+                            "Type '{}' not found in TypeRegistry",
+                            "Quat"
+                        )));
+                    }
+                } else {
+                    return Err(mlua::Error::RuntimeError(format!(
+                        "{}::{} self argument expected table, got {:?}",
+                        "Quat",
+                        "length_squared",
+                        self_arg.type_name()
+                    )));
+                }
+            };
+            let result = self_instance.length_squared();
+            bevy_lua_ecs::reflection::try_reflect_to_lua_value(lua, &result)
+        }
+        ("Quat", "length_recip") => {
+            let app_type_registry = world.resource::<bevy::ecs::reflect::AppTypeRegistry>();
+            let type_registry = app_type_registry.read();
+            let self_instance: Quat = {
+                let self_arg = args.pop_front().ok_or_else(|| {
+                    mlua::Error::RuntimeError(format!(
+                        "{}::{} requires a self argument",
+                        "Quat", "length_recip"
+                    ))
+                })?;
+                if let mlua::Value::Table(ref arg_table) = self_arg {
+                    if let Some(reg) = type_registry.get_with_short_type_path("Quat") {
+                        if let Some(rfr) = reg.data::<bevy::reflect::ReflectFromReflect>() {
+                            let type_info = reg.type_info();
+                            let dynamic = bevy_lua_ecs::lua_table_to_dynamic(
+                                lua,
+                                arg_table,
+                                type_info,
+                                &app_type_registry,
+                            )
+                            .map_err(|e| {
+                                mlua::Error::RuntimeError(format!(
+                                    "Failed to build self '{}': {}",
+                                    "Quat", e
+                                ))
+                            })?;
+                            if let Some(concrete) = rfr.from_reflect(&dynamic) {
+                                *concrete.downcast::<Quat>().map_err(|_| {
+                                    mlua::Error::RuntimeError(format!(
+                                        "Failed to downcast self to {}",
+                                        "Quat"
+                                    ))
+                                })?
+                            } else {
+                                return Err(mlua::Error::RuntimeError(format!(
+                                    "Failed to construct self type '{}' via FromReflect",
+                                    "Quat"
+                                )));
+                            }
+                        } else {
+                            return Err(mlua::Error::RuntimeError(format!(
+                                "Type '{}' has no FromReflect implementation",
+                                "Quat"
+                            )));
+                        }
+                    } else {
+                        return Err(mlua::Error::RuntimeError(format!(
+                            "Type '{}' not found in TypeRegistry",
+                            "Quat"
+                        )));
+                    }
+                } else {
+                    return Err(mlua::Error::RuntimeError(format!(
+                        "{}::{} self argument expected table, got {:?}",
+                        "Quat",
+                        "length_recip",
+                        self_arg.type_name()
+                    )));
+                }
+            };
+            let result = self_instance.length_recip();
+            bevy_lua_ecs::reflection::try_reflect_to_lua_value(lua, &result)
+        }
+        ("Quat", "normalize") => {
+            let app_type_registry = world.resource::<bevy::ecs::reflect::AppTypeRegistry>();
+            let type_registry = app_type_registry.read();
+            let self_instance: Quat = {
+                let self_arg = args.pop_front().ok_or_else(|| {
+                    mlua::Error::RuntimeError(format!(
+                        "{}::{} requires a self argument",
+                        "Quat", "normalize"
+                    ))
+                })?;
+                if let mlua::Value::Table(ref arg_table) = self_arg {
+                    if let Some(reg) = type_registry.get_with_short_type_path("Quat") {
+                        if let Some(rfr) = reg.data::<bevy::reflect::ReflectFromReflect>() {
+                            let type_info = reg.type_info();
+                            let dynamic = bevy_lua_ecs::lua_table_to_dynamic(
+                                lua,
+                                arg_table,
+                                type_info,
+                                &app_type_registry,
+                            )
+                            .map_err(|e| {
+                                mlua::Error::RuntimeError(format!(
+                                    "Failed to build self '{}': {}",
+                                    "Quat", e
+                                ))
+                            })?;
+                            if let Some(concrete) = rfr.from_reflect(&dynamic) {
+                                *concrete.downcast::<Quat>().map_err(|_| {
+                                    mlua::Error::RuntimeError(format!(
+                                        "Failed to downcast self to {}",
+                                        "Quat"
+                                    ))
+                                })?
+                            } else {
+                                return Err(mlua::Error::RuntimeError(format!(
+                                    "Failed to construct self type '{}' via FromReflect",
+                                    "Quat"
+                                )));
+                            }
+                        } else {
+                            return Err(mlua::Error::RuntimeError(format!(
+                                "Type '{}' has no FromReflect implementation",
+                                "Quat"
+                            )));
+                        }
+                    } else {
+                        return Err(mlua::Error::RuntimeError(format!(
+                            "Type '{}' not found in TypeRegistry",
+                            "Quat"
+                        )));
+                    }
+                } else {
+                    return Err(mlua::Error::RuntimeError(format!(
+                        "{}::{} self argument expected table, got {:?}",
+                        "Quat",
+                        "normalize",
+                        self_arg.type_name()
+                    )));
+                }
+            };
+            let result = self_instance.normalize();
+            bevy_lua_ecs::reflection::try_reflect_to_lua_value(lua, &result)
+        }
+        ("Quat", "is_finite") => {
+            let app_type_registry = world.resource::<bevy::ecs::reflect::AppTypeRegistry>();
+            let type_registry = app_type_registry.read();
+            let self_instance: Quat = {
+                let self_arg = args.pop_front().ok_or_else(|| {
+                    mlua::Error::RuntimeError(format!(
+                        "{}::{} requires a self argument",
+                        "Quat", "is_finite"
+                    ))
+                })?;
+                if let mlua::Value::Table(ref arg_table) = self_arg {
+                    if let Some(reg) = type_registry.get_with_short_type_path("Quat") {
+                        if let Some(rfr) = reg.data::<bevy::reflect::ReflectFromReflect>() {
+                            let type_info = reg.type_info();
+                            let dynamic = bevy_lua_ecs::lua_table_to_dynamic(
+                                lua,
+                                arg_table,
+                                type_info,
+                                &app_type_registry,
+                            )
+                            .map_err(|e| {
+                                mlua::Error::RuntimeError(format!(
+                                    "Failed to build self '{}': {}",
+                                    "Quat", e
+                                ))
+                            })?;
+                            if let Some(concrete) = rfr.from_reflect(&dynamic) {
+                                *concrete.downcast::<Quat>().map_err(|_| {
+                                    mlua::Error::RuntimeError(format!(
+                                        "Failed to downcast self to {}",
+                                        "Quat"
+                                    ))
+                                })?
+                            } else {
+                                return Err(mlua::Error::RuntimeError(format!(
+                                    "Failed to construct self type '{}' via FromReflect",
+                                    "Quat"
+                                )));
+                            }
+                        } else {
+                            return Err(mlua::Error::RuntimeError(format!(
+                                "Type '{}' has no FromReflect implementation",
+                                "Quat"
+                            )));
+                        }
+                    } else {
+                        return Err(mlua::Error::RuntimeError(format!(
+                            "Type '{}' not found in TypeRegistry",
+                            "Quat"
+                        )));
+                    }
+                } else {
+                    return Err(mlua::Error::RuntimeError(format!(
+                        "{}::{} self argument expected table, got {:?}",
+                        "Quat",
+                        "is_finite",
+                        self_arg.type_name()
+                    )));
+                }
+            };
+            let result = self_instance.is_finite();
+            bevy_lua_ecs::reflection::try_reflect_to_lua_value(lua, &result)
+        }
+        ("Quat", "is_nan") => {
+            let app_type_registry = world.resource::<bevy::ecs::reflect::AppTypeRegistry>();
+            let type_registry = app_type_registry.read();
+            let self_instance: Quat = {
+                let self_arg = args.pop_front().ok_or_else(|| {
+                    mlua::Error::RuntimeError(format!(
+                        "{}::{} requires a self argument",
+                        "Quat", "is_nan"
+                    ))
+                })?;
+                if let mlua::Value::Table(ref arg_table) = self_arg {
+                    if let Some(reg) = type_registry.get_with_short_type_path("Quat") {
+                        if let Some(rfr) = reg.data::<bevy::reflect::ReflectFromReflect>() {
+                            let type_info = reg.type_info();
+                            let dynamic = bevy_lua_ecs::lua_table_to_dynamic(
+                                lua,
+                                arg_table,
+                                type_info,
+                                &app_type_registry,
+                            )
+                            .map_err(|e| {
+                                mlua::Error::RuntimeError(format!(
+                                    "Failed to build self '{}': {}",
+                                    "Quat", e
+                                ))
+                            })?;
+                            if let Some(concrete) = rfr.from_reflect(&dynamic) {
+                                *concrete.downcast::<Quat>().map_err(|_| {
+                                    mlua::Error::RuntimeError(format!(
+                                        "Failed to downcast self to {}",
+                                        "Quat"
+                                    ))
+                                })?
+                            } else {
+                                return Err(mlua::Error::RuntimeError(format!(
+                                    "Failed to construct self type '{}' via FromReflect",
+                                    "Quat"
+                                )));
+                            }
+                        } else {
+                            return Err(mlua::Error::RuntimeError(format!(
+                                "Type '{}' has no FromReflect implementation",
+                                "Quat"
+                            )));
+                        }
+                    } else {
+                        return Err(mlua::Error::RuntimeError(format!(
+                            "Type '{}' not found in TypeRegistry",
+                            "Quat"
+                        )));
+                    }
+                } else {
+                    return Err(mlua::Error::RuntimeError(format!(
+                        "{}::{} self argument expected table, got {:?}",
+                        "Quat",
+                        "is_nan",
+                        self_arg.type_name()
+                    )));
+                }
+            };
+            let result = self_instance.is_nan();
+            bevy_lua_ecs::reflection::try_reflect_to_lua_value(lua, &result)
+        }
+        ("Quat", "is_normalized") => {
+            let app_type_registry = world.resource::<bevy::ecs::reflect::AppTypeRegistry>();
+            let type_registry = app_type_registry.read();
+            let self_instance: Quat = {
+                let self_arg = args.pop_front().ok_or_else(|| {
+                    mlua::Error::RuntimeError(format!(
+                        "{}::{} requires a self argument",
+                        "Quat", "is_normalized"
+                    ))
+                })?;
+                if let mlua::Value::Table(ref arg_table) = self_arg {
+                    if let Some(reg) = type_registry.get_with_short_type_path("Quat") {
+                        if let Some(rfr) = reg.data::<bevy::reflect::ReflectFromReflect>() {
+                            let type_info = reg.type_info();
+                            let dynamic = bevy_lua_ecs::lua_table_to_dynamic(
+                                lua,
+                                arg_table,
+                                type_info,
+                                &app_type_registry,
+                            )
+                            .map_err(|e| {
+                                mlua::Error::RuntimeError(format!(
+                                    "Failed to build self '{}': {}",
+                                    "Quat", e
+                                ))
+                            })?;
+                            if let Some(concrete) = rfr.from_reflect(&dynamic) {
+                                *concrete.downcast::<Quat>().map_err(|_| {
+                                    mlua::Error::RuntimeError(format!(
+                                        "Failed to downcast self to {}",
+                                        "Quat"
+                                    ))
+                                })?
+                            } else {
+                                return Err(mlua::Error::RuntimeError(format!(
+                                    "Failed to construct self type '{}' via FromReflect",
+                                    "Quat"
+                                )));
+                            }
+                        } else {
+                            return Err(mlua::Error::RuntimeError(format!(
+                                "Type '{}' has no FromReflect implementation",
+                                "Quat"
+                            )));
+                        }
+                    } else {
+                        return Err(mlua::Error::RuntimeError(format!(
+                            "Type '{}' not found in TypeRegistry",
+                            "Quat"
+                        )));
+                    }
+                } else {
+                    return Err(mlua::Error::RuntimeError(format!(
+                        "{}::{} self argument expected table, got {:?}",
+                        "Quat",
+                        "is_normalized",
+                        self_arg.type_name()
+                    )));
+                }
+            };
+            let result = self_instance.is_normalized();
+            bevy_lua_ecs::reflection::try_reflect_to_lua_value(lua, &result)
+        }
+        ("Quat", "is_near_identity") => {
+            let app_type_registry = world.resource::<bevy::ecs::reflect::AppTypeRegistry>();
+            let type_registry = app_type_registry.read();
+            let self_instance: Quat = {
+                let self_arg = args.pop_front().ok_or_else(|| {
+                    mlua::Error::RuntimeError(format!(
+                        "{}::{} requires a self argument",
+                        "Quat", "is_near_identity"
+                    ))
+                })?;
+                if let mlua::Value::Table(ref arg_table) = self_arg {
+                    if let Some(reg) = type_registry.get_with_short_type_path("Quat") {
+                        if let Some(rfr) = reg.data::<bevy::reflect::ReflectFromReflect>() {
+                            let type_info = reg.type_info();
+                            let dynamic = bevy_lua_ecs::lua_table_to_dynamic(
+                                lua,
+                                arg_table,
+                                type_info,
+                                &app_type_registry,
+                            )
+                            .map_err(|e| {
+                                mlua::Error::RuntimeError(format!(
+                                    "Failed to build self '{}': {}",
+                                    "Quat", e
+                                ))
+                            })?;
+                            if let Some(concrete) = rfr.from_reflect(&dynamic) {
+                                *concrete.downcast::<Quat>().map_err(|_| {
+                                    mlua::Error::RuntimeError(format!(
+                                        "Failed to downcast self to {}",
+                                        "Quat"
+                                    ))
+                                })?
+                            } else {
+                                return Err(mlua::Error::RuntimeError(format!(
+                                    "Failed to construct self type '{}' via FromReflect",
+                                    "Quat"
+                                )));
+                            }
+                        } else {
+                            return Err(mlua::Error::RuntimeError(format!(
+                                "Type '{}' has no FromReflect implementation",
+                                "Quat"
+                            )));
+                        }
+                    } else {
+                        return Err(mlua::Error::RuntimeError(format!(
+                            "Type '{}' not found in TypeRegistry",
+                            "Quat"
+                        )));
+                    }
+                } else {
+                    return Err(mlua::Error::RuntimeError(format!(
+                        "{}::{} self argument expected table, got {:?}",
+                        "Quat",
+                        "is_near_identity",
+                        self_arg.type_name()
+                    )));
+                }
+            };
+            let result = self_instance.is_near_identity();
+            bevy_lua_ecs::reflection::try_reflect_to_lua_value(lua, &result)
+        }
+        ("Quat", "angle_between") => {
+            let app_type_registry = world.resource::<bevy::ecs::reflect::AppTypeRegistry>();
+            let type_registry = app_type_registry.read();
+            let self_instance: Quat = {
+                let self_arg = args.pop_front().ok_or_else(|| {
+                    mlua::Error::RuntimeError(format!(
+                        "{}::{} requires a self argument",
+                        "Quat", "angle_between"
+                    ))
+                })?;
+                if let mlua::Value::Table(ref arg_table) = self_arg {
+                    if let Some(reg) = type_registry.get_with_short_type_path("Quat") {
+                        if let Some(rfr) = reg.data::<bevy::reflect::ReflectFromReflect>() {
+                            let type_info = reg.type_info();
+                            let dynamic = bevy_lua_ecs::lua_table_to_dynamic(
+                                lua,
+                                arg_table,
+                                type_info,
+                                &app_type_registry,
+                            )
+                            .map_err(|e| {
+                                mlua::Error::RuntimeError(format!(
+                                    "Failed to build self '{}': {}",
+                                    "Quat", e
+                                ))
+                            })?;
+                            if let Some(concrete) = rfr.from_reflect(&dynamic) {
+                                *concrete.downcast::<Quat>().map_err(|_| {
+                                    mlua::Error::RuntimeError(format!(
+                                        "Failed to downcast self to {}",
+                                        "Quat"
+                                    ))
+                                })?
+                            } else {
+                                return Err(mlua::Error::RuntimeError(format!(
+                                    "Failed to construct self type '{}' via FromReflect",
+                                    "Quat"
+                                )));
+                            }
+                        } else {
+                            return Err(mlua::Error::RuntimeError(format!(
+                                "Type '{}' has no FromReflect implementation",
+                                "Quat"
+                            )));
+                        }
+                    } else {
+                        return Err(mlua::Error::RuntimeError(format!(
+                            "Type '{}' not found in TypeRegistry",
+                            "Quat"
+                        )));
+                    }
+                } else {
+                    return Err(mlua::Error::RuntimeError(format!(
+                        "{}::{} self argument expected table, got {:?}",
+                        "Quat",
+                        "angle_between",
+                        self_arg.type_name()
+                    )));
+                }
+            };
+            let typed_param_0: Quat = {
+                if let Some(arg_val) = args.pop_front() {
+                    bevy_lua_ecs::reflection::lua_value_to_type::<Quat>(
+                        lua,
+                        arg_val,
+                        &app_type_registry,
+                    )
+                    .map_err(|e| {
+                        mlua::Error::RuntimeError(format!(
+                            "Failed to convert parameter '{}': {}",
+                            "Quat", e
+                        ))
+                    })?
+                } else {
+                    let reflect_default = type_registry
+                        .get_with_short_type_path("Quat")
+                        .and_then(|reg| reg.data::<bevy::prelude::ReflectDefault>());
+                    if let Some(rd) = reflect_default {
+                        let param_instance = rd.default();
+                        *param_instance.downcast::<Quat>().map_err(|_| {
+                            mlua::Error::RuntimeError(format!(
+                                "Failed to downcast default to '{}'",
+                                "Quat"
+                            ))
+                        })?
+                    } else {
+                        return Err (mlua :: Error :: RuntimeError (format ! ("Cannot construct parameter type '{}' - no argument provided and no Default" , "Quat"))) ;
+                    }
+                }
+            };
+            let result = self_instance.angle_between(typed_param_0);
+            bevy_lua_ecs::reflection::try_reflect_to_lua_value(lua, &result)
+        }
+        ("Quat", "rotate_towards") => {
+            let app_type_registry = world.resource::<bevy::ecs::reflect::AppTypeRegistry>();
+            let type_registry = app_type_registry.read();
+            let self_instance: Quat = {
+                let self_arg = args.pop_front().ok_or_else(|| {
+                    mlua::Error::RuntimeError(format!(
+                        "{}::{} requires a self argument",
+                        "Quat", "rotate_towards"
+                    ))
+                })?;
+                if let mlua::Value::Table(ref arg_table) = self_arg {
+                    if let Some(reg) = type_registry.get_with_short_type_path("Quat") {
+                        if let Some(rfr) = reg.data::<bevy::reflect::ReflectFromReflect>() {
+                            let type_info = reg.type_info();
+                            let dynamic = bevy_lua_ecs::lua_table_to_dynamic(
+                                lua,
+                                arg_table,
+                                type_info,
+                                &app_type_registry,
+                            )
+                            .map_err(|e| {
+                                mlua::Error::RuntimeError(format!(
+                                    "Failed to build self '{}': {}",
+                                    "Quat", e
+                                ))
+                            })?;
+                            if let Some(concrete) = rfr.from_reflect(&dynamic) {
+                                *concrete.downcast::<Quat>().map_err(|_| {
+                                    mlua::Error::RuntimeError(format!(
+                                        "Failed to downcast self to {}",
+                                        "Quat"
+                                    ))
+                                })?
+                            } else {
+                                return Err(mlua::Error::RuntimeError(format!(
+                                    "Failed to construct self type '{}' via FromReflect",
+                                    "Quat"
+                                )));
+                            }
+                        } else {
+                            return Err(mlua::Error::RuntimeError(format!(
+                                "Type '{}' has no FromReflect implementation",
+                                "Quat"
+                            )));
+                        }
+                    } else {
+                        return Err(mlua::Error::RuntimeError(format!(
+                            "Type '{}' not found in TypeRegistry",
+                            "Quat"
+                        )));
+                    }
+                } else {
+                    return Err(mlua::Error::RuntimeError(format!(
+                        "{}::{} self argument expected table, got {:?}",
+                        "Quat",
+                        "rotate_towards",
+                        self_arg.type_name()
+                    )));
+                }
+            };
+            let typed_param_0: Quat = {
+                if let Some(arg_val) = args.pop_front() {
+                    bevy_lua_ecs::reflection::lua_value_to_type::<Quat>(
+                        lua,
+                        arg_val,
+                        &app_type_registry,
+                    )
+                    .map_err(|e| {
+                        mlua::Error::RuntimeError(format!(
+                            "Failed to convert parameter '{}': {}",
+                            "Quat", e
+                        ))
+                    })?
+                } else {
+                    let reflect_default = type_registry
+                        .get_with_short_type_path("Quat")
+                        .and_then(|reg| reg.data::<bevy::prelude::ReflectDefault>());
+                    if let Some(rd) = reflect_default {
+                        let param_instance = rd.default();
+                        *param_instance.downcast::<Quat>().map_err(|_| {
+                            mlua::Error::RuntimeError(format!(
+                                "Failed to downcast default to '{}'",
+                                "Quat"
+                            ))
+                        })?
+                    } else {
+                        return Err (mlua :: Error :: RuntimeError (format ! ("Cannot construct parameter type '{}' - no argument provided and no Default" , "Quat"))) ;
+                    }
+                }
+            };
+            let typed_param_1: f32 = {
+                if let Some(arg_val) = args.pop_front() {
+                    bevy_lua_ecs::reflection::lua_value_to_type::<f32>(
+                        lua,
+                        arg_val,
+                        &app_type_registry,
+                    )
+                    .map_err(|e| {
+                        mlua::Error::RuntimeError(format!(
+                            "Failed to convert parameter '{}': {}",
+                            "f32", e
+                        ))
+                    })?
+                } else {
+                    let reflect_default = type_registry
+                        .get_with_short_type_path("f32")
+                        .and_then(|reg| reg.data::<bevy::prelude::ReflectDefault>());
+                    if let Some(rd) = reflect_default {
+                        let param_instance = rd.default();
+                        *param_instance.downcast::<f32>().map_err(|_| {
+                            mlua::Error::RuntimeError(format!(
+                                "Failed to downcast default to '{}'",
+                                "f32"
+                            ))
+                        })?
+                    } else {
+                        return Err (mlua :: Error :: RuntimeError (format ! ("Cannot construct parameter type '{}' - no argument provided and no Default" , "f32"))) ;
+                    }
+                }
+            };
+            let result = self_instance.rotate_towards(typed_param_0, typed_param_1);
+            bevy_lua_ecs::reflection::try_reflect_to_lua_value(lua, &result)
+        }
+        ("Quat", "abs_diff_eq") => {
+            let app_type_registry = world.resource::<bevy::ecs::reflect::AppTypeRegistry>();
+            let type_registry = app_type_registry.read();
+            let self_instance: Quat = {
+                let self_arg = args.pop_front().ok_or_else(|| {
+                    mlua::Error::RuntimeError(format!(
+                        "{}::{} requires a self argument",
+                        "Quat", "abs_diff_eq"
+                    ))
+                })?;
+                if let mlua::Value::Table(ref arg_table) = self_arg {
+                    if let Some(reg) = type_registry.get_with_short_type_path("Quat") {
+                        if let Some(rfr) = reg.data::<bevy::reflect::ReflectFromReflect>() {
+                            let type_info = reg.type_info();
+                            let dynamic = bevy_lua_ecs::lua_table_to_dynamic(
+                                lua,
+                                arg_table,
+                                type_info,
+                                &app_type_registry,
+                            )
+                            .map_err(|e| {
+                                mlua::Error::RuntimeError(format!(
+                                    "Failed to build self '{}': {}",
+                                    "Quat", e
+                                ))
+                            })?;
+                            if let Some(concrete) = rfr.from_reflect(&dynamic) {
+                                *concrete.downcast::<Quat>().map_err(|_| {
+                                    mlua::Error::RuntimeError(format!(
+                                        "Failed to downcast self to {}",
+                                        "Quat"
+                                    ))
+                                })?
+                            } else {
+                                return Err(mlua::Error::RuntimeError(format!(
+                                    "Failed to construct self type '{}' via FromReflect",
+                                    "Quat"
+                                )));
+                            }
+                        } else {
+                            return Err(mlua::Error::RuntimeError(format!(
+                                "Type '{}' has no FromReflect implementation",
+                                "Quat"
+                            )));
+                        }
+                    } else {
+                        return Err(mlua::Error::RuntimeError(format!(
+                            "Type '{}' not found in TypeRegistry",
+                            "Quat"
+                        )));
+                    }
+                } else {
+                    return Err(mlua::Error::RuntimeError(format!(
+                        "{}::{} self argument expected table, got {:?}",
+                        "Quat",
+                        "abs_diff_eq",
+                        self_arg.type_name()
+                    )));
+                }
+            };
+            let typed_param_0: Quat = {
+                if let Some(arg_val) = args.pop_front() {
+                    bevy_lua_ecs::reflection::lua_value_to_type::<Quat>(
+                        lua,
+                        arg_val,
+                        &app_type_registry,
+                    )
+                    .map_err(|e| {
+                        mlua::Error::RuntimeError(format!(
+                            "Failed to convert parameter '{}': {}",
+                            "Quat", e
+                        ))
+                    })?
+                } else {
+                    let reflect_default = type_registry
+                        .get_with_short_type_path("Quat")
+                        .and_then(|reg| reg.data::<bevy::prelude::ReflectDefault>());
+                    if let Some(rd) = reflect_default {
+                        let param_instance = rd.default();
+                        *param_instance.downcast::<Quat>().map_err(|_| {
+                            mlua::Error::RuntimeError(format!(
+                                "Failed to downcast default to '{}'",
+                                "Quat"
+                            ))
+                        })?
+                    } else {
+                        return Err (mlua :: Error :: RuntimeError (format ! ("Cannot construct parameter type '{}' - no argument provided and no Default" , "Quat"))) ;
+                    }
+                }
+            };
+            let typed_param_1: f32 = {
+                if let Some(arg_val) = args.pop_front() {
+                    bevy_lua_ecs::reflection::lua_value_to_type::<f32>(
+                        lua,
+                        arg_val,
+                        &app_type_registry,
+                    )
+                    .map_err(|e| {
+                        mlua::Error::RuntimeError(format!(
+                            "Failed to convert parameter '{}': {}",
+                            "f32", e
+                        ))
+                    })?
+                } else {
+                    let reflect_default = type_registry
+                        .get_with_short_type_path("f32")
+                        .and_then(|reg| reg.data::<bevy::prelude::ReflectDefault>());
+                    if let Some(rd) = reflect_default {
+                        let param_instance = rd.default();
+                        *param_instance.downcast::<f32>().map_err(|_| {
+                            mlua::Error::RuntimeError(format!(
+                                "Failed to downcast default to '{}'",
+                                "f32"
+                            ))
+                        })?
+                    } else {
+                        return Err (mlua :: Error :: RuntimeError (format ! ("Cannot construct parameter type '{}' - no argument provided and no Default" , "f32"))) ;
+                    }
+                }
+            };
+            let result = self_instance.abs_diff_eq(typed_param_0, typed_param_1);
+            bevy_lua_ecs::reflection::try_reflect_to_lua_value(lua, &result)
+        }
+        ("Quat", "lerp") => {
+            let app_type_registry = world.resource::<bevy::ecs::reflect::AppTypeRegistry>();
+            let type_registry = app_type_registry.read();
+            let self_instance: Quat = {
+                let self_arg = args.pop_front().ok_or_else(|| {
+                    mlua::Error::RuntimeError(format!(
+                        "{}::{} requires a self argument",
+                        "Quat", "lerp"
+                    ))
+                })?;
+                if let mlua::Value::Table(ref arg_table) = self_arg {
+                    if let Some(reg) = type_registry.get_with_short_type_path("Quat") {
+                        if let Some(rfr) = reg.data::<bevy::reflect::ReflectFromReflect>() {
+                            let type_info = reg.type_info();
+                            let dynamic = bevy_lua_ecs::lua_table_to_dynamic(
+                                lua,
+                                arg_table,
+                                type_info,
+                                &app_type_registry,
+                            )
+                            .map_err(|e| {
+                                mlua::Error::RuntimeError(format!(
+                                    "Failed to build self '{}': {}",
+                                    "Quat", e
+                                ))
+                            })?;
+                            if let Some(concrete) = rfr.from_reflect(&dynamic) {
+                                *concrete.downcast::<Quat>().map_err(|_| {
+                                    mlua::Error::RuntimeError(format!(
+                                        "Failed to downcast self to {}",
+                                        "Quat"
+                                    ))
+                                })?
+                            } else {
+                                return Err(mlua::Error::RuntimeError(format!(
+                                    "Failed to construct self type '{}' via FromReflect",
+                                    "Quat"
+                                )));
+                            }
+                        } else {
+                            return Err(mlua::Error::RuntimeError(format!(
+                                "Type '{}' has no FromReflect implementation",
+                                "Quat"
+                            )));
+                        }
+                    } else {
+                        return Err(mlua::Error::RuntimeError(format!(
+                            "Type '{}' not found in TypeRegistry",
+                            "Quat"
+                        )));
+                    }
+                } else {
+                    return Err(mlua::Error::RuntimeError(format!(
+                        "{}::{} self argument expected table, got {:?}",
+                        "Quat",
+                        "lerp",
+                        self_arg.type_name()
+                    )));
+                }
+            };
+            let typed_param_0: Quat = {
+                if let Some(arg_val) = args.pop_front() {
+                    bevy_lua_ecs::reflection::lua_value_to_type::<Quat>(
+                        lua,
+                        arg_val,
+                        &app_type_registry,
+                    )
+                    .map_err(|e| {
+                        mlua::Error::RuntimeError(format!(
+                            "Failed to convert parameter '{}': {}",
+                            "Quat", e
+                        ))
+                    })?
+                } else {
+                    let reflect_default = type_registry
+                        .get_with_short_type_path("Quat")
+                        .and_then(|reg| reg.data::<bevy::prelude::ReflectDefault>());
+                    if let Some(rd) = reflect_default {
+                        let param_instance = rd.default();
+                        *param_instance.downcast::<Quat>().map_err(|_| {
+                            mlua::Error::RuntimeError(format!(
+                                "Failed to downcast default to '{}'",
+                                "Quat"
+                            ))
+                        })?
+                    } else {
+                        return Err (mlua :: Error :: RuntimeError (format ! ("Cannot construct parameter type '{}' - no argument provided and no Default" , "Quat"))) ;
+                    }
+                }
+            };
+            let typed_param_1: f32 = {
+                if let Some(arg_val) = args.pop_front() {
+                    bevy_lua_ecs::reflection::lua_value_to_type::<f32>(
+                        lua,
+                        arg_val,
+                        &app_type_registry,
+                    )
+                    .map_err(|e| {
+                        mlua::Error::RuntimeError(format!(
+                            "Failed to convert parameter '{}': {}",
+                            "f32", e
+                        ))
+                    })?
+                } else {
+                    let reflect_default = type_registry
+                        .get_with_short_type_path("f32")
+                        .and_then(|reg| reg.data::<bevy::prelude::ReflectDefault>());
+                    if let Some(rd) = reflect_default {
+                        let param_instance = rd.default();
+                        *param_instance.downcast::<f32>().map_err(|_| {
+                            mlua::Error::RuntimeError(format!(
+                                "Failed to downcast default to '{}'",
+                                "f32"
+                            ))
+                        })?
+                    } else {
+                        return Err (mlua :: Error :: RuntimeError (format ! ("Cannot construct parameter type '{}' - no argument provided and no Default" , "f32"))) ;
+                    }
+                }
+            };
+            let result = self_instance.lerp(typed_param_0, typed_param_1);
+            bevy_lua_ecs::reflection::try_reflect_to_lua_value(lua, &result)
+        }
+        ("Quat", "slerp") => {
+            let app_type_registry = world.resource::<bevy::ecs::reflect::AppTypeRegistry>();
+            let type_registry = app_type_registry.read();
+            let self_instance: Quat = {
+                let self_arg = args.pop_front().ok_or_else(|| {
+                    mlua::Error::RuntimeError(format!(
+                        "{}::{} requires a self argument",
+                        "Quat", "slerp"
+                    ))
+                })?;
+                if let mlua::Value::Table(ref arg_table) = self_arg {
+                    if let Some(reg) = type_registry.get_with_short_type_path("Quat") {
+                        if let Some(rfr) = reg.data::<bevy::reflect::ReflectFromReflect>() {
+                            let type_info = reg.type_info();
+                            let dynamic = bevy_lua_ecs::lua_table_to_dynamic(
+                                lua,
+                                arg_table,
+                                type_info,
+                                &app_type_registry,
+                            )
+                            .map_err(|e| {
+                                mlua::Error::RuntimeError(format!(
+                                    "Failed to build self '{}': {}",
+                                    "Quat", e
+                                ))
+                            })?;
+                            if let Some(concrete) = rfr.from_reflect(&dynamic) {
+                                *concrete.downcast::<Quat>().map_err(|_| {
+                                    mlua::Error::RuntimeError(format!(
+                                        "Failed to downcast self to {}",
+                                        "Quat"
+                                    ))
+                                })?
+                            } else {
+                                return Err(mlua::Error::RuntimeError(format!(
+                                    "Failed to construct self type '{}' via FromReflect",
+                                    "Quat"
+                                )));
+                            }
+                        } else {
+                            return Err(mlua::Error::RuntimeError(format!(
+                                "Type '{}' has no FromReflect implementation",
+                                "Quat"
+                            )));
+                        }
+                    } else {
+                        return Err(mlua::Error::RuntimeError(format!(
+                            "Type '{}' not found in TypeRegistry",
+                            "Quat"
+                        )));
+                    }
+                } else {
+                    return Err(mlua::Error::RuntimeError(format!(
+                        "{}::{} self argument expected table, got {:?}",
+                        "Quat",
+                        "slerp",
+                        self_arg.type_name()
+                    )));
+                }
+            };
+            let typed_param_0: Quat = {
+                if let Some(arg_val) = args.pop_front() {
+                    bevy_lua_ecs::reflection::lua_value_to_type::<Quat>(
+                        lua,
+                        arg_val,
+                        &app_type_registry,
+                    )
+                    .map_err(|e| {
+                        mlua::Error::RuntimeError(format!(
+                            "Failed to convert parameter '{}': {}",
+                            "Quat", e
+                        ))
+                    })?
+                } else {
+                    let reflect_default = type_registry
+                        .get_with_short_type_path("Quat")
+                        .and_then(|reg| reg.data::<bevy::prelude::ReflectDefault>());
+                    if let Some(rd) = reflect_default {
+                        let param_instance = rd.default();
+                        *param_instance.downcast::<Quat>().map_err(|_| {
+                            mlua::Error::RuntimeError(format!(
+                                "Failed to downcast default to '{}'",
+                                "Quat"
+                            ))
+                        })?
+                    } else {
+                        return Err (mlua :: Error :: RuntimeError (format ! ("Cannot construct parameter type '{}' - no argument provided and no Default" , "Quat"))) ;
+                    }
+                }
+            };
+            let typed_param_1: f32 = {
+                if let Some(arg_val) = args.pop_front() {
+                    bevy_lua_ecs::reflection::lua_value_to_type::<f32>(
+                        lua,
+                        arg_val,
+                        &app_type_registry,
+                    )
+                    .map_err(|e| {
+                        mlua::Error::RuntimeError(format!(
+                            "Failed to convert parameter '{}': {}",
+                            "f32", e
+                        ))
+                    })?
+                } else {
+                    let reflect_default = type_registry
+                        .get_with_short_type_path("f32")
+                        .and_then(|reg| reg.data::<bevy::prelude::ReflectDefault>());
+                    if let Some(rd) = reflect_default {
+                        let param_instance = rd.default();
+                        *param_instance.downcast::<f32>().map_err(|_| {
+                            mlua::Error::RuntimeError(format!(
+                                "Failed to downcast default to '{}'",
+                                "f32"
+                            ))
+                        })?
+                    } else {
+                        return Err (mlua :: Error :: RuntimeError (format ! ("Cannot construct parameter type '{}' - no argument provided and no Default" , "f32"))) ;
+                    }
+                }
+            };
+            let result = self_instance.slerp(typed_param_0, typed_param_1);
+            bevy_lua_ecs::reflection::try_reflect_to_lua_value(lua, &result)
+        }
+        ("Quat", "mul_vec3") => {
+            let app_type_registry = world.resource::<bevy::ecs::reflect::AppTypeRegistry>();
+            let type_registry = app_type_registry.read();
+            let self_instance: Quat = {
+                let self_arg = args.pop_front().ok_or_else(|| {
+                    mlua::Error::RuntimeError(format!(
+                        "{}::{} requires a self argument",
+                        "Quat", "mul_vec3"
+                    ))
+                })?;
+                if let mlua::Value::Table(ref arg_table) = self_arg {
+                    if let Some(reg) = type_registry.get_with_short_type_path("Quat") {
+                        if let Some(rfr) = reg.data::<bevy::reflect::ReflectFromReflect>() {
+                            let type_info = reg.type_info();
+                            let dynamic = bevy_lua_ecs::lua_table_to_dynamic(
+                                lua,
+                                arg_table,
+                                type_info,
+                                &app_type_registry,
+                            )
+                            .map_err(|e| {
+                                mlua::Error::RuntimeError(format!(
+                                    "Failed to build self '{}': {}",
+                                    "Quat", e
+                                ))
+                            })?;
+                            if let Some(concrete) = rfr.from_reflect(&dynamic) {
+                                *concrete.downcast::<Quat>().map_err(|_| {
+                                    mlua::Error::RuntimeError(format!(
+                                        "Failed to downcast self to {}",
+                                        "Quat"
+                                    ))
+                                })?
+                            } else {
+                                return Err(mlua::Error::RuntimeError(format!(
+                                    "Failed to construct self type '{}' via FromReflect",
+                                    "Quat"
+                                )));
+                            }
+                        } else {
+                            return Err(mlua::Error::RuntimeError(format!(
+                                "Type '{}' has no FromReflect implementation",
+                                "Quat"
+                            )));
+                        }
+                    } else {
+                        return Err(mlua::Error::RuntimeError(format!(
+                            "Type '{}' not found in TypeRegistry",
+                            "Quat"
+                        )));
+                    }
+                } else {
+                    return Err(mlua::Error::RuntimeError(format!(
+                        "{}::{} self argument expected table, got {:?}",
+                        "Quat",
+                        "mul_vec3",
+                        self_arg.type_name()
+                    )));
+                }
+            };
+            let typed_param_0: Vec3 = {
+                if let Some(arg_val) = args.pop_front() {
+                    bevy_lua_ecs::reflection::lua_value_to_type::<Vec3>(
+                        lua,
+                        arg_val,
+                        &app_type_registry,
+                    )
+                    .map_err(|e| {
+                        mlua::Error::RuntimeError(format!(
+                            "Failed to convert parameter '{}': {}",
+                            "Vec3", e
+                        ))
+                    })?
+                } else {
+                    let reflect_default = type_registry
+                        .get_with_short_type_path("Vec3")
+                        .and_then(|reg| reg.data::<bevy::prelude::ReflectDefault>());
+                    if let Some(rd) = reflect_default {
+                        let param_instance = rd.default();
+                        *param_instance.downcast::<Vec3>().map_err(|_| {
+                            mlua::Error::RuntimeError(format!(
+                                "Failed to downcast default to '{}'",
+                                "Vec3"
+                            ))
+                        })?
+                    } else {
+                        return Err (mlua :: Error :: RuntimeError (format ! ("Cannot construct parameter type '{}' - no argument provided and no Default" , "Vec3"))) ;
+                    }
+                }
+            };
+            let result = self_instance.mul_vec3(typed_param_0);
+            bevy_lua_ecs::reflection::try_reflect_to_lua_value(lua, &result)
+        }
+        ("Quat", "mul_quat") => {
+            let app_type_registry = world.resource::<bevy::ecs::reflect::AppTypeRegistry>();
+            let type_registry = app_type_registry.read();
+            let self_instance: Quat = {
+                let self_arg = args.pop_front().ok_or_else(|| {
+                    mlua::Error::RuntimeError(format!(
+                        "{}::{} requires a self argument",
+                        "Quat", "mul_quat"
+                    ))
+                })?;
+                if let mlua::Value::Table(ref arg_table) = self_arg {
+                    if let Some(reg) = type_registry.get_with_short_type_path("Quat") {
+                        if let Some(rfr) = reg.data::<bevy::reflect::ReflectFromReflect>() {
+                            let type_info = reg.type_info();
+                            let dynamic = bevy_lua_ecs::lua_table_to_dynamic(
+                                lua,
+                                arg_table,
+                                type_info,
+                                &app_type_registry,
+                            )
+                            .map_err(|e| {
+                                mlua::Error::RuntimeError(format!(
+                                    "Failed to build self '{}': {}",
+                                    "Quat", e
+                                ))
+                            })?;
+                            if let Some(concrete) = rfr.from_reflect(&dynamic) {
+                                *concrete.downcast::<Quat>().map_err(|_| {
+                                    mlua::Error::RuntimeError(format!(
+                                        "Failed to downcast self to {}",
+                                        "Quat"
+                                    ))
+                                })?
+                            } else {
+                                return Err(mlua::Error::RuntimeError(format!(
+                                    "Failed to construct self type '{}' via FromReflect",
+                                    "Quat"
+                                )));
+                            }
+                        } else {
+                            return Err(mlua::Error::RuntimeError(format!(
+                                "Type '{}' has no FromReflect implementation",
+                                "Quat"
+                            )));
+                        }
+                    } else {
+                        return Err(mlua::Error::RuntimeError(format!(
+                            "Type '{}' not found in TypeRegistry",
+                            "Quat"
+                        )));
+                    }
+                } else {
+                    return Err(mlua::Error::RuntimeError(format!(
+                        "{}::{} self argument expected table, got {:?}",
+                        "Quat",
+                        "mul_quat",
+                        self_arg.type_name()
+                    )));
+                }
+            };
+            let typed_param_0: Quat = {
+                if let Some(arg_val) = args.pop_front() {
+                    bevy_lua_ecs::reflection::lua_value_to_type::<Quat>(
+                        lua,
+                        arg_val,
+                        &app_type_registry,
+                    )
+                    .map_err(|e| {
+                        mlua::Error::RuntimeError(format!(
+                            "Failed to convert parameter '{}': {}",
+                            "Quat", e
+                        ))
+                    })?
+                } else {
+                    let reflect_default = type_registry
+                        .get_with_short_type_path("Quat")
+                        .and_then(|reg| reg.data::<bevy::prelude::ReflectDefault>());
+                    if let Some(rd) = reflect_default {
+                        let param_instance = rd.default();
+                        *param_instance.downcast::<Quat>().map_err(|_| {
+                            mlua::Error::RuntimeError(format!(
+                                "Failed to downcast default to '{}'",
+                                "Quat"
+                            ))
+                        })?
+                    } else {
+                        return Err (mlua :: Error :: RuntimeError (format ! ("Cannot construct parameter type '{}' - no argument provided and no Default" , "Quat"))) ;
+                    }
+                }
+            };
+            let result = self_instance.mul_quat(typed_param_0);
+            bevy_lua_ecs::reflection::try_reflect_to_lua_value(lua, &result)
+        }
+        ("Vec3", "new") => {
+            let app_type_registry = world.resource::<bevy::ecs::reflect::AppTypeRegistry>();
+            let type_registry = app_type_registry.read();
+            let typed_param_0: f32 = {
+                if let Some(arg_val) = args.pop_front() {
+                    bevy_lua_ecs::reflection::lua_value_to_type::<f32>(
+                        lua,
+                        arg_val,
+                        &app_type_registry,
+                    )
+                    .map_err(|e| {
+                        mlua::Error::RuntimeError(format!(
+                            "Failed to convert parameter '{}': {}",
+                            "f32", e
+                        ))
+                    })?
+                } else {
+                    let reflect_default = type_registry
+                        .get_with_short_type_path("f32")
+                        .and_then(|reg| reg.data::<bevy::prelude::ReflectDefault>());
+                    if let Some(rd) = reflect_default {
+                        let param_instance = rd.default();
+                        *param_instance.downcast::<f32>().map_err(|_| {
+                            mlua::Error::RuntimeError(format!(
+                                "Failed to downcast default to '{}'",
+                                "f32"
+                            ))
+                        })?
+                    } else {
+                        return Err (mlua :: Error :: RuntimeError (format ! ("Cannot construct parameter type '{}' - no argument provided and no Default" , "f32"))) ;
+                    }
+                }
+            };
+            let typed_param_1: f32 = {
+                if let Some(arg_val) = args.pop_front() {
+                    bevy_lua_ecs::reflection::lua_value_to_type::<f32>(
+                        lua,
+                        arg_val,
+                        &app_type_registry,
+                    )
+                    .map_err(|e| {
+                        mlua::Error::RuntimeError(format!(
+                            "Failed to convert parameter '{}': {}",
+                            "f32", e
+                        ))
+                    })?
+                } else {
+                    let reflect_default = type_registry
+                        .get_with_short_type_path("f32")
+                        .and_then(|reg| reg.data::<bevy::prelude::ReflectDefault>());
+                    if let Some(rd) = reflect_default {
+                        let param_instance = rd.default();
+                        *param_instance.downcast::<f32>().map_err(|_| {
+                            mlua::Error::RuntimeError(format!(
+                                "Failed to downcast default to '{}'",
+                                "f32"
+                            ))
+                        })?
+                    } else {
+                        return Err (mlua :: Error :: RuntimeError (format ! ("Cannot construct parameter type '{}' - no argument provided and no Default" , "f32"))) ;
+                    }
+                }
+            };
+            let typed_param_2: f32 = {
+                if let Some(arg_val) = args.pop_front() {
+                    bevy_lua_ecs::reflection::lua_value_to_type::<f32>(
+                        lua,
+                        arg_val,
+                        &app_type_registry,
+                    )
+                    .map_err(|e| {
+                        mlua::Error::RuntimeError(format!(
+                            "Failed to convert parameter '{}': {}",
+                            "f32", e
+                        ))
+                    })?
+                } else {
+                    let reflect_default = type_registry
+                        .get_with_short_type_path("f32")
+                        .and_then(|reg| reg.data::<bevy::prelude::ReflectDefault>());
+                    if let Some(rd) = reflect_default {
+                        let param_instance = rd.default();
+                        *param_instance.downcast::<f32>().map_err(|_| {
+                            mlua::Error::RuntimeError(format!(
+                                "Failed to downcast default to '{}'",
+                                "f32"
+                            ))
+                        })?
+                    } else {
+                        return Err (mlua :: Error :: RuntimeError (format ! ("Cannot construct parameter type '{}' - no argument provided and no Default" , "f32"))) ;
+                    }
+                }
+            };
+            let result = Vec3::new(typed_param_0, typed_param_1, typed_param_2);
+            bevy_lua_ecs::reflection::try_reflect_to_lua_value(lua, &result)
+        }
+        ("Vec3", "splat") => {
+            let app_type_registry = world.resource::<bevy::ecs::reflect::AppTypeRegistry>();
+            let type_registry = app_type_registry.read();
+            let typed_param_0: f32 = {
+                if let Some(arg_val) = args.pop_front() {
+                    bevy_lua_ecs::reflection::lua_value_to_type::<f32>(
+                        lua,
+                        arg_val,
+                        &app_type_registry,
+                    )
+                    .map_err(|e| {
+                        mlua::Error::RuntimeError(format!(
+                            "Failed to convert parameter '{}': {}",
+                            "f32", e
+                        ))
+                    })?
+                } else {
+                    let reflect_default = type_registry
+                        .get_with_short_type_path("f32")
+                        .and_then(|reg| reg.data::<bevy::prelude::ReflectDefault>());
+                    if let Some(rd) = reflect_default {
+                        let param_instance = rd.default();
+                        *param_instance.downcast::<f32>().map_err(|_| {
+                            mlua::Error::RuntimeError(format!(
+                                "Failed to downcast default to '{}'",
+                                "f32"
+                            ))
+                        })?
+                    } else {
+                        return Err (mlua :: Error :: RuntimeError (format ! ("Cannot construct parameter type '{}' - no argument provided and no Default" , "f32"))) ;
+                    }
+                }
+            };
+            let result = Vec3::splat(typed_param_0);
+            bevy_lua_ecs::reflection::try_reflect_to_lua_value(lua, &result)
+        }
+        ("Vec3", "with_x") => {
+            let app_type_registry = world.resource::<bevy::ecs::reflect::AppTypeRegistry>();
+            let type_registry = app_type_registry.read();
+            let self_instance: Vec3 = {
+                let self_arg = args.pop_front().ok_or_else(|| {
+                    mlua::Error::RuntimeError(format!(
+                        "{}::{} requires a self argument",
+                        "Vec3", "with_x"
+                    ))
+                })?;
+                if let mlua::Value::Table(ref arg_table) = self_arg {
+                    if let Some(reg) = type_registry.get_with_short_type_path("Vec3") {
+                        if let Some(rfr) = reg.data::<bevy::reflect::ReflectFromReflect>() {
+                            let type_info = reg.type_info();
+                            let dynamic = bevy_lua_ecs::lua_table_to_dynamic(
+                                lua,
+                                arg_table,
+                                type_info,
+                                &app_type_registry,
+                            )
+                            .map_err(|e| {
+                                mlua::Error::RuntimeError(format!(
+                                    "Failed to build self '{}': {}",
+                                    "Vec3", e
+                                ))
+                            })?;
+                            if let Some(concrete) = rfr.from_reflect(&dynamic) {
+                                *concrete.downcast::<Vec3>().map_err(|_| {
+                                    mlua::Error::RuntimeError(format!(
+                                        "Failed to downcast self to {}",
+                                        "Vec3"
+                                    ))
+                                })?
+                            } else {
+                                return Err(mlua::Error::RuntimeError(format!(
+                                    "Failed to construct self type '{}' via FromReflect",
+                                    "Vec3"
+                                )));
+                            }
+                        } else {
+                            return Err(mlua::Error::RuntimeError(format!(
+                                "Type '{}' has no FromReflect implementation",
+                                "Vec3"
+                            )));
+                        }
+                    } else {
+                        return Err(mlua::Error::RuntimeError(format!(
+                            "Type '{}' not found in TypeRegistry",
+                            "Vec3"
+                        )));
+                    }
+                } else {
+                    return Err(mlua::Error::RuntimeError(format!(
+                        "{}::{} self argument expected table, got {:?}",
+                        "Vec3",
+                        "with_x",
+                        self_arg.type_name()
+                    )));
+                }
+            };
+            let typed_param_0: f32 = {
+                if let Some(arg_val) = args.pop_front() {
+                    bevy_lua_ecs::reflection::lua_value_to_type::<f32>(
+                        lua,
+                        arg_val,
+                        &app_type_registry,
+                    )
+                    .map_err(|e| {
+                        mlua::Error::RuntimeError(format!(
+                            "Failed to convert parameter '{}': {}",
+                            "f32", e
+                        ))
+                    })?
+                } else {
+                    let reflect_default = type_registry
+                        .get_with_short_type_path("f32")
+                        .and_then(|reg| reg.data::<bevy::prelude::ReflectDefault>());
+                    if let Some(rd) = reflect_default {
+                        let param_instance = rd.default();
+                        *param_instance.downcast::<f32>().map_err(|_| {
+                            mlua::Error::RuntimeError(format!(
+                                "Failed to downcast default to '{}'",
+                                "f32"
+                            ))
+                        })?
+                    } else {
+                        return Err (mlua :: Error :: RuntimeError (format ! ("Cannot construct parameter type '{}' - no argument provided and no Default" , "f32"))) ;
+                    }
+                }
+            };
+            let result = self_instance.with_x(typed_param_0);
+            bevy_lua_ecs::reflection::try_reflect_to_lua_value(lua, &result)
+        }
+        ("Vec3", "with_y") => {
+            let app_type_registry = world.resource::<bevy::ecs::reflect::AppTypeRegistry>();
+            let type_registry = app_type_registry.read();
+            let self_instance: Vec3 = {
+                let self_arg = args.pop_front().ok_or_else(|| {
+                    mlua::Error::RuntimeError(format!(
+                        "{}::{} requires a self argument",
+                        "Vec3", "with_y"
+                    ))
+                })?;
+                if let mlua::Value::Table(ref arg_table) = self_arg {
+                    if let Some(reg) = type_registry.get_with_short_type_path("Vec3") {
+                        if let Some(rfr) = reg.data::<bevy::reflect::ReflectFromReflect>() {
+                            let type_info = reg.type_info();
+                            let dynamic = bevy_lua_ecs::lua_table_to_dynamic(
+                                lua,
+                                arg_table,
+                                type_info,
+                                &app_type_registry,
+                            )
+                            .map_err(|e| {
+                                mlua::Error::RuntimeError(format!(
+                                    "Failed to build self '{}': {}",
+                                    "Vec3", e
+                                ))
+                            })?;
+                            if let Some(concrete) = rfr.from_reflect(&dynamic) {
+                                *concrete.downcast::<Vec3>().map_err(|_| {
+                                    mlua::Error::RuntimeError(format!(
+                                        "Failed to downcast self to {}",
+                                        "Vec3"
+                                    ))
+                                })?
+                            } else {
+                                return Err(mlua::Error::RuntimeError(format!(
+                                    "Failed to construct self type '{}' via FromReflect",
+                                    "Vec3"
+                                )));
+                            }
+                        } else {
+                            return Err(mlua::Error::RuntimeError(format!(
+                                "Type '{}' has no FromReflect implementation",
+                                "Vec3"
+                            )));
+                        }
+                    } else {
+                        return Err(mlua::Error::RuntimeError(format!(
+                            "Type '{}' not found in TypeRegistry",
+                            "Vec3"
+                        )));
+                    }
+                } else {
+                    return Err(mlua::Error::RuntimeError(format!(
+                        "{}::{} self argument expected table, got {:?}",
+                        "Vec3",
+                        "with_y",
+                        self_arg.type_name()
+                    )));
+                }
+            };
+            let typed_param_0: f32 = {
+                if let Some(arg_val) = args.pop_front() {
+                    bevy_lua_ecs::reflection::lua_value_to_type::<f32>(
+                        lua,
+                        arg_val,
+                        &app_type_registry,
+                    )
+                    .map_err(|e| {
+                        mlua::Error::RuntimeError(format!(
+                            "Failed to convert parameter '{}': {}",
+                            "f32", e
+                        ))
+                    })?
+                } else {
+                    let reflect_default = type_registry
+                        .get_with_short_type_path("f32")
+                        .and_then(|reg| reg.data::<bevy::prelude::ReflectDefault>());
+                    if let Some(rd) = reflect_default {
+                        let param_instance = rd.default();
+                        *param_instance.downcast::<f32>().map_err(|_| {
+                            mlua::Error::RuntimeError(format!(
+                                "Failed to downcast default to '{}'",
+                                "f32"
+                            ))
+                        })?
+                    } else {
+                        return Err (mlua :: Error :: RuntimeError (format ! ("Cannot construct parameter type '{}' - no argument provided and no Default" , "f32"))) ;
+                    }
+                }
+            };
+            let result = self_instance.with_y(typed_param_0);
+            bevy_lua_ecs::reflection::try_reflect_to_lua_value(lua, &result)
+        }
+        ("Vec3", "with_z") => {
+            let app_type_registry = world.resource::<bevy::ecs::reflect::AppTypeRegistry>();
+            let type_registry = app_type_registry.read();
+            let self_instance: Vec3 = {
+                let self_arg = args.pop_front().ok_or_else(|| {
+                    mlua::Error::RuntimeError(format!(
+                        "{}::{} requires a self argument",
+                        "Vec3", "with_z"
+                    ))
+                })?;
+                if let mlua::Value::Table(ref arg_table) = self_arg {
+                    if let Some(reg) = type_registry.get_with_short_type_path("Vec3") {
+                        if let Some(rfr) = reg.data::<bevy::reflect::ReflectFromReflect>() {
+                            let type_info = reg.type_info();
+                            let dynamic = bevy_lua_ecs::lua_table_to_dynamic(
+                                lua,
+                                arg_table,
+                                type_info,
+                                &app_type_registry,
+                            )
+                            .map_err(|e| {
+                                mlua::Error::RuntimeError(format!(
+                                    "Failed to build self '{}': {}",
+                                    "Vec3", e
+                                ))
+                            })?;
+                            if let Some(concrete) = rfr.from_reflect(&dynamic) {
+                                *concrete.downcast::<Vec3>().map_err(|_| {
+                                    mlua::Error::RuntimeError(format!(
+                                        "Failed to downcast self to {}",
+                                        "Vec3"
+                                    ))
+                                })?
+                            } else {
+                                return Err(mlua::Error::RuntimeError(format!(
+                                    "Failed to construct self type '{}' via FromReflect",
+                                    "Vec3"
+                                )));
+                            }
+                        } else {
+                            return Err(mlua::Error::RuntimeError(format!(
+                                "Type '{}' has no FromReflect implementation",
+                                "Vec3"
+                            )));
+                        }
+                    } else {
+                        return Err(mlua::Error::RuntimeError(format!(
+                            "Type '{}' not found in TypeRegistry",
+                            "Vec3"
+                        )));
+                    }
+                } else {
+                    return Err(mlua::Error::RuntimeError(format!(
+                        "{}::{} self argument expected table, got {:?}",
+                        "Vec3",
+                        "with_z",
+                        self_arg.type_name()
+                    )));
+                }
+            };
+            let typed_param_0: f32 = {
+                if let Some(arg_val) = args.pop_front() {
+                    bevy_lua_ecs::reflection::lua_value_to_type::<f32>(
+                        lua,
+                        arg_val,
+                        &app_type_registry,
+                    )
+                    .map_err(|e| {
+                        mlua::Error::RuntimeError(format!(
+                            "Failed to convert parameter '{}': {}",
+                            "f32", e
+                        ))
+                    })?
+                } else {
+                    let reflect_default = type_registry
+                        .get_with_short_type_path("f32")
+                        .and_then(|reg| reg.data::<bevy::prelude::ReflectDefault>());
+                    if let Some(rd) = reflect_default {
+                        let param_instance = rd.default();
+                        *param_instance.downcast::<f32>().map_err(|_| {
+                            mlua::Error::RuntimeError(format!(
+                                "Failed to downcast default to '{}'",
+                                "f32"
+                            ))
+                        })?
+                    } else {
+                        return Err (mlua :: Error :: RuntimeError (format ! ("Cannot construct parameter type '{}' - no argument provided and no Default" , "f32"))) ;
+                    }
+                }
+            };
+            let result = self_instance.with_z(typed_param_0);
+            bevy_lua_ecs::reflection::try_reflect_to_lua_value(lua, &result)
+        }
+        ("Vec3", "dot") => {
+            let app_type_registry = world.resource::<bevy::ecs::reflect::AppTypeRegistry>();
+            let type_registry = app_type_registry.read();
+            let self_instance: Vec3 = {
+                let self_arg = args.pop_front().ok_or_else(|| {
+                    mlua::Error::RuntimeError(format!(
+                        "{}::{} requires a self argument",
+                        "Vec3", "dot"
+                    ))
+                })?;
+                if let mlua::Value::Table(ref arg_table) = self_arg {
+                    if let Some(reg) = type_registry.get_with_short_type_path("Vec3") {
+                        if let Some(rfr) = reg.data::<bevy::reflect::ReflectFromReflect>() {
+                            let type_info = reg.type_info();
+                            let dynamic = bevy_lua_ecs::lua_table_to_dynamic(
+                                lua,
+                                arg_table,
+                                type_info,
+                                &app_type_registry,
+                            )
+                            .map_err(|e| {
+                                mlua::Error::RuntimeError(format!(
+                                    "Failed to build self '{}': {}",
+                                    "Vec3", e
+                                ))
+                            })?;
+                            if let Some(concrete) = rfr.from_reflect(&dynamic) {
+                                *concrete.downcast::<Vec3>().map_err(|_| {
+                                    mlua::Error::RuntimeError(format!(
+                                        "Failed to downcast self to {}",
+                                        "Vec3"
+                                    ))
+                                })?
+                            } else {
+                                return Err(mlua::Error::RuntimeError(format!(
+                                    "Failed to construct self type '{}' via FromReflect",
+                                    "Vec3"
+                                )));
+                            }
+                        } else {
+                            return Err(mlua::Error::RuntimeError(format!(
+                                "Type '{}' has no FromReflect implementation",
+                                "Vec3"
+                            )));
+                        }
+                    } else {
+                        return Err(mlua::Error::RuntimeError(format!(
+                            "Type '{}' not found in TypeRegistry",
+                            "Vec3"
+                        )));
+                    }
+                } else {
+                    return Err(mlua::Error::RuntimeError(format!(
+                        "{}::{} self argument expected table, got {:?}",
+                        "Vec3",
+                        "dot",
+                        self_arg.type_name()
+                    )));
+                }
+            };
+            let typed_param_0: Vec3 = {
+                if let Some(arg_val) = args.pop_front() {
+                    bevy_lua_ecs::reflection::lua_value_to_type::<Vec3>(
+                        lua,
+                        arg_val,
+                        &app_type_registry,
+                    )
+                    .map_err(|e| {
+                        mlua::Error::RuntimeError(format!(
+                            "Failed to convert parameter '{}': {}",
+                            "Vec3", e
+                        ))
+                    })?
+                } else {
+                    let reflect_default = type_registry
+                        .get_with_short_type_path("Vec3")
+                        .and_then(|reg| reg.data::<bevy::prelude::ReflectDefault>());
+                    if let Some(rd) = reflect_default {
+                        let param_instance = rd.default();
+                        *param_instance.downcast::<Vec3>().map_err(|_| {
+                            mlua::Error::RuntimeError(format!(
+                                "Failed to downcast default to '{}'",
+                                "Vec3"
+                            ))
+                        })?
+                    } else {
+                        return Err (mlua :: Error :: RuntimeError (format ! ("Cannot construct parameter type '{}' - no argument provided and no Default" , "Vec3"))) ;
+                    }
+                }
+            };
+            let result = self_instance.dot(typed_param_0);
+            bevy_lua_ecs::reflection::try_reflect_to_lua_value(lua, &result)
+        }
+        ("Vec3", "dot_into_vec") => {
+            let app_type_registry = world.resource::<bevy::ecs::reflect::AppTypeRegistry>();
+            let type_registry = app_type_registry.read();
+            let self_instance: Vec3 = {
+                let self_arg = args.pop_front().ok_or_else(|| {
+                    mlua::Error::RuntimeError(format!(
+                        "{}::{} requires a self argument",
+                        "Vec3", "dot_into_vec"
+                    ))
+                })?;
+                if let mlua::Value::Table(ref arg_table) = self_arg {
+                    if let Some(reg) = type_registry.get_with_short_type_path("Vec3") {
+                        if let Some(rfr) = reg.data::<bevy::reflect::ReflectFromReflect>() {
+                            let type_info = reg.type_info();
+                            let dynamic = bevy_lua_ecs::lua_table_to_dynamic(
+                                lua,
+                                arg_table,
+                                type_info,
+                                &app_type_registry,
+                            )
+                            .map_err(|e| {
+                                mlua::Error::RuntimeError(format!(
+                                    "Failed to build self '{}': {}",
+                                    "Vec3", e
+                                ))
+                            })?;
+                            if let Some(concrete) = rfr.from_reflect(&dynamic) {
+                                *concrete.downcast::<Vec3>().map_err(|_| {
+                                    mlua::Error::RuntimeError(format!(
+                                        "Failed to downcast self to {}",
+                                        "Vec3"
+                                    ))
+                                })?
+                            } else {
+                                return Err(mlua::Error::RuntimeError(format!(
+                                    "Failed to construct self type '{}' via FromReflect",
+                                    "Vec3"
+                                )));
+                            }
+                        } else {
+                            return Err(mlua::Error::RuntimeError(format!(
+                                "Type '{}' has no FromReflect implementation",
+                                "Vec3"
+                            )));
+                        }
+                    } else {
+                        return Err(mlua::Error::RuntimeError(format!(
+                            "Type '{}' not found in TypeRegistry",
+                            "Vec3"
+                        )));
+                    }
+                } else {
+                    return Err(mlua::Error::RuntimeError(format!(
+                        "{}::{} self argument expected table, got {:?}",
+                        "Vec3",
+                        "dot_into_vec",
+                        self_arg.type_name()
+                    )));
+                }
+            };
+            let typed_param_0: Vec3 = {
+                if let Some(arg_val) = args.pop_front() {
+                    bevy_lua_ecs::reflection::lua_value_to_type::<Vec3>(
+                        lua,
+                        arg_val,
+                        &app_type_registry,
+                    )
+                    .map_err(|e| {
+                        mlua::Error::RuntimeError(format!(
+                            "Failed to convert parameter '{}': {}",
+                            "Vec3", e
+                        ))
+                    })?
+                } else {
+                    let reflect_default = type_registry
+                        .get_with_short_type_path("Vec3")
+                        .and_then(|reg| reg.data::<bevy::prelude::ReflectDefault>());
+                    if let Some(rd) = reflect_default {
+                        let param_instance = rd.default();
+                        *param_instance.downcast::<Vec3>().map_err(|_| {
+                            mlua::Error::RuntimeError(format!(
+                                "Failed to downcast default to '{}'",
+                                "Vec3"
+                            ))
+                        })?
+                    } else {
+                        return Err (mlua :: Error :: RuntimeError (format ! ("Cannot construct parameter type '{}' - no argument provided and no Default" , "Vec3"))) ;
+                    }
+                }
+            };
+            let result = self_instance.dot_into_vec(typed_param_0);
+            bevy_lua_ecs::reflection::try_reflect_to_lua_value(lua, &result)
+        }
+        ("Vec3", "cross") => {
+            let app_type_registry = world.resource::<bevy::ecs::reflect::AppTypeRegistry>();
+            let type_registry = app_type_registry.read();
+            let self_instance: Vec3 = {
+                let self_arg = args.pop_front().ok_or_else(|| {
+                    mlua::Error::RuntimeError(format!(
+                        "{}::{} requires a self argument",
+                        "Vec3", "cross"
+                    ))
+                })?;
+                if let mlua::Value::Table(ref arg_table) = self_arg {
+                    if let Some(reg) = type_registry.get_with_short_type_path("Vec3") {
+                        if let Some(rfr) = reg.data::<bevy::reflect::ReflectFromReflect>() {
+                            let type_info = reg.type_info();
+                            let dynamic = bevy_lua_ecs::lua_table_to_dynamic(
+                                lua,
+                                arg_table,
+                                type_info,
+                                &app_type_registry,
+                            )
+                            .map_err(|e| {
+                                mlua::Error::RuntimeError(format!(
+                                    "Failed to build self '{}': {}",
+                                    "Vec3", e
+                                ))
+                            })?;
+                            if let Some(concrete) = rfr.from_reflect(&dynamic) {
+                                *concrete.downcast::<Vec3>().map_err(|_| {
+                                    mlua::Error::RuntimeError(format!(
+                                        "Failed to downcast self to {}",
+                                        "Vec3"
+                                    ))
+                                })?
+                            } else {
+                                return Err(mlua::Error::RuntimeError(format!(
+                                    "Failed to construct self type '{}' via FromReflect",
+                                    "Vec3"
+                                )));
+                            }
+                        } else {
+                            return Err(mlua::Error::RuntimeError(format!(
+                                "Type '{}' has no FromReflect implementation",
+                                "Vec3"
+                            )));
+                        }
+                    } else {
+                        return Err(mlua::Error::RuntimeError(format!(
+                            "Type '{}' not found in TypeRegistry",
+                            "Vec3"
+                        )));
+                    }
+                } else {
+                    return Err(mlua::Error::RuntimeError(format!(
+                        "{}::{} self argument expected table, got {:?}",
+                        "Vec3",
+                        "cross",
+                        self_arg.type_name()
+                    )));
+                }
+            };
+            let typed_param_0: Vec3 = {
+                if let Some(arg_val) = args.pop_front() {
+                    bevy_lua_ecs::reflection::lua_value_to_type::<Vec3>(
+                        lua,
+                        arg_val,
+                        &app_type_registry,
+                    )
+                    .map_err(|e| {
+                        mlua::Error::RuntimeError(format!(
+                            "Failed to convert parameter '{}': {}",
+                            "Vec3", e
+                        ))
+                    })?
+                } else {
+                    let reflect_default = type_registry
+                        .get_with_short_type_path("Vec3")
+                        .and_then(|reg| reg.data::<bevy::prelude::ReflectDefault>());
+                    if let Some(rd) = reflect_default {
+                        let param_instance = rd.default();
+                        *param_instance.downcast::<Vec3>().map_err(|_| {
+                            mlua::Error::RuntimeError(format!(
+                                "Failed to downcast default to '{}'",
+                                "Vec3"
+                            ))
+                        })?
+                    } else {
+                        return Err (mlua :: Error :: RuntimeError (format ! ("Cannot construct parameter type '{}' - no argument provided and no Default" , "Vec3"))) ;
+                    }
+                }
+            };
+            let result = self_instance.cross(typed_param_0);
+            bevy_lua_ecs::reflection::try_reflect_to_lua_value(lua, &result)
+        }
+        ("Vec3", "min") => {
+            let app_type_registry = world.resource::<bevy::ecs::reflect::AppTypeRegistry>();
+            let type_registry = app_type_registry.read();
+            let self_instance: Vec3 = {
+                let self_arg = args.pop_front().ok_or_else(|| {
+                    mlua::Error::RuntimeError(format!(
+                        "{}::{} requires a self argument",
+                        "Vec3", "min"
+                    ))
+                })?;
+                if let mlua::Value::Table(ref arg_table) = self_arg {
+                    if let Some(reg) = type_registry.get_with_short_type_path("Vec3") {
+                        if let Some(rfr) = reg.data::<bevy::reflect::ReflectFromReflect>() {
+                            let type_info = reg.type_info();
+                            let dynamic = bevy_lua_ecs::lua_table_to_dynamic(
+                                lua,
+                                arg_table,
+                                type_info,
+                                &app_type_registry,
+                            )
+                            .map_err(|e| {
+                                mlua::Error::RuntimeError(format!(
+                                    "Failed to build self '{}': {}",
+                                    "Vec3", e
+                                ))
+                            })?;
+                            if let Some(concrete) = rfr.from_reflect(&dynamic) {
+                                *concrete.downcast::<Vec3>().map_err(|_| {
+                                    mlua::Error::RuntimeError(format!(
+                                        "Failed to downcast self to {}",
+                                        "Vec3"
+                                    ))
+                                })?
+                            } else {
+                                return Err(mlua::Error::RuntimeError(format!(
+                                    "Failed to construct self type '{}' via FromReflect",
+                                    "Vec3"
+                                )));
+                            }
+                        } else {
+                            return Err(mlua::Error::RuntimeError(format!(
+                                "Type '{}' has no FromReflect implementation",
+                                "Vec3"
+                            )));
+                        }
+                    } else {
+                        return Err(mlua::Error::RuntimeError(format!(
+                            "Type '{}' not found in TypeRegistry",
+                            "Vec3"
+                        )));
+                    }
+                } else {
+                    return Err(mlua::Error::RuntimeError(format!(
+                        "{}::{} self argument expected table, got {:?}",
+                        "Vec3",
+                        "min",
+                        self_arg.type_name()
+                    )));
+                }
+            };
+            let typed_param_0: Vec3 = {
+                if let Some(arg_val) = args.pop_front() {
+                    bevy_lua_ecs::reflection::lua_value_to_type::<Vec3>(
+                        lua,
+                        arg_val,
+                        &app_type_registry,
+                    )
+                    .map_err(|e| {
+                        mlua::Error::RuntimeError(format!(
+                            "Failed to convert parameter '{}': {}",
+                            "Vec3", e
+                        ))
+                    })?
+                } else {
+                    let reflect_default = type_registry
+                        .get_with_short_type_path("Vec3")
+                        .and_then(|reg| reg.data::<bevy::prelude::ReflectDefault>());
+                    if let Some(rd) = reflect_default {
+                        let param_instance = rd.default();
+                        *param_instance.downcast::<Vec3>().map_err(|_| {
+                            mlua::Error::RuntimeError(format!(
+                                "Failed to downcast default to '{}'",
+                                "Vec3"
+                            ))
+                        })?
+                    } else {
+                        return Err (mlua :: Error :: RuntimeError (format ! ("Cannot construct parameter type '{}' - no argument provided and no Default" , "Vec3"))) ;
+                    }
+                }
+            };
+            let result = self_instance.min(typed_param_0);
+            bevy_lua_ecs::reflection::try_reflect_to_lua_value(lua, &result)
+        }
+        ("Vec3", "max") => {
+            let app_type_registry = world.resource::<bevy::ecs::reflect::AppTypeRegistry>();
+            let type_registry = app_type_registry.read();
+            let self_instance: Vec3 = {
+                let self_arg = args.pop_front().ok_or_else(|| {
+                    mlua::Error::RuntimeError(format!(
+                        "{}::{} requires a self argument",
+                        "Vec3", "max"
+                    ))
+                })?;
+                if let mlua::Value::Table(ref arg_table) = self_arg {
+                    if let Some(reg) = type_registry.get_with_short_type_path("Vec3") {
+                        if let Some(rfr) = reg.data::<bevy::reflect::ReflectFromReflect>() {
+                            let type_info = reg.type_info();
+                            let dynamic = bevy_lua_ecs::lua_table_to_dynamic(
+                                lua,
+                                arg_table,
+                                type_info,
+                                &app_type_registry,
+                            )
+                            .map_err(|e| {
+                                mlua::Error::RuntimeError(format!(
+                                    "Failed to build self '{}': {}",
+                                    "Vec3", e
+                                ))
+                            })?;
+                            if let Some(concrete) = rfr.from_reflect(&dynamic) {
+                                *concrete.downcast::<Vec3>().map_err(|_| {
+                                    mlua::Error::RuntimeError(format!(
+                                        "Failed to downcast self to {}",
+                                        "Vec3"
+                                    ))
+                                })?
+                            } else {
+                                return Err(mlua::Error::RuntimeError(format!(
+                                    "Failed to construct self type '{}' via FromReflect",
+                                    "Vec3"
+                                )));
+                            }
+                        } else {
+                            return Err(mlua::Error::RuntimeError(format!(
+                                "Type '{}' has no FromReflect implementation",
+                                "Vec3"
+                            )));
+                        }
+                    } else {
+                        return Err(mlua::Error::RuntimeError(format!(
+                            "Type '{}' not found in TypeRegistry",
+                            "Vec3"
+                        )));
+                    }
+                } else {
+                    return Err(mlua::Error::RuntimeError(format!(
+                        "{}::{} self argument expected table, got {:?}",
+                        "Vec3",
+                        "max",
+                        self_arg.type_name()
+                    )));
+                }
+            };
+            let typed_param_0: Vec3 = {
+                if let Some(arg_val) = args.pop_front() {
+                    bevy_lua_ecs::reflection::lua_value_to_type::<Vec3>(
+                        lua,
+                        arg_val,
+                        &app_type_registry,
+                    )
+                    .map_err(|e| {
+                        mlua::Error::RuntimeError(format!(
+                            "Failed to convert parameter '{}': {}",
+                            "Vec3", e
+                        ))
+                    })?
+                } else {
+                    let reflect_default = type_registry
+                        .get_with_short_type_path("Vec3")
+                        .and_then(|reg| reg.data::<bevy::prelude::ReflectDefault>());
+                    if let Some(rd) = reflect_default {
+                        let param_instance = rd.default();
+                        *param_instance.downcast::<Vec3>().map_err(|_| {
+                            mlua::Error::RuntimeError(format!(
+                                "Failed to downcast default to '{}'",
+                                "Vec3"
+                            ))
+                        })?
+                    } else {
+                        return Err (mlua :: Error :: RuntimeError (format ! ("Cannot construct parameter type '{}' - no argument provided and no Default" , "Vec3"))) ;
+                    }
+                }
+            };
+            let result = self_instance.max(typed_param_0);
+            bevy_lua_ecs::reflection::try_reflect_to_lua_value(lua, &result)
+        }
+        ("Vec3", "clamp") => {
+            let app_type_registry = world.resource::<bevy::ecs::reflect::AppTypeRegistry>();
+            let type_registry = app_type_registry.read();
+            let self_instance: Vec3 = {
+                let self_arg = args.pop_front().ok_or_else(|| {
+                    mlua::Error::RuntimeError(format!(
+                        "{}::{} requires a self argument",
+                        "Vec3", "clamp"
+                    ))
+                })?;
+                if let mlua::Value::Table(ref arg_table) = self_arg {
+                    if let Some(reg) = type_registry.get_with_short_type_path("Vec3") {
+                        if let Some(rfr) = reg.data::<bevy::reflect::ReflectFromReflect>() {
+                            let type_info = reg.type_info();
+                            let dynamic = bevy_lua_ecs::lua_table_to_dynamic(
+                                lua,
+                                arg_table,
+                                type_info,
+                                &app_type_registry,
+                            )
+                            .map_err(|e| {
+                                mlua::Error::RuntimeError(format!(
+                                    "Failed to build self '{}': {}",
+                                    "Vec3", e
+                                ))
+                            })?;
+                            if let Some(concrete) = rfr.from_reflect(&dynamic) {
+                                *concrete.downcast::<Vec3>().map_err(|_| {
+                                    mlua::Error::RuntimeError(format!(
+                                        "Failed to downcast self to {}",
+                                        "Vec3"
+                                    ))
+                                })?
+                            } else {
+                                return Err(mlua::Error::RuntimeError(format!(
+                                    "Failed to construct self type '{}' via FromReflect",
+                                    "Vec3"
+                                )));
+                            }
+                        } else {
+                            return Err(mlua::Error::RuntimeError(format!(
+                                "Type '{}' has no FromReflect implementation",
+                                "Vec3"
+                            )));
+                        }
+                    } else {
+                        return Err(mlua::Error::RuntimeError(format!(
+                            "Type '{}' not found in TypeRegistry",
+                            "Vec3"
+                        )));
+                    }
+                } else {
+                    return Err(mlua::Error::RuntimeError(format!(
+                        "{}::{} self argument expected table, got {:?}",
+                        "Vec3",
+                        "clamp",
+                        self_arg.type_name()
+                    )));
+                }
+            };
+            let typed_param_0: Vec3 = {
+                if let Some(arg_val) = args.pop_front() {
+                    bevy_lua_ecs::reflection::lua_value_to_type::<Vec3>(
+                        lua,
+                        arg_val,
+                        &app_type_registry,
+                    )
+                    .map_err(|e| {
+                        mlua::Error::RuntimeError(format!(
+                            "Failed to convert parameter '{}': {}",
+                            "Vec3", e
+                        ))
+                    })?
+                } else {
+                    let reflect_default = type_registry
+                        .get_with_short_type_path("Vec3")
+                        .and_then(|reg| reg.data::<bevy::prelude::ReflectDefault>());
+                    if let Some(rd) = reflect_default {
+                        let param_instance = rd.default();
+                        *param_instance.downcast::<Vec3>().map_err(|_| {
+                            mlua::Error::RuntimeError(format!(
+                                "Failed to downcast default to '{}'",
+                                "Vec3"
+                            ))
+                        })?
+                    } else {
+                        return Err (mlua :: Error :: RuntimeError (format ! ("Cannot construct parameter type '{}' - no argument provided and no Default" , "Vec3"))) ;
+                    }
+                }
+            };
+            let typed_param_1: Vec3 = {
+                if let Some(arg_val) = args.pop_front() {
+                    bevy_lua_ecs::reflection::lua_value_to_type::<Vec3>(
+                        lua,
+                        arg_val,
+                        &app_type_registry,
+                    )
+                    .map_err(|e| {
+                        mlua::Error::RuntimeError(format!(
+                            "Failed to convert parameter '{}': {}",
+                            "Vec3", e
+                        ))
+                    })?
+                } else {
+                    let reflect_default = type_registry
+                        .get_with_short_type_path("Vec3")
+                        .and_then(|reg| reg.data::<bevy::prelude::ReflectDefault>());
+                    if let Some(rd) = reflect_default {
+                        let param_instance = rd.default();
+                        *param_instance.downcast::<Vec3>().map_err(|_| {
+                            mlua::Error::RuntimeError(format!(
+                                "Failed to downcast default to '{}'",
+                                "Vec3"
+                            ))
+                        })?
+                    } else {
+                        return Err (mlua :: Error :: RuntimeError (format ! ("Cannot construct parameter type '{}' - no argument provided and no Default" , "Vec3"))) ;
+                    }
+                }
+            };
+            let result = self_instance.clamp(typed_param_0, typed_param_1);
+            bevy_lua_ecs::reflection::try_reflect_to_lua_value(lua, &result)
+        }
+        ("Vec3", "min_element") => {
+            let app_type_registry = world.resource::<bevy::ecs::reflect::AppTypeRegistry>();
+            let type_registry = app_type_registry.read();
+            let self_instance: Vec3 = {
+                let self_arg = args.pop_front().ok_or_else(|| {
+                    mlua::Error::RuntimeError(format!(
+                        "{}::{} requires a self argument",
+                        "Vec3", "min_element"
+                    ))
+                })?;
+                if let mlua::Value::Table(ref arg_table) = self_arg {
+                    if let Some(reg) = type_registry.get_with_short_type_path("Vec3") {
+                        if let Some(rfr) = reg.data::<bevy::reflect::ReflectFromReflect>() {
+                            let type_info = reg.type_info();
+                            let dynamic = bevy_lua_ecs::lua_table_to_dynamic(
+                                lua,
+                                arg_table,
+                                type_info,
+                                &app_type_registry,
+                            )
+                            .map_err(|e| {
+                                mlua::Error::RuntimeError(format!(
+                                    "Failed to build self '{}': {}",
+                                    "Vec3", e
+                                ))
+                            })?;
+                            if let Some(concrete) = rfr.from_reflect(&dynamic) {
+                                *concrete.downcast::<Vec3>().map_err(|_| {
+                                    mlua::Error::RuntimeError(format!(
+                                        "Failed to downcast self to {}",
+                                        "Vec3"
+                                    ))
+                                })?
+                            } else {
+                                return Err(mlua::Error::RuntimeError(format!(
+                                    "Failed to construct self type '{}' via FromReflect",
+                                    "Vec3"
+                                )));
+                            }
+                        } else {
+                            return Err(mlua::Error::RuntimeError(format!(
+                                "Type '{}' has no FromReflect implementation",
+                                "Vec3"
+                            )));
+                        }
+                    } else {
+                        return Err(mlua::Error::RuntimeError(format!(
+                            "Type '{}' not found in TypeRegistry",
+                            "Vec3"
+                        )));
+                    }
+                } else {
+                    return Err(mlua::Error::RuntimeError(format!(
+                        "{}::{} self argument expected table, got {:?}",
+                        "Vec3",
+                        "min_element",
+                        self_arg.type_name()
+                    )));
+                }
+            };
+            let result = self_instance.min_element();
+            bevy_lua_ecs::reflection::try_reflect_to_lua_value(lua, &result)
+        }
+        ("Vec3", "max_element") => {
+            let app_type_registry = world.resource::<bevy::ecs::reflect::AppTypeRegistry>();
+            let type_registry = app_type_registry.read();
+            let self_instance: Vec3 = {
+                let self_arg = args.pop_front().ok_or_else(|| {
+                    mlua::Error::RuntimeError(format!(
+                        "{}::{} requires a self argument",
+                        "Vec3", "max_element"
+                    ))
+                })?;
+                if let mlua::Value::Table(ref arg_table) = self_arg {
+                    if let Some(reg) = type_registry.get_with_short_type_path("Vec3") {
+                        if let Some(rfr) = reg.data::<bevy::reflect::ReflectFromReflect>() {
+                            let type_info = reg.type_info();
+                            let dynamic = bevy_lua_ecs::lua_table_to_dynamic(
+                                lua,
+                                arg_table,
+                                type_info,
+                                &app_type_registry,
+                            )
+                            .map_err(|e| {
+                                mlua::Error::RuntimeError(format!(
+                                    "Failed to build self '{}': {}",
+                                    "Vec3", e
+                                ))
+                            })?;
+                            if let Some(concrete) = rfr.from_reflect(&dynamic) {
+                                *concrete.downcast::<Vec3>().map_err(|_| {
+                                    mlua::Error::RuntimeError(format!(
+                                        "Failed to downcast self to {}",
+                                        "Vec3"
+                                    ))
+                                })?
+                            } else {
+                                return Err(mlua::Error::RuntimeError(format!(
+                                    "Failed to construct self type '{}' via FromReflect",
+                                    "Vec3"
+                                )));
+                            }
+                        } else {
+                            return Err(mlua::Error::RuntimeError(format!(
+                                "Type '{}' has no FromReflect implementation",
+                                "Vec3"
+                            )));
+                        }
+                    } else {
+                        return Err(mlua::Error::RuntimeError(format!(
+                            "Type '{}' not found in TypeRegistry",
+                            "Vec3"
+                        )));
+                    }
+                } else {
+                    return Err(mlua::Error::RuntimeError(format!(
+                        "{}::{} self argument expected table, got {:?}",
+                        "Vec3",
+                        "max_element",
+                        self_arg.type_name()
+                    )));
+                }
+            };
+            let result = self_instance.max_element();
+            bevy_lua_ecs::reflection::try_reflect_to_lua_value(lua, &result)
+        }
+        ("Vec3", "min_position") => {
+            let app_type_registry = world.resource::<bevy::ecs::reflect::AppTypeRegistry>();
+            let type_registry = app_type_registry.read();
+            let self_instance: Vec3 = {
+                let self_arg = args.pop_front().ok_or_else(|| {
+                    mlua::Error::RuntimeError(format!(
+                        "{}::{} requires a self argument",
+                        "Vec3", "min_position"
+                    ))
+                })?;
+                if let mlua::Value::Table(ref arg_table) = self_arg {
+                    if let Some(reg) = type_registry.get_with_short_type_path("Vec3") {
+                        if let Some(rfr) = reg.data::<bevy::reflect::ReflectFromReflect>() {
+                            let type_info = reg.type_info();
+                            let dynamic = bevy_lua_ecs::lua_table_to_dynamic(
+                                lua,
+                                arg_table,
+                                type_info,
+                                &app_type_registry,
+                            )
+                            .map_err(|e| {
+                                mlua::Error::RuntimeError(format!(
+                                    "Failed to build self '{}': {}",
+                                    "Vec3", e
+                                ))
+                            })?;
+                            if let Some(concrete) = rfr.from_reflect(&dynamic) {
+                                *concrete.downcast::<Vec3>().map_err(|_| {
+                                    mlua::Error::RuntimeError(format!(
+                                        "Failed to downcast self to {}",
+                                        "Vec3"
+                                    ))
+                                })?
+                            } else {
+                                return Err(mlua::Error::RuntimeError(format!(
+                                    "Failed to construct self type '{}' via FromReflect",
+                                    "Vec3"
+                                )));
+                            }
+                        } else {
+                            return Err(mlua::Error::RuntimeError(format!(
+                                "Type '{}' has no FromReflect implementation",
+                                "Vec3"
+                            )));
+                        }
+                    } else {
+                        return Err(mlua::Error::RuntimeError(format!(
+                            "Type '{}' not found in TypeRegistry",
+                            "Vec3"
+                        )));
+                    }
+                } else {
+                    return Err(mlua::Error::RuntimeError(format!(
+                        "{}::{} self argument expected table, got {:?}",
+                        "Vec3",
+                        "min_position",
+                        self_arg.type_name()
+                    )));
+                }
+            };
+            let result = self_instance.min_position();
+            bevy_lua_ecs::reflection::try_reflect_to_lua_value(lua, &result)
+        }
+        ("Vec3", "max_position") => {
+            let app_type_registry = world.resource::<bevy::ecs::reflect::AppTypeRegistry>();
+            let type_registry = app_type_registry.read();
+            let self_instance: Vec3 = {
+                let self_arg = args.pop_front().ok_or_else(|| {
+                    mlua::Error::RuntimeError(format!(
+                        "{}::{} requires a self argument",
+                        "Vec3", "max_position"
+                    ))
+                })?;
+                if let mlua::Value::Table(ref arg_table) = self_arg {
+                    if let Some(reg) = type_registry.get_with_short_type_path("Vec3") {
+                        if let Some(rfr) = reg.data::<bevy::reflect::ReflectFromReflect>() {
+                            let type_info = reg.type_info();
+                            let dynamic = bevy_lua_ecs::lua_table_to_dynamic(
+                                lua,
+                                arg_table,
+                                type_info,
+                                &app_type_registry,
+                            )
+                            .map_err(|e| {
+                                mlua::Error::RuntimeError(format!(
+                                    "Failed to build self '{}': {}",
+                                    "Vec3", e
+                                ))
+                            })?;
+                            if let Some(concrete) = rfr.from_reflect(&dynamic) {
+                                *concrete.downcast::<Vec3>().map_err(|_| {
+                                    mlua::Error::RuntimeError(format!(
+                                        "Failed to downcast self to {}",
+                                        "Vec3"
+                                    ))
+                                })?
+                            } else {
+                                return Err(mlua::Error::RuntimeError(format!(
+                                    "Failed to construct self type '{}' via FromReflect",
+                                    "Vec3"
+                                )));
+                            }
+                        } else {
+                            return Err(mlua::Error::RuntimeError(format!(
+                                "Type '{}' has no FromReflect implementation",
+                                "Vec3"
+                            )));
+                        }
+                    } else {
+                        return Err(mlua::Error::RuntimeError(format!(
+                            "Type '{}' not found in TypeRegistry",
+                            "Vec3"
+                        )));
+                    }
+                } else {
+                    return Err(mlua::Error::RuntimeError(format!(
+                        "{}::{} self argument expected table, got {:?}",
+                        "Vec3",
+                        "max_position",
+                        self_arg.type_name()
+                    )));
+                }
+            };
+            let result = self_instance.max_position();
+            bevy_lua_ecs::reflection::try_reflect_to_lua_value(lua, &result)
+        }
+        ("Vec3", "element_sum") => {
+            let app_type_registry = world.resource::<bevy::ecs::reflect::AppTypeRegistry>();
+            let type_registry = app_type_registry.read();
+            let self_instance: Vec3 = {
+                let self_arg = args.pop_front().ok_or_else(|| {
+                    mlua::Error::RuntimeError(format!(
+                        "{}::{} requires a self argument",
+                        "Vec3", "element_sum"
+                    ))
+                })?;
+                if let mlua::Value::Table(ref arg_table) = self_arg {
+                    if let Some(reg) = type_registry.get_with_short_type_path("Vec3") {
+                        if let Some(rfr) = reg.data::<bevy::reflect::ReflectFromReflect>() {
+                            let type_info = reg.type_info();
+                            let dynamic = bevy_lua_ecs::lua_table_to_dynamic(
+                                lua,
+                                arg_table,
+                                type_info,
+                                &app_type_registry,
+                            )
+                            .map_err(|e| {
+                                mlua::Error::RuntimeError(format!(
+                                    "Failed to build self '{}': {}",
+                                    "Vec3", e
+                                ))
+                            })?;
+                            if let Some(concrete) = rfr.from_reflect(&dynamic) {
+                                *concrete.downcast::<Vec3>().map_err(|_| {
+                                    mlua::Error::RuntimeError(format!(
+                                        "Failed to downcast self to {}",
+                                        "Vec3"
+                                    ))
+                                })?
+                            } else {
+                                return Err(mlua::Error::RuntimeError(format!(
+                                    "Failed to construct self type '{}' via FromReflect",
+                                    "Vec3"
+                                )));
+                            }
+                        } else {
+                            return Err(mlua::Error::RuntimeError(format!(
+                                "Type '{}' has no FromReflect implementation",
+                                "Vec3"
+                            )));
+                        }
+                    } else {
+                        return Err(mlua::Error::RuntimeError(format!(
+                            "Type '{}' not found in TypeRegistry",
+                            "Vec3"
+                        )));
+                    }
+                } else {
+                    return Err(mlua::Error::RuntimeError(format!(
+                        "{}::{} self argument expected table, got {:?}",
+                        "Vec3",
+                        "element_sum",
+                        self_arg.type_name()
+                    )));
+                }
+            };
+            let result = self_instance.element_sum();
+            bevy_lua_ecs::reflection::try_reflect_to_lua_value(lua, &result)
+        }
+        ("Vec3", "element_product") => {
+            let app_type_registry = world.resource::<bevy::ecs::reflect::AppTypeRegistry>();
+            let type_registry = app_type_registry.read();
+            let self_instance: Vec3 = {
+                let self_arg = args.pop_front().ok_or_else(|| {
+                    mlua::Error::RuntimeError(format!(
+                        "{}::{} requires a self argument",
+                        "Vec3", "element_product"
+                    ))
+                })?;
+                if let mlua::Value::Table(ref arg_table) = self_arg {
+                    if let Some(reg) = type_registry.get_with_short_type_path("Vec3") {
+                        if let Some(rfr) = reg.data::<bevy::reflect::ReflectFromReflect>() {
+                            let type_info = reg.type_info();
+                            let dynamic = bevy_lua_ecs::lua_table_to_dynamic(
+                                lua,
+                                arg_table,
+                                type_info,
+                                &app_type_registry,
+                            )
+                            .map_err(|e| {
+                                mlua::Error::RuntimeError(format!(
+                                    "Failed to build self '{}': {}",
+                                    "Vec3", e
+                                ))
+                            })?;
+                            if let Some(concrete) = rfr.from_reflect(&dynamic) {
+                                *concrete.downcast::<Vec3>().map_err(|_| {
+                                    mlua::Error::RuntimeError(format!(
+                                        "Failed to downcast self to {}",
+                                        "Vec3"
+                                    ))
+                                })?
+                            } else {
+                                return Err(mlua::Error::RuntimeError(format!(
+                                    "Failed to construct self type '{}' via FromReflect",
+                                    "Vec3"
+                                )));
+                            }
+                        } else {
+                            return Err(mlua::Error::RuntimeError(format!(
+                                "Type '{}' has no FromReflect implementation",
+                                "Vec3"
+                            )));
+                        }
+                    } else {
+                        return Err(mlua::Error::RuntimeError(format!(
+                            "Type '{}' not found in TypeRegistry",
+                            "Vec3"
+                        )));
+                    }
+                } else {
+                    return Err(mlua::Error::RuntimeError(format!(
+                        "{}::{} self argument expected table, got {:?}",
+                        "Vec3",
+                        "element_product",
+                        self_arg.type_name()
+                    )));
+                }
+            };
+            let result = self_instance.element_product();
+            bevy_lua_ecs::reflection::try_reflect_to_lua_value(lua, &result)
+        }
+        ("Vec3", "abs") => {
+            let app_type_registry = world.resource::<bevy::ecs::reflect::AppTypeRegistry>();
+            let type_registry = app_type_registry.read();
+            let self_instance: Vec3 = {
+                let self_arg = args.pop_front().ok_or_else(|| {
+                    mlua::Error::RuntimeError(format!(
+                        "{}::{} requires a self argument",
+                        "Vec3", "abs"
+                    ))
+                })?;
+                if let mlua::Value::Table(ref arg_table) = self_arg {
+                    if let Some(reg) = type_registry.get_with_short_type_path("Vec3") {
+                        if let Some(rfr) = reg.data::<bevy::reflect::ReflectFromReflect>() {
+                            let type_info = reg.type_info();
+                            let dynamic = bevy_lua_ecs::lua_table_to_dynamic(
+                                lua,
+                                arg_table,
+                                type_info,
+                                &app_type_registry,
+                            )
+                            .map_err(|e| {
+                                mlua::Error::RuntimeError(format!(
+                                    "Failed to build self '{}': {}",
+                                    "Vec3", e
+                                ))
+                            })?;
+                            if let Some(concrete) = rfr.from_reflect(&dynamic) {
+                                *concrete.downcast::<Vec3>().map_err(|_| {
+                                    mlua::Error::RuntimeError(format!(
+                                        "Failed to downcast self to {}",
+                                        "Vec3"
+                                    ))
+                                })?
+                            } else {
+                                return Err(mlua::Error::RuntimeError(format!(
+                                    "Failed to construct self type '{}' via FromReflect",
+                                    "Vec3"
+                                )));
+                            }
+                        } else {
+                            return Err(mlua::Error::RuntimeError(format!(
+                                "Type '{}' has no FromReflect implementation",
+                                "Vec3"
+                            )));
+                        }
+                    } else {
+                        return Err(mlua::Error::RuntimeError(format!(
+                            "Type '{}' not found in TypeRegistry",
+                            "Vec3"
+                        )));
+                    }
+                } else {
+                    return Err(mlua::Error::RuntimeError(format!(
+                        "{}::{} self argument expected table, got {:?}",
+                        "Vec3",
+                        "abs",
+                        self_arg.type_name()
+                    )));
+                }
+            };
+            let result = self_instance.abs();
+            bevy_lua_ecs::reflection::try_reflect_to_lua_value(lua, &result)
+        }
+        ("Vec3", "signum") => {
+            let app_type_registry = world.resource::<bevy::ecs::reflect::AppTypeRegistry>();
+            let type_registry = app_type_registry.read();
+            let self_instance: Vec3 = {
+                let self_arg = args.pop_front().ok_or_else(|| {
+                    mlua::Error::RuntimeError(format!(
+                        "{}::{} requires a self argument",
+                        "Vec3", "signum"
+                    ))
+                })?;
+                if let mlua::Value::Table(ref arg_table) = self_arg {
+                    if let Some(reg) = type_registry.get_with_short_type_path("Vec3") {
+                        if let Some(rfr) = reg.data::<bevy::reflect::ReflectFromReflect>() {
+                            let type_info = reg.type_info();
+                            let dynamic = bevy_lua_ecs::lua_table_to_dynamic(
+                                lua,
+                                arg_table,
+                                type_info,
+                                &app_type_registry,
+                            )
+                            .map_err(|e| {
+                                mlua::Error::RuntimeError(format!(
+                                    "Failed to build self '{}': {}",
+                                    "Vec3", e
+                                ))
+                            })?;
+                            if let Some(concrete) = rfr.from_reflect(&dynamic) {
+                                *concrete.downcast::<Vec3>().map_err(|_| {
+                                    mlua::Error::RuntimeError(format!(
+                                        "Failed to downcast self to {}",
+                                        "Vec3"
+                                    ))
+                                })?
+                            } else {
+                                return Err(mlua::Error::RuntimeError(format!(
+                                    "Failed to construct self type '{}' via FromReflect",
+                                    "Vec3"
+                                )));
+                            }
+                        } else {
+                            return Err(mlua::Error::RuntimeError(format!(
+                                "Type '{}' has no FromReflect implementation",
+                                "Vec3"
+                            )));
+                        }
+                    } else {
+                        return Err(mlua::Error::RuntimeError(format!(
+                            "Type '{}' not found in TypeRegistry",
+                            "Vec3"
+                        )));
+                    }
+                } else {
+                    return Err(mlua::Error::RuntimeError(format!(
+                        "{}::{} self argument expected table, got {:?}",
+                        "Vec3",
+                        "signum",
+                        self_arg.type_name()
+                    )));
+                }
+            };
+            let result = self_instance.signum();
+            bevy_lua_ecs::reflection::try_reflect_to_lua_value(lua, &result)
+        }
+        ("Vec3", "copysign") => {
+            let app_type_registry = world.resource::<bevy::ecs::reflect::AppTypeRegistry>();
+            let type_registry = app_type_registry.read();
+            let self_instance: Vec3 = {
+                let self_arg = args.pop_front().ok_or_else(|| {
+                    mlua::Error::RuntimeError(format!(
+                        "{}::{} requires a self argument",
+                        "Vec3", "copysign"
+                    ))
+                })?;
+                if let mlua::Value::Table(ref arg_table) = self_arg {
+                    if let Some(reg) = type_registry.get_with_short_type_path("Vec3") {
+                        if let Some(rfr) = reg.data::<bevy::reflect::ReflectFromReflect>() {
+                            let type_info = reg.type_info();
+                            let dynamic = bevy_lua_ecs::lua_table_to_dynamic(
+                                lua,
+                                arg_table,
+                                type_info,
+                                &app_type_registry,
+                            )
+                            .map_err(|e| {
+                                mlua::Error::RuntimeError(format!(
+                                    "Failed to build self '{}': {}",
+                                    "Vec3", e
+                                ))
+                            })?;
+                            if let Some(concrete) = rfr.from_reflect(&dynamic) {
+                                *concrete.downcast::<Vec3>().map_err(|_| {
+                                    mlua::Error::RuntimeError(format!(
+                                        "Failed to downcast self to {}",
+                                        "Vec3"
+                                    ))
+                                })?
+                            } else {
+                                return Err(mlua::Error::RuntimeError(format!(
+                                    "Failed to construct self type '{}' via FromReflect",
+                                    "Vec3"
+                                )));
+                            }
+                        } else {
+                            return Err(mlua::Error::RuntimeError(format!(
+                                "Type '{}' has no FromReflect implementation",
+                                "Vec3"
+                            )));
+                        }
+                    } else {
+                        return Err(mlua::Error::RuntimeError(format!(
+                            "Type '{}' not found in TypeRegistry",
+                            "Vec3"
+                        )));
+                    }
+                } else {
+                    return Err(mlua::Error::RuntimeError(format!(
+                        "{}::{} self argument expected table, got {:?}",
+                        "Vec3",
+                        "copysign",
+                        self_arg.type_name()
+                    )));
+                }
+            };
+            let typed_param_0: Vec3 = {
+                if let Some(arg_val) = args.pop_front() {
+                    bevy_lua_ecs::reflection::lua_value_to_type::<Vec3>(
+                        lua,
+                        arg_val,
+                        &app_type_registry,
+                    )
+                    .map_err(|e| {
+                        mlua::Error::RuntimeError(format!(
+                            "Failed to convert parameter '{}': {}",
+                            "Vec3", e
+                        ))
+                    })?
+                } else {
+                    let reflect_default = type_registry
+                        .get_with_short_type_path("Vec3")
+                        .and_then(|reg| reg.data::<bevy::prelude::ReflectDefault>());
+                    if let Some(rd) = reflect_default {
+                        let param_instance = rd.default();
+                        *param_instance.downcast::<Vec3>().map_err(|_| {
+                            mlua::Error::RuntimeError(format!(
+                                "Failed to downcast default to '{}'",
+                                "Vec3"
+                            ))
+                        })?
+                    } else {
+                        return Err (mlua :: Error :: RuntimeError (format ! ("Cannot construct parameter type '{}' - no argument provided and no Default" , "Vec3"))) ;
+                    }
+                }
+            };
+            let result = self_instance.copysign(typed_param_0);
+            bevy_lua_ecs::reflection::try_reflect_to_lua_value(lua, &result)
+        }
+        ("Vec3", "is_negative_bitmask") => {
+            let app_type_registry = world.resource::<bevy::ecs::reflect::AppTypeRegistry>();
+            let type_registry = app_type_registry.read();
+            let self_instance: Vec3 = {
+                let self_arg = args.pop_front().ok_or_else(|| {
+                    mlua::Error::RuntimeError(format!(
+                        "{}::{} requires a self argument",
+                        "Vec3", "is_negative_bitmask"
+                    ))
+                })?;
+                if let mlua::Value::Table(ref arg_table) = self_arg {
+                    if let Some(reg) = type_registry.get_with_short_type_path("Vec3") {
+                        if let Some(rfr) = reg.data::<bevy::reflect::ReflectFromReflect>() {
+                            let type_info = reg.type_info();
+                            let dynamic = bevy_lua_ecs::lua_table_to_dynamic(
+                                lua,
+                                arg_table,
+                                type_info,
+                                &app_type_registry,
+                            )
+                            .map_err(|e| {
+                                mlua::Error::RuntimeError(format!(
+                                    "Failed to build self '{}': {}",
+                                    "Vec3", e
+                                ))
+                            })?;
+                            if let Some(concrete) = rfr.from_reflect(&dynamic) {
+                                *concrete.downcast::<Vec3>().map_err(|_| {
+                                    mlua::Error::RuntimeError(format!(
+                                        "Failed to downcast self to {}",
+                                        "Vec3"
+                                    ))
+                                })?
+                            } else {
+                                return Err(mlua::Error::RuntimeError(format!(
+                                    "Failed to construct self type '{}' via FromReflect",
+                                    "Vec3"
+                                )));
+                            }
+                        } else {
+                            return Err(mlua::Error::RuntimeError(format!(
+                                "Type '{}' has no FromReflect implementation",
+                                "Vec3"
+                            )));
+                        }
+                    } else {
+                        return Err(mlua::Error::RuntimeError(format!(
+                            "Type '{}' not found in TypeRegistry",
+                            "Vec3"
+                        )));
+                    }
+                } else {
+                    return Err(mlua::Error::RuntimeError(format!(
+                        "{}::{} self argument expected table, got {:?}",
+                        "Vec3",
+                        "is_negative_bitmask",
+                        self_arg.type_name()
+                    )));
+                }
+            };
+            let result = self_instance.is_negative_bitmask();
+            bevy_lua_ecs::reflection::try_reflect_to_lua_value(lua, &result)
+        }
+        ("Vec3", "is_finite") => {
+            let app_type_registry = world.resource::<bevy::ecs::reflect::AppTypeRegistry>();
+            let type_registry = app_type_registry.read();
+            let self_instance: Vec3 = {
+                let self_arg = args.pop_front().ok_or_else(|| {
+                    mlua::Error::RuntimeError(format!(
+                        "{}::{} requires a self argument",
+                        "Vec3", "is_finite"
+                    ))
+                })?;
+                if let mlua::Value::Table(ref arg_table) = self_arg {
+                    if let Some(reg) = type_registry.get_with_short_type_path("Vec3") {
+                        if let Some(rfr) = reg.data::<bevy::reflect::ReflectFromReflect>() {
+                            let type_info = reg.type_info();
+                            let dynamic = bevy_lua_ecs::lua_table_to_dynamic(
+                                lua,
+                                arg_table,
+                                type_info,
+                                &app_type_registry,
+                            )
+                            .map_err(|e| {
+                                mlua::Error::RuntimeError(format!(
+                                    "Failed to build self '{}': {}",
+                                    "Vec3", e
+                                ))
+                            })?;
+                            if let Some(concrete) = rfr.from_reflect(&dynamic) {
+                                *concrete.downcast::<Vec3>().map_err(|_| {
+                                    mlua::Error::RuntimeError(format!(
+                                        "Failed to downcast self to {}",
+                                        "Vec3"
+                                    ))
+                                })?
+                            } else {
+                                return Err(mlua::Error::RuntimeError(format!(
+                                    "Failed to construct self type '{}' via FromReflect",
+                                    "Vec3"
+                                )));
+                            }
+                        } else {
+                            return Err(mlua::Error::RuntimeError(format!(
+                                "Type '{}' has no FromReflect implementation",
+                                "Vec3"
+                            )));
+                        }
+                    } else {
+                        return Err(mlua::Error::RuntimeError(format!(
+                            "Type '{}' not found in TypeRegistry",
+                            "Vec3"
+                        )));
+                    }
+                } else {
+                    return Err(mlua::Error::RuntimeError(format!(
+                        "{}::{} self argument expected table, got {:?}",
+                        "Vec3",
+                        "is_finite",
+                        self_arg.type_name()
+                    )));
+                }
+            };
+            let result = self_instance.is_finite();
+            bevy_lua_ecs::reflection::try_reflect_to_lua_value(lua, &result)
+        }
+        ("Vec3", "is_nan") => {
+            let app_type_registry = world.resource::<bevy::ecs::reflect::AppTypeRegistry>();
+            let type_registry = app_type_registry.read();
+            let self_instance: Vec3 = {
+                let self_arg = args.pop_front().ok_or_else(|| {
+                    mlua::Error::RuntimeError(format!(
+                        "{}::{} requires a self argument",
+                        "Vec3", "is_nan"
+                    ))
+                })?;
+                if let mlua::Value::Table(ref arg_table) = self_arg {
+                    if let Some(reg) = type_registry.get_with_short_type_path("Vec3") {
+                        if let Some(rfr) = reg.data::<bevy::reflect::ReflectFromReflect>() {
+                            let type_info = reg.type_info();
+                            let dynamic = bevy_lua_ecs::lua_table_to_dynamic(
+                                lua,
+                                arg_table,
+                                type_info,
+                                &app_type_registry,
+                            )
+                            .map_err(|e| {
+                                mlua::Error::RuntimeError(format!(
+                                    "Failed to build self '{}': {}",
+                                    "Vec3", e
+                                ))
+                            })?;
+                            if let Some(concrete) = rfr.from_reflect(&dynamic) {
+                                *concrete.downcast::<Vec3>().map_err(|_| {
+                                    mlua::Error::RuntimeError(format!(
+                                        "Failed to downcast self to {}",
+                                        "Vec3"
+                                    ))
+                                })?
+                            } else {
+                                return Err(mlua::Error::RuntimeError(format!(
+                                    "Failed to construct self type '{}' via FromReflect",
+                                    "Vec3"
+                                )));
+                            }
+                        } else {
+                            return Err(mlua::Error::RuntimeError(format!(
+                                "Type '{}' has no FromReflect implementation",
+                                "Vec3"
+                            )));
+                        }
+                    } else {
+                        return Err(mlua::Error::RuntimeError(format!(
+                            "Type '{}' not found in TypeRegistry",
+                            "Vec3"
+                        )));
+                    }
+                } else {
+                    return Err(mlua::Error::RuntimeError(format!(
+                        "{}::{} self argument expected table, got {:?}",
+                        "Vec3",
+                        "is_nan",
+                        self_arg.type_name()
+                    )));
+                }
+            };
+            let result = self_instance.is_nan();
+            bevy_lua_ecs::reflection::try_reflect_to_lua_value(lua, &result)
+        }
+        ("Vec3", "length") => {
+            let app_type_registry = world.resource::<bevy::ecs::reflect::AppTypeRegistry>();
+            let type_registry = app_type_registry.read();
+            let self_instance: Vec3 = {
+                let self_arg = args.pop_front().ok_or_else(|| {
+                    mlua::Error::RuntimeError(format!(
+                        "{}::{} requires a self argument",
+                        "Vec3", "length"
+                    ))
+                })?;
+                if let mlua::Value::Table(ref arg_table) = self_arg {
+                    if let Some(reg) = type_registry.get_with_short_type_path("Vec3") {
+                        if let Some(rfr) = reg.data::<bevy::reflect::ReflectFromReflect>() {
+                            let type_info = reg.type_info();
+                            let dynamic = bevy_lua_ecs::lua_table_to_dynamic(
+                                lua,
+                                arg_table,
+                                type_info,
+                                &app_type_registry,
+                            )
+                            .map_err(|e| {
+                                mlua::Error::RuntimeError(format!(
+                                    "Failed to build self '{}': {}",
+                                    "Vec3", e
+                                ))
+                            })?;
+                            if let Some(concrete) = rfr.from_reflect(&dynamic) {
+                                *concrete.downcast::<Vec3>().map_err(|_| {
+                                    mlua::Error::RuntimeError(format!(
+                                        "Failed to downcast self to {}",
+                                        "Vec3"
+                                    ))
+                                })?
+                            } else {
+                                return Err(mlua::Error::RuntimeError(format!(
+                                    "Failed to construct self type '{}' via FromReflect",
+                                    "Vec3"
+                                )));
+                            }
+                        } else {
+                            return Err(mlua::Error::RuntimeError(format!(
+                                "Type '{}' has no FromReflect implementation",
+                                "Vec3"
+                            )));
+                        }
+                    } else {
+                        return Err(mlua::Error::RuntimeError(format!(
+                            "Type '{}' not found in TypeRegistry",
+                            "Vec3"
+                        )));
+                    }
+                } else {
+                    return Err(mlua::Error::RuntimeError(format!(
+                        "{}::{} self argument expected table, got {:?}",
+                        "Vec3",
+                        "length",
+                        self_arg.type_name()
+                    )));
+                }
+            };
+            let result = self_instance.length();
+            bevy_lua_ecs::reflection::try_reflect_to_lua_value(lua, &result)
+        }
+        ("Vec3", "length_squared") => {
+            let app_type_registry = world.resource::<bevy::ecs::reflect::AppTypeRegistry>();
+            let type_registry = app_type_registry.read();
+            let self_instance: Vec3 = {
+                let self_arg = args.pop_front().ok_or_else(|| {
+                    mlua::Error::RuntimeError(format!(
+                        "{}::{} requires a self argument",
+                        "Vec3", "length_squared"
+                    ))
+                })?;
+                if let mlua::Value::Table(ref arg_table) = self_arg {
+                    if let Some(reg) = type_registry.get_with_short_type_path("Vec3") {
+                        if let Some(rfr) = reg.data::<bevy::reflect::ReflectFromReflect>() {
+                            let type_info = reg.type_info();
+                            let dynamic = bevy_lua_ecs::lua_table_to_dynamic(
+                                lua,
+                                arg_table,
+                                type_info,
+                                &app_type_registry,
+                            )
+                            .map_err(|e| {
+                                mlua::Error::RuntimeError(format!(
+                                    "Failed to build self '{}': {}",
+                                    "Vec3", e
+                                ))
+                            })?;
+                            if let Some(concrete) = rfr.from_reflect(&dynamic) {
+                                *concrete.downcast::<Vec3>().map_err(|_| {
+                                    mlua::Error::RuntimeError(format!(
+                                        "Failed to downcast self to {}",
+                                        "Vec3"
+                                    ))
+                                })?
+                            } else {
+                                return Err(mlua::Error::RuntimeError(format!(
+                                    "Failed to construct self type '{}' via FromReflect",
+                                    "Vec3"
+                                )));
+                            }
+                        } else {
+                            return Err(mlua::Error::RuntimeError(format!(
+                                "Type '{}' has no FromReflect implementation",
+                                "Vec3"
+                            )));
+                        }
+                    } else {
+                        return Err(mlua::Error::RuntimeError(format!(
+                            "Type '{}' not found in TypeRegistry",
+                            "Vec3"
+                        )));
+                    }
+                } else {
+                    return Err(mlua::Error::RuntimeError(format!(
+                        "{}::{} self argument expected table, got {:?}",
+                        "Vec3",
+                        "length_squared",
+                        self_arg.type_name()
+                    )));
+                }
+            };
+            let result = self_instance.length_squared();
+            bevy_lua_ecs::reflection::try_reflect_to_lua_value(lua, &result)
+        }
+        ("Vec3", "length_recip") => {
+            let app_type_registry = world.resource::<bevy::ecs::reflect::AppTypeRegistry>();
+            let type_registry = app_type_registry.read();
+            let self_instance: Vec3 = {
+                let self_arg = args.pop_front().ok_or_else(|| {
+                    mlua::Error::RuntimeError(format!(
+                        "{}::{} requires a self argument",
+                        "Vec3", "length_recip"
+                    ))
+                })?;
+                if let mlua::Value::Table(ref arg_table) = self_arg {
+                    if let Some(reg) = type_registry.get_with_short_type_path("Vec3") {
+                        if let Some(rfr) = reg.data::<bevy::reflect::ReflectFromReflect>() {
+                            let type_info = reg.type_info();
+                            let dynamic = bevy_lua_ecs::lua_table_to_dynamic(
+                                lua,
+                                arg_table,
+                                type_info,
+                                &app_type_registry,
+                            )
+                            .map_err(|e| {
+                                mlua::Error::RuntimeError(format!(
+                                    "Failed to build self '{}': {}",
+                                    "Vec3", e
+                                ))
+                            })?;
+                            if let Some(concrete) = rfr.from_reflect(&dynamic) {
+                                *concrete.downcast::<Vec3>().map_err(|_| {
+                                    mlua::Error::RuntimeError(format!(
+                                        "Failed to downcast self to {}",
+                                        "Vec3"
+                                    ))
+                                })?
+                            } else {
+                                return Err(mlua::Error::RuntimeError(format!(
+                                    "Failed to construct self type '{}' via FromReflect",
+                                    "Vec3"
+                                )));
+                            }
+                        } else {
+                            return Err(mlua::Error::RuntimeError(format!(
+                                "Type '{}' has no FromReflect implementation",
+                                "Vec3"
+                            )));
+                        }
+                    } else {
+                        return Err(mlua::Error::RuntimeError(format!(
+                            "Type '{}' not found in TypeRegistry",
+                            "Vec3"
+                        )));
+                    }
+                } else {
+                    return Err(mlua::Error::RuntimeError(format!(
+                        "{}::{} self argument expected table, got {:?}",
+                        "Vec3",
+                        "length_recip",
+                        self_arg.type_name()
+                    )));
+                }
+            };
+            let result = self_instance.length_recip();
+            bevy_lua_ecs::reflection::try_reflect_to_lua_value(lua, &result)
+        }
+        ("Vec3", "distance") => {
+            let app_type_registry = world.resource::<bevy::ecs::reflect::AppTypeRegistry>();
+            let type_registry = app_type_registry.read();
+            let self_instance: Vec3 = {
+                let self_arg = args.pop_front().ok_or_else(|| {
+                    mlua::Error::RuntimeError(format!(
+                        "{}::{} requires a self argument",
+                        "Vec3", "distance"
+                    ))
+                })?;
+                if let mlua::Value::Table(ref arg_table) = self_arg {
+                    if let Some(reg) = type_registry.get_with_short_type_path("Vec3") {
+                        if let Some(rfr) = reg.data::<bevy::reflect::ReflectFromReflect>() {
+                            let type_info = reg.type_info();
+                            let dynamic = bevy_lua_ecs::lua_table_to_dynamic(
+                                lua,
+                                arg_table,
+                                type_info,
+                                &app_type_registry,
+                            )
+                            .map_err(|e| {
+                                mlua::Error::RuntimeError(format!(
+                                    "Failed to build self '{}': {}",
+                                    "Vec3", e
+                                ))
+                            })?;
+                            if let Some(concrete) = rfr.from_reflect(&dynamic) {
+                                *concrete.downcast::<Vec3>().map_err(|_| {
+                                    mlua::Error::RuntimeError(format!(
+                                        "Failed to downcast self to {}",
+                                        "Vec3"
+                                    ))
+                                })?
+                            } else {
+                                return Err(mlua::Error::RuntimeError(format!(
+                                    "Failed to construct self type '{}' via FromReflect",
+                                    "Vec3"
+                                )));
+                            }
+                        } else {
+                            return Err(mlua::Error::RuntimeError(format!(
+                                "Type '{}' has no FromReflect implementation",
+                                "Vec3"
+                            )));
+                        }
+                    } else {
+                        return Err(mlua::Error::RuntimeError(format!(
+                            "Type '{}' not found in TypeRegistry",
+                            "Vec3"
+                        )));
+                    }
+                } else {
+                    return Err(mlua::Error::RuntimeError(format!(
+                        "{}::{} self argument expected table, got {:?}",
+                        "Vec3",
+                        "distance",
+                        self_arg.type_name()
+                    )));
+                }
+            };
+            let typed_param_0: Vec3 = {
+                if let Some(arg_val) = args.pop_front() {
+                    bevy_lua_ecs::reflection::lua_value_to_type::<Vec3>(
+                        lua,
+                        arg_val,
+                        &app_type_registry,
+                    )
+                    .map_err(|e| {
+                        mlua::Error::RuntimeError(format!(
+                            "Failed to convert parameter '{}': {}",
+                            "Vec3", e
+                        ))
+                    })?
+                } else {
+                    let reflect_default = type_registry
+                        .get_with_short_type_path("Vec3")
+                        .and_then(|reg| reg.data::<bevy::prelude::ReflectDefault>());
+                    if let Some(rd) = reflect_default {
+                        let param_instance = rd.default();
+                        *param_instance.downcast::<Vec3>().map_err(|_| {
+                            mlua::Error::RuntimeError(format!(
+                                "Failed to downcast default to '{}'",
+                                "Vec3"
+                            ))
+                        })?
+                    } else {
+                        return Err (mlua :: Error :: RuntimeError (format ! ("Cannot construct parameter type '{}' - no argument provided and no Default" , "Vec3"))) ;
+                    }
+                }
+            };
+            let result = self_instance.distance(typed_param_0);
+            bevy_lua_ecs::reflection::try_reflect_to_lua_value(lua, &result)
+        }
+        ("Vec3", "distance_squared") => {
+            let app_type_registry = world.resource::<bevy::ecs::reflect::AppTypeRegistry>();
+            let type_registry = app_type_registry.read();
+            let self_instance: Vec3 = {
+                let self_arg = args.pop_front().ok_or_else(|| {
+                    mlua::Error::RuntimeError(format!(
+                        "{}::{} requires a self argument",
+                        "Vec3", "distance_squared"
+                    ))
+                })?;
+                if let mlua::Value::Table(ref arg_table) = self_arg {
+                    if let Some(reg) = type_registry.get_with_short_type_path("Vec3") {
+                        if let Some(rfr) = reg.data::<bevy::reflect::ReflectFromReflect>() {
+                            let type_info = reg.type_info();
+                            let dynamic = bevy_lua_ecs::lua_table_to_dynamic(
+                                lua,
+                                arg_table,
+                                type_info,
+                                &app_type_registry,
+                            )
+                            .map_err(|e| {
+                                mlua::Error::RuntimeError(format!(
+                                    "Failed to build self '{}': {}",
+                                    "Vec3", e
+                                ))
+                            })?;
+                            if let Some(concrete) = rfr.from_reflect(&dynamic) {
+                                *concrete.downcast::<Vec3>().map_err(|_| {
+                                    mlua::Error::RuntimeError(format!(
+                                        "Failed to downcast self to {}",
+                                        "Vec3"
+                                    ))
+                                })?
+                            } else {
+                                return Err(mlua::Error::RuntimeError(format!(
+                                    "Failed to construct self type '{}' via FromReflect",
+                                    "Vec3"
+                                )));
+                            }
+                        } else {
+                            return Err(mlua::Error::RuntimeError(format!(
+                                "Type '{}' has no FromReflect implementation",
+                                "Vec3"
+                            )));
+                        }
+                    } else {
+                        return Err(mlua::Error::RuntimeError(format!(
+                            "Type '{}' not found in TypeRegistry",
+                            "Vec3"
+                        )));
+                    }
+                } else {
+                    return Err(mlua::Error::RuntimeError(format!(
+                        "{}::{} self argument expected table, got {:?}",
+                        "Vec3",
+                        "distance_squared",
+                        self_arg.type_name()
+                    )));
+                }
+            };
+            let typed_param_0: Vec3 = {
+                if let Some(arg_val) = args.pop_front() {
+                    bevy_lua_ecs::reflection::lua_value_to_type::<Vec3>(
+                        lua,
+                        arg_val,
+                        &app_type_registry,
+                    )
+                    .map_err(|e| {
+                        mlua::Error::RuntimeError(format!(
+                            "Failed to convert parameter '{}': {}",
+                            "Vec3", e
+                        ))
+                    })?
+                } else {
+                    let reflect_default = type_registry
+                        .get_with_short_type_path("Vec3")
+                        .and_then(|reg| reg.data::<bevy::prelude::ReflectDefault>());
+                    if let Some(rd) = reflect_default {
+                        let param_instance = rd.default();
+                        *param_instance.downcast::<Vec3>().map_err(|_| {
+                            mlua::Error::RuntimeError(format!(
+                                "Failed to downcast default to '{}'",
+                                "Vec3"
+                            ))
+                        })?
+                    } else {
+                        return Err (mlua :: Error :: RuntimeError (format ! ("Cannot construct parameter type '{}' - no argument provided and no Default" , "Vec3"))) ;
+                    }
+                }
+            };
+            let result = self_instance.distance_squared(typed_param_0);
+            bevy_lua_ecs::reflection::try_reflect_to_lua_value(lua, &result)
+        }
+        ("Vec3", "div_euclid") => {
+            let app_type_registry = world.resource::<bevy::ecs::reflect::AppTypeRegistry>();
+            let type_registry = app_type_registry.read();
+            let self_instance: Vec3 = {
+                let self_arg = args.pop_front().ok_or_else(|| {
+                    mlua::Error::RuntimeError(format!(
+                        "{}::{} requires a self argument",
+                        "Vec3", "div_euclid"
+                    ))
+                })?;
+                if let mlua::Value::Table(ref arg_table) = self_arg {
+                    if let Some(reg) = type_registry.get_with_short_type_path("Vec3") {
+                        if let Some(rfr) = reg.data::<bevy::reflect::ReflectFromReflect>() {
+                            let type_info = reg.type_info();
+                            let dynamic = bevy_lua_ecs::lua_table_to_dynamic(
+                                lua,
+                                arg_table,
+                                type_info,
+                                &app_type_registry,
+                            )
+                            .map_err(|e| {
+                                mlua::Error::RuntimeError(format!(
+                                    "Failed to build self '{}': {}",
+                                    "Vec3", e
+                                ))
+                            })?;
+                            if let Some(concrete) = rfr.from_reflect(&dynamic) {
+                                *concrete.downcast::<Vec3>().map_err(|_| {
+                                    mlua::Error::RuntimeError(format!(
+                                        "Failed to downcast self to {}",
+                                        "Vec3"
+                                    ))
+                                })?
+                            } else {
+                                return Err(mlua::Error::RuntimeError(format!(
+                                    "Failed to construct self type '{}' via FromReflect",
+                                    "Vec3"
+                                )));
+                            }
+                        } else {
+                            return Err(mlua::Error::RuntimeError(format!(
+                                "Type '{}' has no FromReflect implementation",
+                                "Vec3"
+                            )));
+                        }
+                    } else {
+                        return Err(mlua::Error::RuntimeError(format!(
+                            "Type '{}' not found in TypeRegistry",
+                            "Vec3"
+                        )));
+                    }
+                } else {
+                    return Err(mlua::Error::RuntimeError(format!(
+                        "{}::{} self argument expected table, got {:?}",
+                        "Vec3",
+                        "div_euclid",
+                        self_arg.type_name()
+                    )));
+                }
+            };
+            let typed_param_0: Vec3 = {
+                if let Some(arg_val) = args.pop_front() {
+                    bevy_lua_ecs::reflection::lua_value_to_type::<Vec3>(
+                        lua,
+                        arg_val,
+                        &app_type_registry,
+                    )
+                    .map_err(|e| {
+                        mlua::Error::RuntimeError(format!(
+                            "Failed to convert parameter '{}': {}",
+                            "Vec3", e
+                        ))
+                    })?
+                } else {
+                    let reflect_default = type_registry
+                        .get_with_short_type_path("Vec3")
+                        .and_then(|reg| reg.data::<bevy::prelude::ReflectDefault>());
+                    if let Some(rd) = reflect_default {
+                        let param_instance = rd.default();
+                        *param_instance.downcast::<Vec3>().map_err(|_| {
+                            mlua::Error::RuntimeError(format!(
+                                "Failed to downcast default to '{}'",
+                                "Vec3"
+                            ))
+                        })?
+                    } else {
+                        return Err (mlua :: Error :: RuntimeError (format ! ("Cannot construct parameter type '{}' - no argument provided and no Default" , "Vec3"))) ;
+                    }
+                }
+            };
+            let result = self_instance.div_euclid(typed_param_0);
+            bevy_lua_ecs::reflection::try_reflect_to_lua_value(lua, &result)
+        }
+        ("Vec3", "rem_euclid") => {
+            let app_type_registry = world.resource::<bevy::ecs::reflect::AppTypeRegistry>();
+            let type_registry = app_type_registry.read();
+            let self_instance: Vec3 = {
+                let self_arg = args.pop_front().ok_or_else(|| {
+                    mlua::Error::RuntimeError(format!(
+                        "{}::{} requires a self argument",
+                        "Vec3", "rem_euclid"
+                    ))
+                })?;
+                if let mlua::Value::Table(ref arg_table) = self_arg {
+                    if let Some(reg) = type_registry.get_with_short_type_path("Vec3") {
+                        if let Some(rfr) = reg.data::<bevy::reflect::ReflectFromReflect>() {
+                            let type_info = reg.type_info();
+                            let dynamic = bevy_lua_ecs::lua_table_to_dynamic(
+                                lua,
+                                arg_table,
+                                type_info,
+                                &app_type_registry,
+                            )
+                            .map_err(|e| {
+                                mlua::Error::RuntimeError(format!(
+                                    "Failed to build self '{}': {}",
+                                    "Vec3", e
+                                ))
+                            })?;
+                            if let Some(concrete) = rfr.from_reflect(&dynamic) {
+                                *concrete.downcast::<Vec3>().map_err(|_| {
+                                    mlua::Error::RuntimeError(format!(
+                                        "Failed to downcast self to {}",
+                                        "Vec3"
+                                    ))
+                                })?
+                            } else {
+                                return Err(mlua::Error::RuntimeError(format!(
+                                    "Failed to construct self type '{}' via FromReflect",
+                                    "Vec3"
+                                )));
+                            }
+                        } else {
+                            return Err(mlua::Error::RuntimeError(format!(
+                                "Type '{}' has no FromReflect implementation",
+                                "Vec3"
+                            )));
+                        }
+                    } else {
+                        return Err(mlua::Error::RuntimeError(format!(
+                            "Type '{}' not found in TypeRegistry",
+                            "Vec3"
+                        )));
+                    }
+                } else {
+                    return Err(mlua::Error::RuntimeError(format!(
+                        "{}::{} self argument expected table, got {:?}",
+                        "Vec3",
+                        "rem_euclid",
+                        self_arg.type_name()
+                    )));
+                }
+            };
+            let typed_param_0: Vec3 = {
+                if let Some(arg_val) = args.pop_front() {
+                    bevy_lua_ecs::reflection::lua_value_to_type::<Vec3>(
+                        lua,
+                        arg_val,
+                        &app_type_registry,
+                    )
+                    .map_err(|e| {
+                        mlua::Error::RuntimeError(format!(
+                            "Failed to convert parameter '{}': {}",
+                            "Vec3", e
+                        ))
+                    })?
+                } else {
+                    let reflect_default = type_registry
+                        .get_with_short_type_path("Vec3")
+                        .and_then(|reg| reg.data::<bevy::prelude::ReflectDefault>());
+                    if let Some(rd) = reflect_default {
+                        let param_instance = rd.default();
+                        *param_instance.downcast::<Vec3>().map_err(|_| {
+                            mlua::Error::RuntimeError(format!(
+                                "Failed to downcast default to '{}'",
+                                "Vec3"
+                            ))
+                        })?
+                    } else {
+                        return Err (mlua :: Error :: RuntimeError (format ! ("Cannot construct parameter type '{}' - no argument provided and no Default" , "Vec3"))) ;
+                    }
+                }
+            };
+            let result = self_instance.rem_euclid(typed_param_0);
+            bevy_lua_ecs::reflection::try_reflect_to_lua_value(lua, &result)
+        }
+        ("Vec3", "normalize") => {
+            let app_type_registry = world.resource::<bevy::ecs::reflect::AppTypeRegistry>();
+            let type_registry = app_type_registry.read();
+            let self_instance: Vec3 = {
+                let self_arg = args.pop_front().ok_or_else(|| {
+                    mlua::Error::RuntimeError(format!(
+                        "{}::{} requires a self argument",
+                        "Vec3", "normalize"
+                    ))
+                })?;
+                if let mlua::Value::Table(ref arg_table) = self_arg {
+                    if let Some(reg) = type_registry.get_with_short_type_path("Vec3") {
+                        if let Some(rfr) = reg.data::<bevy::reflect::ReflectFromReflect>() {
+                            let type_info = reg.type_info();
+                            let dynamic = bevy_lua_ecs::lua_table_to_dynamic(
+                                lua,
+                                arg_table,
+                                type_info,
+                                &app_type_registry,
+                            )
+                            .map_err(|e| {
+                                mlua::Error::RuntimeError(format!(
+                                    "Failed to build self '{}': {}",
+                                    "Vec3", e
+                                ))
+                            })?;
+                            if let Some(concrete) = rfr.from_reflect(&dynamic) {
+                                *concrete.downcast::<Vec3>().map_err(|_| {
+                                    mlua::Error::RuntimeError(format!(
+                                        "Failed to downcast self to {}",
+                                        "Vec3"
+                                    ))
+                                })?
+                            } else {
+                                return Err(mlua::Error::RuntimeError(format!(
+                                    "Failed to construct self type '{}' via FromReflect",
+                                    "Vec3"
+                                )));
+                            }
+                        } else {
+                            return Err(mlua::Error::RuntimeError(format!(
+                                "Type '{}' has no FromReflect implementation",
+                                "Vec3"
+                            )));
+                        }
+                    } else {
+                        return Err(mlua::Error::RuntimeError(format!(
+                            "Type '{}' not found in TypeRegistry",
+                            "Vec3"
+                        )));
+                    }
+                } else {
+                    return Err(mlua::Error::RuntimeError(format!(
+                        "{}::{} self argument expected table, got {:?}",
+                        "Vec3",
+                        "normalize",
+                        self_arg.type_name()
+                    )));
+                }
+            };
+            let result = self_instance.normalize();
+            bevy_lua_ecs::reflection::try_reflect_to_lua_value(lua, &result)
+        }
+        ("Vec3", "normalize_or") => {
+            let app_type_registry = world.resource::<bevy::ecs::reflect::AppTypeRegistry>();
+            let type_registry = app_type_registry.read();
+            let self_instance: Vec3 = {
+                let self_arg = args.pop_front().ok_or_else(|| {
+                    mlua::Error::RuntimeError(format!(
+                        "{}::{} requires a self argument",
+                        "Vec3", "normalize_or"
+                    ))
+                })?;
+                if let mlua::Value::Table(ref arg_table) = self_arg {
+                    if let Some(reg) = type_registry.get_with_short_type_path("Vec3") {
+                        if let Some(rfr) = reg.data::<bevy::reflect::ReflectFromReflect>() {
+                            let type_info = reg.type_info();
+                            let dynamic = bevy_lua_ecs::lua_table_to_dynamic(
+                                lua,
+                                arg_table,
+                                type_info,
+                                &app_type_registry,
+                            )
+                            .map_err(|e| {
+                                mlua::Error::RuntimeError(format!(
+                                    "Failed to build self '{}': {}",
+                                    "Vec3", e
+                                ))
+                            })?;
+                            if let Some(concrete) = rfr.from_reflect(&dynamic) {
+                                *concrete.downcast::<Vec3>().map_err(|_| {
+                                    mlua::Error::RuntimeError(format!(
+                                        "Failed to downcast self to {}",
+                                        "Vec3"
+                                    ))
+                                })?
+                            } else {
+                                return Err(mlua::Error::RuntimeError(format!(
+                                    "Failed to construct self type '{}' via FromReflect",
+                                    "Vec3"
+                                )));
+                            }
+                        } else {
+                            return Err(mlua::Error::RuntimeError(format!(
+                                "Type '{}' has no FromReflect implementation",
+                                "Vec3"
+                            )));
+                        }
+                    } else {
+                        return Err(mlua::Error::RuntimeError(format!(
+                            "Type '{}' not found in TypeRegistry",
+                            "Vec3"
+                        )));
+                    }
+                } else {
+                    return Err(mlua::Error::RuntimeError(format!(
+                        "{}::{} self argument expected table, got {:?}",
+                        "Vec3",
+                        "normalize_or",
+                        self_arg.type_name()
+                    )));
+                }
+            };
+            let typed_param_0: Vec3 = {
+                if let Some(arg_val) = args.pop_front() {
+                    bevy_lua_ecs::reflection::lua_value_to_type::<Vec3>(
+                        lua,
+                        arg_val,
+                        &app_type_registry,
+                    )
+                    .map_err(|e| {
+                        mlua::Error::RuntimeError(format!(
+                            "Failed to convert parameter '{}': {}",
+                            "Vec3", e
+                        ))
+                    })?
+                } else {
+                    let reflect_default = type_registry
+                        .get_with_short_type_path("Vec3")
+                        .and_then(|reg| reg.data::<bevy::prelude::ReflectDefault>());
+                    if let Some(rd) = reflect_default {
+                        let param_instance = rd.default();
+                        *param_instance.downcast::<Vec3>().map_err(|_| {
+                            mlua::Error::RuntimeError(format!(
+                                "Failed to downcast default to '{}'",
+                                "Vec3"
+                            ))
+                        })?
+                    } else {
+                        return Err (mlua :: Error :: RuntimeError (format ! ("Cannot construct parameter type '{}' - no argument provided and no Default" , "Vec3"))) ;
+                    }
+                }
+            };
+            let result = self_instance.normalize_or(typed_param_0);
+            bevy_lua_ecs::reflection::try_reflect_to_lua_value(lua, &result)
+        }
+        ("Vec3", "normalize_or_zero") => {
+            let app_type_registry = world.resource::<bevy::ecs::reflect::AppTypeRegistry>();
+            let type_registry = app_type_registry.read();
+            let self_instance: Vec3 = {
+                let self_arg = args.pop_front().ok_or_else(|| {
+                    mlua::Error::RuntimeError(format!(
+                        "{}::{} requires a self argument",
+                        "Vec3", "normalize_or_zero"
+                    ))
+                })?;
+                if let mlua::Value::Table(ref arg_table) = self_arg {
+                    if let Some(reg) = type_registry.get_with_short_type_path("Vec3") {
+                        if let Some(rfr) = reg.data::<bevy::reflect::ReflectFromReflect>() {
+                            let type_info = reg.type_info();
+                            let dynamic = bevy_lua_ecs::lua_table_to_dynamic(
+                                lua,
+                                arg_table,
+                                type_info,
+                                &app_type_registry,
+                            )
+                            .map_err(|e| {
+                                mlua::Error::RuntimeError(format!(
+                                    "Failed to build self '{}': {}",
+                                    "Vec3", e
+                                ))
+                            })?;
+                            if let Some(concrete) = rfr.from_reflect(&dynamic) {
+                                *concrete.downcast::<Vec3>().map_err(|_| {
+                                    mlua::Error::RuntimeError(format!(
+                                        "Failed to downcast self to {}",
+                                        "Vec3"
+                                    ))
+                                })?
+                            } else {
+                                return Err(mlua::Error::RuntimeError(format!(
+                                    "Failed to construct self type '{}' via FromReflect",
+                                    "Vec3"
+                                )));
+                            }
+                        } else {
+                            return Err(mlua::Error::RuntimeError(format!(
+                                "Type '{}' has no FromReflect implementation",
+                                "Vec3"
+                            )));
+                        }
+                    } else {
+                        return Err(mlua::Error::RuntimeError(format!(
+                            "Type '{}' not found in TypeRegistry",
+                            "Vec3"
+                        )));
+                    }
+                } else {
+                    return Err(mlua::Error::RuntimeError(format!(
+                        "{}::{} self argument expected table, got {:?}",
+                        "Vec3",
+                        "normalize_or_zero",
+                        self_arg.type_name()
+                    )));
+                }
+            };
+            let result = self_instance.normalize_or_zero();
+            bevy_lua_ecs::reflection::try_reflect_to_lua_value(lua, &result)
+        }
+        ("Vec3", "is_normalized") => {
+            let app_type_registry = world.resource::<bevy::ecs::reflect::AppTypeRegistry>();
+            let type_registry = app_type_registry.read();
+            let self_instance: Vec3 = {
+                let self_arg = args.pop_front().ok_or_else(|| {
+                    mlua::Error::RuntimeError(format!(
+                        "{}::{} requires a self argument",
+                        "Vec3", "is_normalized"
+                    ))
+                })?;
+                if let mlua::Value::Table(ref arg_table) = self_arg {
+                    if let Some(reg) = type_registry.get_with_short_type_path("Vec3") {
+                        if let Some(rfr) = reg.data::<bevy::reflect::ReflectFromReflect>() {
+                            let type_info = reg.type_info();
+                            let dynamic = bevy_lua_ecs::lua_table_to_dynamic(
+                                lua,
+                                arg_table,
+                                type_info,
+                                &app_type_registry,
+                            )
+                            .map_err(|e| {
+                                mlua::Error::RuntimeError(format!(
+                                    "Failed to build self '{}': {}",
+                                    "Vec3", e
+                                ))
+                            })?;
+                            if let Some(concrete) = rfr.from_reflect(&dynamic) {
+                                *concrete.downcast::<Vec3>().map_err(|_| {
+                                    mlua::Error::RuntimeError(format!(
+                                        "Failed to downcast self to {}",
+                                        "Vec3"
+                                    ))
+                                })?
+                            } else {
+                                return Err(mlua::Error::RuntimeError(format!(
+                                    "Failed to construct self type '{}' via FromReflect",
+                                    "Vec3"
+                                )));
+                            }
+                        } else {
+                            return Err(mlua::Error::RuntimeError(format!(
+                                "Type '{}' has no FromReflect implementation",
+                                "Vec3"
+                            )));
+                        }
+                    } else {
+                        return Err(mlua::Error::RuntimeError(format!(
+                            "Type '{}' not found in TypeRegistry",
+                            "Vec3"
+                        )));
+                    }
+                } else {
+                    return Err(mlua::Error::RuntimeError(format!(
+                        "{}::{} self argument expected table, got {:?}",
+                        "Vec3",
+                        "is_normalized",
+                        self_arg.type_name()
+                    )));
+                }
+            };
+            let result = self_instance.is_normalized();
+            bevy_lua_ecs::reflection::try_reflect_to_lua_value(lua, &result)
+        }
+        ("Vec3", "project_onto") => {
+            let app_type_registry = world.resource::<bevy::ecs::reflect::AppTypeRegistry>();
+            let type_registry = app_type_registry.read();
+            let self_instance: Vec3 = {
+                let self_arg = args.pop_front().ok_or_else(|| {
+                    mlua::Error::RuntimeError(format!(
+                        "{}::{} requires a self argument",
+                        "Vec3", "project_onto"
+                    ))
+                })?;
+                if let mlua::Value::Table(ref arg_table) = self_arg {
+                    if let Some(reg) = type_registry.get_with_short_type_path("Vec3") {
+                        if let Some(rfr) = reg.data::<bevy::reflect::ReflectFromReflect>() {
+                            let type_info = reg.type_info();
+                            let dynamic = bevy_lua_ecs::lua_table_to_dynamic(
+                                lua,
+                                arg_table,
+                                type_info,
+                                &app_type_registry,
+                            )
+                            .map_err(|e| {
+                                mlua::Error::RuntimeError(format!(
+                                    "Failed to build self '{}': {}",
+                                    "Vec3", e
+                                ))
+                            })?;
+                            if let Some(concrete) = rfr.from_reflect(&dynamic) {
+                                *concrete.downcast::<Vec3>().map_err(|_| {
+                                    mlua::Error::RuntimeError(format!(
+                                        "Failed to downcast self to {}",
+                                        "Vec3"
+                                    ))
+                                })?
+                            } else {
+                                return Err(mlua::Error::RuntimeError(format!(
+                                    "Failed to construct self type '{}' via FromReflect",
+                                    "Vec3"
+                                )));
+                            }
+                        } else {
+                            return Err(mlua::Error::RuntimeError(format!(
+                                "Type '{}' has no FromReflect implementation",
+                                "Vec3"
+                            )));
+                        }
+                    } else {
+                        return Err(mlua::Error::RuntimeError(format!(
+                            "Type '{}' not found in TypeRegistry",
+                            "Vec3"
+                        )));
+                    }
+                } else {
+                    return Err(mlua::Error::RuntimeError(format!(
+                        "{}::{} self argument expected table, got {:?}",
+                        "Vec3",
+                        "project_onto",
+                        self_arg.type_name()
+                    )));
+                }
+            };
+            let typed_param_0: Vec3 = {
+                if let Some(arg_val) = args.pop_front() {
+                    bevy_lua_ecs::reflection::lua_value_to_type::<Vec3>(
+                        lua,
+                        arg_val,
+                        &app_type_registry,
+                    )
+                    .map_err(|e| {
+                        mlua::Error::RuntimeError(format!(
+                            "Failed to convert parameter '{}': {}",
+                            "Vec3", e
+                        ))
+                    })?
+                } else {
+                    let reflect_default = type_registry
+                        .get_with_short_type_path("Vec3")
+                        .and_then(|reg| reg.data::<bevy::prelude::ReflectDefault>());
+                    if let Some(rd) = reflect_default {
+                        let param_instance = rd.default();
+                        *param_instance.downcast::<Vec3>().map_err(|_| {
+                            mlua::Error::RuntimeError(format!(
+                                "Failed to downcast default to '{}'",
+                                "Vec3"
+                            ))
+                        })?
+                    } else {
+                        return Err (mlua :: Error :: RuntimeError (format ! ("Cannot construct parameter type '{}' - no argument provided and no Default" , "Vec3"))) ;
+                    }
+                }
+            };
+            let result = self_instance.project_onto(typed_param_0);
+            bevy_lua_ecs::reflection::try_reflect_to_lua_value(lua, &result)
+        }
+        ("Vec3", "reject_from") => {
+            let app_type_registry = world.resource::<bevy::ecs::reflect::AppTypeRegistry>();
+            let type_registry = app_type_registry.read();
+            let self_instance: Vec3 = {
+                let self_arg = args.pop_front().ok_or_else(|| {
+                    mlua::Error::RuntimeError(format!(
+                        "{}::{} requires a self argument",
+                        "Vec3", "reject_from"
+                    ))
+                })?;
+                if let mlua::Value::Table(ref arg_table) = self_arg {
+                    if let Some(reg) = type_registry.get_with_short_type_path("Vec3") {
+                        if let Some(rfr) = reg.data::<bevy::reflect::ReflectFromReflect>() {
+                            let type_info = reg.type_info();
+                            let dynamic = bevy_lua_ecs::lua_table_to_dynamic(
+                                lua,
+                                arg_table,
+                                type_info,
+                                &app_type_registry,
+                            )
+                            .map_err(|e| {
+                                mlua::Error::RuntimeError(format!(
+                                    "Failed to build self '{}': {}",
+                                    "Vec3", e
+                                ))
+                            })?;
+                            if let Some(concrete) = rfr.from_reflect(&dynamic) {
+                                *concrete.downcast::<Vec3>().map_err(|_| {
+                                    mlua::Error::RuntimeError(format!(
+                                        "Failed to downcast self to {}",
+                                        "Vec3"
+                                    ))
+                                })?
+                            } else {
+                                return Err(mlua::Error::RuntimeError(format!(
+                                    "Failed to construct self type '{}' via FromReflect",
+                                    "Vec3"
+                                )));
+                            }
+                        } else {
+                            return Err(mlua::Error::RuntimeError(format!(
+                                "Type '{}' has no FromReflect implementation",
+                                "Vec3"
+                            )));
+                        }
+                    } else {
+                        return Err(mlua::Error::RuntimeError(format!(
+                            "Type '{}' not found in TypeRegistry",
+                            "Vec3"
+                        )));
+                    }
+                } else {
+                    return Err(mlua::Error::RuntimeError(format!(
+                        "{}::{} self argument expected table, got {:?}",
+                        "Vec3",
+                        "reject_from",
+                        self_arg.type_name()
+                    )));
+                }
+            };
+            let typed_param_0: Vec3 = {
+                if let Some(arg_val) = args.pop_front() {
+                    bevy_lua_ecs::reflection::lua_value_to_type::<Vec3>(
+                        lua,
+                        arg_val,
+                        &app_type_registry,
+                    )
+                    .map_err(|e| {
+                        mlua::Error::RuntimeError(format!(
+                            "Failed to convert parameter '{}': {}",
+                            "Vec3", e
+                        ))
+                    })?
+                } else {
+                    let reflect_default = type_registry
+                        .get_with_short_type_path("Vec3")
+                        .and_then(|reg| reg.data::<bevy::prelude::ReflectDefault>());
+                    if let Some(rd) = reflect_default {
+                        let param_instance = rd.default();
+                        *param_instance.downcast::<Vec3>().map_err(|_| {
+                            mlua::Error::RuntimeError(format!(
+                                "Failed to downcast default to '{}'",
+                                "Vec3"
+                            ))
+                        })?
+                    } else {
+                        return Err (mlua :: Error :: RuntimeError (format ! ("Cannot construct parameter type '{}' - no argument provided and no Default" , "Vec3"))) ;
+                    }
+                }
+            };
+            let result = self_instance.reject_from(typed_param_0);
+            bevy_lua_ecs::reflection::try_reflect_to_lua_value(lua, &result)
+        }
+        ("Vec3", "project_onto_normalized") => {
+            let app_type_registry = world.resource::<bevy::ecs::reflect::AppTypeRegistry>();
+            let type_registry = app_type_registry.read();
+            let self_instance: Vec3 = {
+                let self_arg = args.pop_front().ok_or_else(|| {
+                    mlua::Error::RuntimeError(format!(
+                        "{}::{} requires a self argument",
+                        "Vec3", "project_onto_normalized"
+                    ))
+                })?;
+                if let mlua::Value::Table(ref arg_table) = self_arg {
+                    if let Some(reg) = type_registry.get_with_short_type_path("Vec3") {
+                        if let Some(rfr) = reg.data::<bevy::reflect::ReflectFromReflect>() {
+                            let type_info = reg.type_info();
+                            let dynamic = bevy_lua_ecs::lua_table_to_dynamic(
+                                lua,
+                                arg_table,
+                                type_info,
+                                &app_type_registry,
+                            )
+                            .map_err(|e| {
+                                mlua::Error::RuntimeError(format!(
+                                    "Failed to build self '{}': {}",
+                                    "Vec3", e
+                                ))
+                            })?;
+                            if let Some(concrete) = rfr.from_reflect(&dynamic) {
+                                *concrete.downcast::<Vec3>().map_err(|_| {
+                                    mlua::Error::RuntimeError(format!(
+                                        "Failed to downcast self to {}",
+                                        "Vec3"
+                                    ))
+                                })?
+                            } else {
+                                return Err(mlua::Error::RuntimeError(format!(
+                                    "Failed to construct self type '{}' via FromReflect",
+                                    "Vec3"
+                                )));
+                            }
+                        } else {
+                            return Err(mlua::Error::RuntimeError(format!(
+                                "Type '{}' has no FromReflect implementation",
+                                "Vec3"
+                            )));
+                        }
+                    } else {
+                        return Err(mlua::Error::RuntimeError(format!(
+                            "Type '{}' not found in TypeRegistry",
+                            "Vec3"
+                        )));
+                    }
+                } else {
+                    return Err(mlua::Error::RuntimeError(format!(
+                        "{}::{} self argument expected table, got {:?}",
+                        "Vec3",
+                        "project_onto_normalized",
+                        self_arg.type_name()
+                    )));
+                }
+            };
+            let typed_param_0: Vec3 = {
+                if let Some(arg_val) = args.pop_front() {
+                    bevy_lua_ecs::reflection::lua_value_to_type::<Vec3>(
+                        lua,
+                        arg_val,
+                        &app_type_registry,
+                    )
+                    .map_err(|e| {
+                        mlua::Error::RuntimeError(format!(
+                            "Failed to convert parameter '{}': {}",
+                            "Vec3", e
+                        ))
+                    })?
+                } else {
+                    let reflect_default = type_registry
+                        .get_with_short_type_path("Vec3")
+                        .and_then(|reg| reg.data::<bevy::prelude::ReflectDefault>());
+                    if let Some(rd) = reflect_default {
+                        let param_instance = rd.default();
+                        *param_instance.downcast::<Vec3>().map_err(|_| {
+                            mlua::Error::RuntimeError(format!(
+                                "Failed to downcast default to '{}'",
+                                "Vec3"
+                            ))
+                        })?
+                    } else {
+                        return Err (mlua :: Error :: RuntimeError (format ! ("Cannot construct parameter type '{}' - no argument provided and no Default" , "Vec3"))) ;
+                    }
+                }
+            };
+            let result = self_instance.project_onto_normalized(typed_param_0);
+            bevy_lua_ecs::reflection::try_reflect_to_lua_value(lua, &result)
+        }
+        ("Vec3", "reject_from_normalized") => {
+            let app_type_registry = world.resource::<bevy::ecs::reflect::AppTypeRegistry>();
+            let type_registry = app_type_registry.read();
+            let self_instance: Vec3 = {
+                let self_arg = args.pop_front().ok_or_else(|| {
+                    mlua::Error::RuntimeError(format!(
+                        "{}::{} requires a self argument",
+                        "Vec3", "reject_from_normalized"
+                    ))
+                })?;
+                if let mlua::Value::Table(ref arg_table) = self_arg {
+                    if let Some(reg) = type_registry.get_with_short_type_path("Vec3") {
+                        if let Some(rfr) = reg.data::<bevy::reflect::ReflectFromReflect>() {
+                            let type_info = reg.type_info();
+                            let dynamic = bevy_lua_ecs::lua_table_to_dynamic(
+                                lua,
+                                arg_table,
+                                type_info,
+                                &app_type_registry,
+                            )
+                            .map_err(|e| {
+                                mlua::Error::RuntimeError(format!(
+                                    "Failed to build self '{}': {}",
+                                    "Vec3", e
+                                ))
+                            })?;
+                            if let Some(concrete) = rfr.from_reflect(&dynamic) {
+                                *concrete.downcast::<Vec3>().map_err(|_| {
+                                    mlua::Error::RuntimeError(format!(
+                                        "Failed to downcast self to {}",
+                                        "Vec3"
+                                    ))
+                                })?
+                            } else {
+                                return Err(mlua::Error::RuntimeError(format!(
+                                    "Failed to construct self type '{}' via FromReflect",
+                                    "Vec3"
+                                )));
+                            }
+                        } else {
+                            return Err(mlua::Error::RuntimeError(format!(
+                                "Type '{}' has no FromReflect implementation",
+                                "Vec3"
+                            )));
+                        }
+                    } else {
+                        return Err(mlua::Error::RuntimeError(format!(
+                            "Type '{}' not found in TypeRegistry",
+                            "Vec3"
+                        )));
+                    }
+                } else {
+                    return Err(mlua::Error::RuntimeError(format!(
+                        "{}::{} self argument expected table, got {:?}",
+                        "Vec3",
+                        "reject_from_normalized",
+                        self_arg.type_name()
+                    )));
+                }
+            };
+            let typed_param_0: Vec3 = {
+                if let Some(arg_val) = args.pop_front() {
+                    bevy_lua_ecs::reflection::lua_value_to_type::<Vec3>(
+                        lua,
+                        arg_val,
+                        &app_type_registry,
+                    )
+                    .map_err(|e| {
+                        mlua::Error::RuntimeError(format!(
+                            "Failed to convert parameter '{}': {}",
+                            "Vec3", e
+                        ))
+                    })?
+                } else {
+                    let reflect_default = type_registry
+                        .get_with_short_type_path("Vec3")
+                        .and_then(|reg| reg.data::<bevy::prelude::ReflectDefault>());
+                    if let Some(rd) = reflect_default {
+                        let param_instance = rd.default();
+                        *param_instance.downcast::<Vec3>().map_err(|_| {
+                            mlua::Error::RuntimeError(format!(
+                                "Failed to downcast default to '{}'",
+                                "Vec3"
+                            ))
+                        })?
+                    } else {
+                        return Err (mlua :: Error :: RuntimeError (format ! ("Cannot construct parameter type '{}' - no argument provided and no Default" , "Vec3"))) ;
+                    }
+                }
+            };
+            let result = self_instance.reject_from_normalized(typed_param_0);
+            bevy_lua_ecs::reflection::try_reflect_to_lua_value(lua, &result)
+        }
+        ("Vec3", "round") => {
+            let app_type_registry = world.resource::<bevy::ecs::reflect::AppTypeRegistry>();
+            let type_registry = app_type_registry.read();
+            let self_instance: Vec3 = {
+                let self_arg = args.pop_front().ok_or_else(|| {
+                    mlua::Error::RuntimeError(format!(
+                        "{}::{} requires a self argument",
+                        "Vec3", "round"
+                    ))
+                })?;
+                if let mlua::Value::Table(ref arg_table) = self_arg {
+                    if let Some(reg) = type_registry.get_with_short_type_path("Vec3") {
+                        if let Some(rfr) = reg.data::<bevy::reflect::ReflectFromReflect>() {
+                            let type_info = reg.type_info();
+                            let dynamic = bevy_lua_ecs::lua_table_to_dynamic(
+                                lua,
+                                arg_table,
+                                type_info,
+                                &app_type_registry,
+                            )
+                            .map_err(|e| {
+                                mlua::Error::RuntimeError(format!(
+                                    "Failed to build self '{}': {}",
+                                    "Vec3", e
+                                ))
+                            })?;
+                            if let Some(concrete) = rfr.from_reflect(&dynamic) {
+                                *concrete.downcast::<Vec3>().map_err(|_| {
+                                    mlua::Error::RuntimeError(format!(
+                                        "Failed to downcast self to {}",
+                                        "Vec3"
+                                    ))
+                                })?
+                            } else {
+                                return Err(mlua::Error::RuntimeError(format!(
+                                    "Failed to construct self type '{}' via FromReflect",
+                                    "Vec3"
+                                )));
+                            }
+                        } else {
+                            return Err(mlua::Error::RuntimeError(format!(
+                                "Type '{}' has no FromReflect implementation",
+                                "Vec3"
+                            )));
+                        }
+                    } else {
+                        return Err(mlua::Error::RuntimeError(format!(
+                            "Type '{}' not found in TypeRegistry",
+                            "Vec3"
+                        )));
+                    }
+                } else {
+                    return Err(mlua::Error::RuntimeError(format!(
+                        "{}::{} self argument expected table, got {:?}",
+                        "Vec3",
+                        "round",
+                        self_arg.type_name()
+                    )));
+                }
+            };
+            let result = self_instance.round();
+            bevy_lua_ecs::reflection::try_reflect_to_lua_value(lua, &result)
+        }
+        ("Vec3", "floor") => {
+            let app_type_registry = world.resource::<bevy::ecs::reflect::AppTypeRegistry>();
+            let type_registry = app_type_registry.read();
+            let self_instance: Vec3 = {
+                let self_arg = args.pop_front().ok_or_else(|| {
+                    mlua::Error::RuntimeError(format!(
+                        "{}::{} requires a self argument",
+                        "Vec3", "floor"
+                    ))
+                })?;
+                if let mlua::Value::Table(ref arg_table) = self_arg {
+                    if let Some(reg) = type_registry.get_with_short_type_path("Vec3") {
+                        if let Some(rfr) = reg.data::<bevy::reflect::ReflectFromReflect>() {
+                            let type_info = reg.type_info();
+                            let dynamic = bevy_lua_ecs::lua_table_to_dynamic(
+                                lua,
+                                arg_table,
+                                type_info,
+                                &app_type_registry,
+                            )
+                            .map_err(|e| {
+                                mlua::Error::RuntimeError(format!(
+                                    "Failed to build self '{}': {}",
+                                    "Vec3", e
+                                ))
+                            })?;
+                            if let Some(concrete) = rfr.from_reflect(&dynamic) {
+                                *concrete.downcast::<Vec3>().map_err(|_| {
+                                    mlua::Error::RuntimeError(format!(
+                                        "Failed to downcast self to {}",
+                                        "Vec3"
+                                    ))
+                                })?
+                            } else {
+                                return Err(mlua::Error::RuntimeError(format!(
+                                    "Failed to construct self type '{}' via FromReflect",
+                                    "Vec3"
+                                )));
+                            }
+                        } else {
+                            return Err(mlua::Error::RuntimeError(format!(
+                                "Type '{}' has no FromReflect implementation",
+                                "Vec3"
+                            )));
+                        }
+                    } else {
+                        return Err(mlua::Error::RuntimeError(format!(
+                            "Type '{}' not found in TypeRegistry",
+                            "Vec3"
+                        )));
+                    }
+                } else {
+                    return Err(mlua::Error::RuntimeError(format!(
+                        "{}::{} self argument expected table, got {:?}",
+                        "Vec3",
+                        "floor",
+                        self_arg.type_name()
+                    )));
+                }
+            };
+            let result = self_instance.floor();
+            bevy_lua_ecs::reflection::try_reflect_to_lua_value(lua, &result)
+        }
+        ("Vec3", "ceil") => {
+            let app_type_registry = world.resource::<bevy::ecs::reflect::AppTypeRegistry>();
+            let type_registry = app_type_registry.read();
+            let self_instance: Vec3 = {
+                let self_arg = args.pop_front().ok_or_else(|| {
+                    mlua::Error::RuntimeError(format!(
+                        "{}::{} requires a self argument",
+                        "Vec3", "ceil"
+                    ))
+                })?;
+                if let mlua::Value::Table(ref arg_table) = self_arg {
+                    if let Some(reg) = type_registry.get_with_short_type_path("Vec3") {
+                        if let Some(rfr) = reg.data::<bevy::reflect::ReflectFromReflect>() {
+                            let type_info = reg.type_info();
+                            let dynamic = bevy_lua_ecs::lua_table_to_dynamic(
+                                lua,
+                                arg_table,
+                                type_info,
+                                &app_type_registry,
+                            )
+                            .map_err(|e| {
+                                mlua::Error::RuntimeError(format!(
+                                    "Failed to build self '{}': {}",
+                                    "Vec3", e
+                                ))
+                            })?;
+                            if let Some(concrete) = rfr.from_reflect(&dynamic) {
+                                *concrete.downcast::<Vec3>().map_err(|_| {
+                                    mlua::Error::RuntimeError(format!(
+                                        "Failed to downcast self to {}",
+                                        "Vec3"
+                                    ))
+                                })?
+                            } else {
+                                return Err(mlua::Error::RuntimeError(format!(
+                                    "Failed to construct self type '{}' via FromReflect",
+                                    "Vec3"
+                                )));
+                            }
+                        } else {
+                            return Err(mlua::Error::RuntimeError(format!(
+                                "Type '{}' has no FromReflect implementation",
+                                "Vec3"
+                            )));
+                        }
+                    } else {
+                        return Err(mlua::Error::RuntimeError(format!(
+                            "Type '{}' not found in TypeRegistry",
+                            "Vec3"
+                        )));
+                    }
+                } else {
+                    return Err(mlua::Error::RuntimeError(format!(
+                        "{}::{} self argument expected table, got {:?}",
+                        "Vec3",
+                        "ceil",
+                        self_arg.type_name()
+                    )));
+                }
+            };
+            let result = self_instance.ceil();
+            bevy_lua_ecs::reflection::try_reflect_to_lua_value(lua, &result)
+        }
+        ("Vec3", "trunc") => {
+            let app_type_registry = world.resource::<bevy::ecs::reflect::AppTypeRegistry>();
+            let type_registry = app_type_registry.read();
+            let self_instance: Vec3 = {
+                let self_arg = args.pop_front().ok_or_else(|| {
+                    mlua::Error::RuntimeError(format!(
+                        "{}::{} requires a self argument",
+                        "Vec3", "trunc"
+                    ))
+                })?;
+                if let mlua::Value::Table(ref arg_table) = self_arg {
+                    if let Some(reg) = type_registry.get_with_short_type_path("Vec3") {
+                        if let Some(rfr) = reg.data::<bevy::reflect::ReflectFromReflect>() {
+                            let type_info = reg.type_info();
+                            let dynamic = bevy_lua_ecs::lua_table_to_dynamic(
+                                lua,
+                                arg_table,
+                                type_info,
+                                &app_type_registry,
+                            )
+                            .map_err(|e| {
+                                mlua::Error::RuntimeError(format!(
+                                    "Failed to build self '{}': {}",
+                                    "Vec3", e
+                                ))
+                            })?;
+                            if let Some(concrete) = rfr.from_reflect(&dynamic) {
+                                *concrete.downcast::<Vec3>().map_err(|_| {
+                                    mlua::Error::RuntimeError(format!(
+                                        "Failed to downcast self to {}",
+                                        "Vec3"
+                                    ))
+                                })?
+                            } else {
+                                return Err(mlua::Error::RuntimeError(format!(
+                                    "Failed to construct self type '{}' via FromReflect",
+                                    "Vec3"
+                                )));
+                            }
+                        } else {
+                            return Err(mlua::Error::RuntimeError(format!(
+                                "Type '{}' has no FromReflect implementation",
+                                "Vec3"
+                            )));
+                        }
+                    } else {
+                        return Err(mlua::Error::RuntimeError(format!(
+                            "Type '{}' not found in TypeRegistry",
+                            "Vec3"
+                        )));
+                    }
+                } else {
+                    return Err(mlua::Error::RuntimeError(format!(
+                        "{}::{} self argument expected table, got {:?}",
+                        "Vec3",
+                        "trunc",
+                        self_arg.type_name()
+                    )));
+                }
+            };
+            let result = self_instance.trunc();
+            bevy_lua_ecs::reflection::try_reflect_to_lua_value(lua, &result)
+        }
+        ("Vec3", "fract") => {
+            let app_type_registry = world.resource::<bevy::ecs::reflect::AppTypeRegistry>();
+            let type_registry = app_type_registry.read();
+            let self_instance: Vec3 = {
+                let self_arg = args.pop_front().ok_or_else(|| {
+                    mlua::Error::RuntimeError(format!(
+                        "{}::{} requires a self argument",
+                        "Vec3", "fract"
+                    ))
+                })?;
+                if let mlua::Value::Table(ref arg_table) = self_arg {
+                    if let Some(reg) = type_registry.get_with_short_type_path("Vec3") {
+                        if let Some(rfr) = reg.data::<bevy::reflect::ReflectFromReflect>() {
+                            let type_info = reg.type_info();
+                            let dynamic = bevy_lua_ecs::lua_table_to_dynamic(
+                                lua,
+                                arg_table,
+                                type_info,
+                                &app_type_registry,
+                            )
+                            .map_err(|e| {
+                                mlua::Error::RuntimeError(format!(
+                                    "Failed to build self '{}': {}",
+                                    "Vec3", e
+                                ))
+                            })?;
+                            if let Some(concrete) = rfr.from_reflect(&dynamic) {
+                                *concrete.downcast::<Vec3>().map_err(|_| {
+                                    mlua::Error::RuntimeError(format!(
+                                        "Failed to downcast self to {}",
+                                        "Vec3"
+                                    ))
+                                })?
+                            } else {
+                                return Err(mlua::Error::RuntimeError(format!(
+                                    "Failed to construct self type '{}' via FromReflect",
+                                    "Vec3"
+                                )));
+                            }
+                        } else {
+                            return Err(mlua::Error::RuntimeError(format!(
+                                "Type '{}' has no FromReflect implementation",
+                                "Vec3"
+                            )));
+                        }
+                    } else {
+                        return Err(mlua::Error::RuntimeError(format!(
+                            "Type '{}' not found in TypeRegistry",
+                            "Vec3"
+                        )));
+                    }
+                } else {
+                    return Err(mlua::Error::RuntimeError(format!(
+                        "{}::{} self argument expected table, got {:?}",
+                        "Vec3",
+                        "fract",
+                        self_arg.type_name()
+                    )));
+                }
+            };
+            let result = self_instance.fract();
+            bevy_lua_ecs::reflection::try_reflect_to_lua_value(lua, &result)
+        }
+        ("Vec3", "fract_gl") => {
+            let app_type_registry = world.resource::<bevy::ecs::reflect::AppTypeRegistry>();
+            let type_registry = app_type_registry.read();
+            let self_instance: Vec3 = {
+                let self_arg = args.pop_front().ok_or_else(|| {
+                    mlua::Error::RuntimeError(format!(
+                        "{}::{} requires a self argument",
+                        "Vec3", "fract_gl"
+                    ))
+                })?;
+                if let mlua::Value::Table(ref arg_table) = self_arg {
+                    if let Some(reg) = type_registry.get_with_short_type_path("Vec3") {
+                        if let Some(rfr) = reg.data::<bevy::reflect::ReflectFromReflect>() {
+                            let type_info = reg.type_info();
+                            let dynamic = bevy_lua_ecs::lua_table_to_dynamic(
+                                lua,
+                                arg_table,
+                                type_info,
+                                &app_type_registry,
+                            )
+                            .map_err(|e| {
+                                mlua::Error::RuntimeError(format!(
+                                    "Failed to build self '{}': {}",
+                                    "Vec3", e
+                                ))
+                            })?;
+                            if let Some(concrete) = rfr.from_reflect(&dynamic) {
+                                *concrete.downcast::<Vec3>().map_err(|_| {
+                                    mlua::Error::RuntimeError(format!(
+                                        "Failed to downcast self to {}",
+                                        "Vec3"
+                                    ))
+                                })?
+                            } else {
+                                return Err(mlua::Error::RuntimeError(format!(
+                                    "Failed to construct self type '{}' via FromReflect",
+                                    "Vec3"
+                                )));
+                            }
+                        } else {
+                            return Err(mlua::Error::RuntimeError(format!(
+                                "Type '{}' has no FromReflect implementation",
+                                "Vec3"
+                            )));
+                        }
+                    } else {
+                        return Err(mlua::Error::RuntimeError(format!(
+                            "Type '{}' not found in TypeRegistry",
+                            "Vec3"
+                        )));
+                    }
+                } else {
+                    return Err(mlua::Error::RuntimeError(format!(
+                        "{}::{} self argument expected table, got {:?}",
+                        "Vec3",
+                        "fract_gl",
+                        self_arg.type_name()
+                    )));
+                }
+            };
+            let result = self_instance.fract_gl();
+            bevy_lua_ecs::reflection::try_reflect_to_lua_value(lua, &result)
+        }
+        ("Vec3", "exp") => {
+            let app_type_registry = world.resource::<bevy::ecs::reflect::AppTypeRegistry>();
+            let type_registry = app_type_registry.read();
+            let self_instance: Vec3 = {
+                let self_arg = args.pop_front().ok_or_else(|| {
+                    mlua::Error::RuntimeError(format!(
+                        "{}::{} requires a self argument",
+                        "Vec3", "exp"
+                    ))
+                })?;
+                if let mlua::Value::Table(ref arg_table) = self_arg {
+                    if let Some(reg) = type_registry.get_with_short_type_path("Vec3") {
+                        if let Some(rfr) = reg.data::<bevy::reflect::ReflectFromReflect>() {
+                            let type_info = reg.type_info();
+                            let dynamic = bevy_lua_ecs::lua_table_to_dynamic(
+                                lua,
+                                arg_table,
+                                type_info,
+                                &app_type_registry,
+                            )
+                            .map_err(|e| {
+                                mlua::Error::RuntimeError(format!(
+                                    "Failed to build self '{}': {}",
+                                    "Vec3", e
+                                ))
+                            })?;
+                            if let Some(concrete) = rfr.from_reflect(&dynamic) {
+                                *concrete.downcast::<Vec3>().map_err(|_| {
+                                    mlua::Error::RuntimeError(format!(
+                                        "Failed to downcast self to {}",
+                                        "Vec3"
+                                    ))
+                                })?
+                            } else {
+                                return Err(mlua::Error::RuntimeError(format!(
+                                    "Failed to construct self type '{}' via FromReflect",
+                                    "Vec3"
+                                )));
+                            }
+                        } else {
+                            return Err(mlua::Error::RuntimeError(format!(
+                                "Type '{}' has no FromReflect implementation",
+                                "Vec3"
+                            )));
+                        }
+                    } else {
+                        return Err(mlua::Error::RuntimeError(format!(
+                            "Type '{}' not found in TypeRegistry",
+                            "Vec3"
+                        )));
+                    }
+                } else {
+                    return Err(mlua::Error::RuntimeError(format!(
+                        "{}::{} self argument expected table, got {:?}",
+                        "Vec3",
+                        "exp",
+                        self_arg.type_name()
+                    )));
+                }
+            };
+            let result = self_instance.exp();
+            bevy_lua_ecs::reflection::try_reflect_to_lua_value(lua, &result)
+        }
+        ("Vec3", "powf") => {
+            let app_type_registry = world.resource::<bevy::ecs::reflect::AppTypeRegistry>();
+            let type_registry = app_type_registry.read();
+            let self_instance: Vec3 = {
+                let self_arg = args.pop_front().ok_or_else(|| {
+                    mlua::Error::RuntimeError(format!(
+                        "{}::{} requires a self argument",
+                        "Vec3", "powf"
+                    ))
+                })?;
+                if let mlua::Value::Table(ref arg_table) = self_arg {
+                    if let Some(reg) = type_registry.get_with_short_type_path("Vec3") {
+                        if let Some(rfr) = reg.data::<bevy::reflect::ReflectFromReflect>() {
+                            let type_info = reg.type_info();
+                            let dynamic = bevy_lua_ecs::lua_table_to_dynamic(
+                                lua,
+                                arg_table,
+                                type_info,
+                                &app_type_registry,
+                            )
+                            .map_err(|e| {
+                                mlua::Error::RuntimeError(format!(
+                                    "Failed to build self '{}': {}",
+                                    "Vec3", e
+                                ))
+                            })?;
+                            if let Some(concrete) = rfr.from_reflect(&dynamic) {
+                                *concrete.downcast::<Vec3>().map_err(|_| {
+                                    mlua::Error::RuntimeError(format!(
+                                        "Failed to downcast self to {}",
+                                        "Vec3"
+                                    ))
+                                })?
+                            } else {
+                                return Err(mlua::Error::RuntimeError(format!(
+                                    "Failed to construct self type '{}' via FromReflect",
+                                    "Vec3"
+                                )));
+                            }
+                        } else {
+                            return Err(mlua::Error::RuntimeError(format!(
+                                "Type '{}' has no FromReflect implementation",
+                                "Vec3"
+                            )));
+                        }
+                    } else {
+                        return Err(mlua::Error::RuntimeError(format!(
+                            "Type '{}' not found in TypeRegistry",
+                            "Vec3"
+                        )));
+                    }
+                } else {
+                    return Err(mlua::Error::RuntimeError(format!(
+                        "{}::{} self argument expected table, got {:?}",
+                        "Vec3",
+                        "powf",
+                        self_arg.type_name()
+                    )));
+                }
+            };
+            let typed_param_0: f32 = {
+                if let Some(arg_val) = args.pop_front() {
+                    bevy_lua_ecs::reflection::lua_value_to_type::<f32>(
+                        lua,
+                        arg_val,
+                        &app_type_registry,
+                    )
+                    .map_err(|e| {
+                        mlua::Error::RuntimeError(format!(
+                            "Failed to convert parameter '{}': {}",
+                            "f32", e
+                        ))
+                    })?
+                } else {
+                    let reflect_default = type_registry
+                        .get_with_short_type_path("f32")
+                        .and_then(|reg| reg.data::<bevy::prelude::ReflectDefault>());
+                    if let Some(rd) = reflect_default {
+                        let param_instance = rd.default();
+                        *param_instance.downcast::<f32>().map_err(|_| {
+                            mlua::Error::RuntimeError(format!(
+                                "Failed to downcast default to '{}'",
+                                "f32"
+                            ))
+                        })?
+                    } else {
+                        return Err (mlua :: Error :: RuntimeError (format ! ("Cannot construct parameter type '{}' - no argument provided and no Default" , "f32"))) ;
+                    }
+                }
+            };
+            let result = self_instance.powf(typed_param_0);
+            bevy_lua_ecs::reflection::try_reflect_to_lua_value(lua, &result)
+        }
+        ("Vec3", "recip") => {
+            let app_type_registry = world.resource::<bevy::ecs::reflect::AppTypeRegistry>();
+            let type_registry = app_type_registry.read();
+            let self_instance: Vec3 = {
+                let self_arg = args.pop_front().ok_or_else(|| {
+                    mlua::Error::RuntimeError(format!(
+                        "{}::{} requires a self argument",
+                        "Vec3", "recip"
+                    ))
+                })?;
+                if let mlua::Value::Table(ref arg_table) = self_arg {
+                    if let Some(reg) = type_registry.get_with_short_type_path("Vec3") {
+                        if let Some(rfr) = reg.data::<bevy::reflect::ReflectFromReflect>() {
+                            let type_info = reg.type_info();
+                            let dynamic = bevy_lua_ecs::lua_table_to_dynamic(
+                                lua,
+                                arg_table,
+                                type_info,
+                                &app_type_registry,
+                            )
+                            .map_err(|e| {
+                                mlua::Error::RuntimeError(format!(
+                                    "Failed to build self '{}': {}",
+                                    "Vec3", e
+                                ))
+                            })?;
+                            if let Some(concrete) = rfr.from_reflect(&dynamic) {
+                                *concrete.downcast::<Vec3>().map_err(|_| {
+                                    mlua::Error::RuntimeError(format!(
+                                        "Failed to downcast self to {}",
+                                        "Vec3"
+                                    ))
+                                })?
+                            } else {
+                                return Err(mlua::Error::RuntimeError(format!(
+                                    "Failed to construct self type '{}' via FromReflect",
+                                    "Vec3"
+                                )));
+                            }
+                        } else {
+                            return Err(mlua::Error::RuntimeError(format!(
+                                "Type '{}' has no FromReflect implementation",
+                                "Vec3"
+                            )));
+                        }
+                    } else {
+                        return Err(mlua::Error::RuntimeError(format!(
+                            "Type '{}' not found in TypeRegistry",
+                            "Vec3"
+                        )));
+                    }
+                } else {
+                    return Err(mlua::Error::RuntimeError(format!(
+                        "{}::{} self argument expected table, got {:?}",
+                        "Vec3",
+                        "recip",
+                        self_arg.type_name()
+                    )));
+                }
+            };
+            let result = self_instance.recip();
+            bevy_lua_ecs::reflection::try_reflect_to_lua_value(lua, &result)
+        }
+        ("Vec3", "lerp") => {
+            let app_type_registry = world.resource::<bevy::ecs::reflect::AppTypeRegistry>();
+            let type_registry = app_type_registry.read();
+            let self_instance: Vec3 = {
+                let self_arg = args.pop_front().ok_or_else(|| {
+                    mlua::Error::RuntimeError(format!(
+                        "{}::{} requires a self argument",
+                        "Vec3", "lerp"
+                    ))
+                })?;
+                if let mlua::Value::Table(ref arg_table) = self_arg {
+                    if let Some(reg) = type_registry.get_with_short_type_path("Vec3") {
+                        if let Some(rfr) = reg.data::<bevy::reflect::ReflectFromReflect>() {
+                            let type_info = reg.type_info();
+                            let dynamic = bevy_lua_ecs::lua_table_to_dynamic(
+                                lua,
+                                arg_table,
+                                type_info,
+                                &app_type_registry,
+                            )
+                            .map_err(|e| {
+                                mlua::Error::RuntimeError(format!(
+                                    "Failed to build self '{}': {}",
+                                    "Vec3", e
+                                ))
+                            })?;
+                            if let Some(concrete) = rfr.from_reflect(&dynamic) {
+                                *concrete.downcast::<Vec3>().map_err(|_| {
+                                    mlua::Error::RuntimeError(format!(
+                                        "Failed to downcast self to {}",
+                                        "Vec3"
+                                    ))
+                                })?
+                            } else {
+                                return Err(mlua::Error::RuntimeError(format!(
+                                    "Failed to construct self type '{}' via FromReflect",
+                                    "Vec3"
+                                )));
+                            }
+                        } else {
+                            return Err(mlua::Error::RuntimeError(format!(
+                                "Type '{}' has no FromReflect implementation",
+                                "Vec3"
+                            )));
+                        }
+                    } else {
+                        return Err(mlua::Error::RuntimeError(format!(
+                            "Type '{}' not found in TypeRegistry",
+                            "Vec3"
+                        )));
+                    }
+                } else {
+                    return Err(mlua::Error::RuntimeError(format!(
+                        "{}::{} self argument expected table, got {:?}",
+                        "Vec3",
+                        "lerp",
+                        self_arg.type_name()
+                    )));
+                }
+            };
+            let typed_param_0: Vec3 = {
+                if let Some(arg_val) = args.pop_front() {
+                    bevy_lua_ecs::reflection::lua_value_to_type::<Vec3>(
+                        lua,
+                        arg_val,
+                        &app_type_registry,
+                    )
+                    .map_err(|e| {
+                        mlua::Error::RuntimeError(format!(
+                            "Failed to convert parameter '{}': {}",
+                            "Vec3", e
+                        ))
+                    })?
+                } else {
+                    let reflect_default = type_registry
+                        .get_with_short_type_path("Vec3")
+                        .and_then(|reg| reg.data::<bevy::prelude::ReflectDefault>());
+                    if let Some(rd) = reflect_default {
+                        let param_instance = rd.default();
+                        *param_instance.downcast::<Vec3>().map_err(|_| {
+                            mlua::Error::RuntimeError(format!(
+                                "Failed to downcast default to '{}'",
+                                "Vec3"
+                            ))
+                        })?
+                    } else {
+                        return Err (mlua :: Error :: RuntimeError (format ! ("Cannot construct parameter type '{}' - no argument provided and no Default" , "Vec3"))) ;
+                    }
+                }
+            };
+            let typed_param_1: f32 = {
+                if let Some(arg_val) = args.pop_front() {
+                    bevy_lua_ecs::reflection::lua_value_to_type::<f32>(
+                        lua,
+                        arg_val,
+                        &app_type_registry,
+                    )
+                    .map_err(|e| {
+                        mlua::Error::RuntimeError(format!(
+                            "Failed to convert parameter '{}': {}",
+                            "f32", e
+                        ))
+                    })?
+                } else {
+                    let reflect_default = type_registry
+                        .get_with_short_type_path("f32")
+                        .and_then(|reg| reg.data::<bevy::prelude::ReflectDefault>());
+                    if let Some(rd) = reflect_default {
+                        let param_instance = rd.default();
+                        *param_instance.downcast::<f32>().map_err(|_| {
+                            mlua::Error::RuntimeError(format!(
+                                "Failed to downcast default to '{}'",
+                                "f32"
+                            ))
+                        })?
+                    } else {
+                        return Err (mlua :: Error :: RuntimeError (format ! ("Cannot construct parameter type '{}' - no argument provided and no Default" , "f32"))) ;
+                    }
+                }
+            };
+            let result = self_instance.lerp(typed_param_0, typed_param_1);
+            bevy_lua_ecs::reflection::try_reflect_to_lua_value(lua, &result)
+        }
+        ("Vec3", "move_towards") => {
+            let app_type_registry = world.resource::<bevy::ecs::reflect::AppTypeRegistry>();
+            let type_registry = app_type_registry.read();
+            let self_instance: Vec3 = {
+                let self_arg = args.pop_front().ok_or_else(|| {
+                    mlua::Error::RuntimeError(format!(
+                        "{}::{} requires a self argument",
+                        "Vec3", "move_towards"
+                    ))
+                })?;
+                if let mlua::Value::Table(ref arg_table) = self_arg {
+                    if let Some(reg) = type_registry.get_with_short_type_path("Vec3") {
+                        if let Some(rfr) = reg.data::<bevy::reflect::ReflectFromReflect>() {
+                            let type_info = reg.type_info();
+                            let dynamic = bevy_lua_ecs::lua_table_to_dynamic(
+                                lua,
+                                arg_table,
+                                type_info,
+                                &app_type_registry,
+                            )
+                            .map_err(|e| {
+                                mlua::Error::RuntimeError(format!(
+                                    "Failed to build self '{}': {}",
+                                    "Vec3", e
+                                ))
+                            })?;
+                            if let Some(concrete) = rfr.from_reflect(&dynamic) {
+                                *concrete.downcast::<Vec3>().map_err(|_| {
+                                    mlua::Error::RuntimeError(format!(
+                                        "Failed to downcast self to {}",
+                                        "Vec3"
+                                    ))
+                                })?
+                            } else {
+                                return Err(mlua::Error::RuntimeError(format!(
+                                    "Failed to construct self type '{}' via FromReflect",
+                                    "Vec3"
+                                )));
+                            }
+                        } else {
+                            return Err(mlua::Error::RuntimeError(format!(
+                                "Type '{}' has no FromReflect implementation",
+                                "Vec3"
+                            )));
+                        }
+                    } else {
+                        return Err(mlua::Error::RuntimeError(format!(
+                            "Type '{}' not found in TypeRegistry",
+                            "Vec3"
+                        )));
+                    }
+                } else {
+                    return Err(mlua::Error::RuntimeError(format!(
+                        "{}::{} self argument expected table, got {:?}",
+                        "Vec3",
+                        "move_towards",
+                        self_arg.type_name()
+                    )));
+                }
+            };
+            let typed_param_0: Vec3 = {
+                if let Some(arg_val) = args.pop_front() {
+                    bevy_lua_ecs::reflection::lua_value_to_type::<Vec3>(
+                        lua,
+                        arg_val,
+                        &app_type_registry,
+                    )
+                    .map_err(|e| {
+                        mlua::Error::RuntimeError(format!(
+                            "Failed to convert parameter '{}': {}",
+                            "Vec3", e
+                        ))
+                    })?
+                } else {
+                    let reflect_default = type_registry
+                        .get_with_short_type_path("Vec3")
+                        .and_then(|reg| reg.data::<bevy::prelude::ReflectDefault>());
+                    if let Some(rd) = reflect_default {
+                        let param_instance = rd.default();
+                        *param_instance.downcast::<Vec3>().map_err(|_| {
+                            mlua::Error::RuntimeError(format!(
+                                "Failed to downcast default to '{}'",
+                                "Vec3"
+                            ))
+                        })?
+                    } else {
+                        return Err (mlua :: Error :: RuntimeError (format ! ("Cannot construct parameter type '{}' - no argument provided and no Default" , "Vec3"))) ;
+                    }
+                }
+            };
+            let typed_param_1: f32 = {
+                if let Some(arg_val) = args.pop_front() {
+                    bevy_lua_ecs::reflection::lua_value_to_type::<f32>(
+                        lua,
+                        arg_val,
+                        &app_type_registry,
+                    )
+                    .map_err(|e| {
+                        mlua::Error::RuntimeError(format!(
+                            "Failed to convert parameter '{}': {}",
+                            "f32", e
+                        ))
+                    })?
+                } else {
+                    let reflect_default = type_registry
+                        .get_with_short_type_path("f32")
+                        .and_then(|reg| reg.data::<bevy::prelude::ReflectDefault>());
+                    if let Some(rd) = reflect_default {
+                        let param_instance = rd.default();
+                        *param_instance.downcast::<f32>().map_err(|_| {
+                            mlua::Error::RuntimeError(format!(
+                                "Failed to downcast default to '{}'",
+                                "f32"
+                            ))
+                        })?
+                    } else {
+                        return Err (mlua :: Error :: RuntimeError (format ! ("Cannot construct parameter type '{}' - no argument provided and no Default" , "f32"))) ;
+                    }
+                }
+            };
+            let result = self_instance.move_towards(typed_param_0, typed_param_1);
+            bevy_lua_ecs::reflection::try_reflect_to_lua_value(lua, &result)
+        }
+        ("Vec3", "midpoint") => {
+            let app_type_registry = world.resource::<bevy::ecs::reflect::AppTypeRegistry>();
+            let type_registry = app_type_registry.read();
+            let self_instance: Vec3 = {
+                let self_arg = args.pop_front().ok_or_else(|| {
+                    mlua::Error::RuntimeError(format!(
+                        "{}::{} requires a self argument",
+                        "Vec3", "midpoint"
+                    ))
+                })?;
+                if let mlua::Value::Table(ref arg_table) = self_arg {
+                    if let Some(reg) = type_registry.get_with_short_type_path("Vec3") {
+                        if let Some(rfr) = reg.data::<bevy::reflect::ReflectFromReflect>() {
+                            let type_info = reg.type_info();
+                            let dynamic = bevy_lua_ecs::lua_table_to_dynamic(
+                                lua,
+                                arg_table,
+                                type_info,
+                                &app_type_registry,
+                            )
+                            .map_err(|e| {
+                                mlua::Error::RuntimeError(format!(
+                                    "Failed to build self '{}': {}",
+                                    "Vec3", e
+                                ))
+                            })?;
+                            if let Some(concrete) = rfr.from_reflect(&dynamic) {
+                                *concrete.downcast::<Vec3>().map_err(|_| {
+                                    mlua::Error::RuntimeError(format!(
+                                        "Failed to downcast self to {}",
+                                        "Vec3"
+                                    ))
+                                })?
+                            } else {
+                                return Err(mlua::Error::RuntimeError(format!(
+                                    "Failed to construct self type '{}' via FromReflect",
+                                    "Vec3"
+                                )));
+                            }
+                        } else {
+                            return Err(mlua::Error::RuntimeError(format!(
+                                "Type '{}' has no FromReflect implementation",
+                                "Vec3"
+                            )));
+                        }
+                    } else {
+                        return Err(mlua::Error::RuntimeError(format!(
+                            "Type '{}' not found in TypeRegistry",
+                            "Vec3"
+                        )));
+                    }
+                } else {
+                    return Err(mlua::Error::RuntimeError(format!(
+                        "{}::{} self argument expected table, got {:?}",
+                        "Vec3",
+                        "midpoint",
+                        self_arg.type_name()
+                    )));
+                }
+            };
+            let typed_param_0: Vec3 = {
+                if let Some(arg_val) = args.pop_front() {
+                    bevy_lua_ecs::reflection::lua_value_to_type::<Vec3>(
+                        lua,
+                        arg_val,
+                        &app_type_registry,
+                    )
+                    .map_err(|e| {
+                        mlua::Error::RuntimeError(format!(
+                            "Failed to convert parameter '{}': {}",
+                            "Vec3", e
+                        ))
+                    })?
+                } else {
+                    let reflect_default = type_registry
+                        .get_with_short_type_path("Vec3")
+                        .and_then(|reg| reg.data::<bevy::prelude::ReflectDefault>());
+                    if let Some(rd) = reflect_default {
+                        let param_instance = rd.default();
+                        *param_instance.downcast::<Vec3>().map_err(|_| {
+                            mlua::Error::RuntimeError(format!(
+                                "Failed to downcast default to '{}'",
+                                "Vec3"
+                            ))
+                        })?
+                    } else {
+                        return Err (mlua :: Error :: RuntimeError (format ! ("Cannot construct parameter type '{}' - no argument provided and no Default" , "Vec3"))) ;
+                    }
+                }
+            };
+            let result = self_instance.midpoint(typed_param_0);
+            bevy_lua_ecs::reflection::try_reflect_to_lua_value(lua, &result)
+        }
+        ("Vec3", "abs_diff_eq") => {
+            let app_type_registry = world.resource::<bevy::ecs::reflect::AppTypeRegistry>();
+            let type_registry = app_type_registry.read();
+            let self_instance: Vec3 = {
+                let self_arg = args.pop_front().ok_or_else(|| {
+                    mlua::Error::RuntimeError(format!(
+                        "{}::{} requires a self argument",
+                        "Vec3", "abs_diff_eq"
+                    ))
+                })?;
+                if let mlua::Value::Table(ref arg_table) = self_arg {
+                    if let Some(reg) = type_registry.get_with_short_type_path("Vec3") {
+                        if let Some(rfr) = reg.data::<bevy::reflect::ReflectFromReflect>() {
+                            let type_info = reg.type_info();
+                            let dynamic = bevy_lua_ecs::lua_table_to_dynamic(
+                                lua,
+                                arg_table,
+                                type_info,
+                                &app_type_registry,
+                            )
+                            .map_err(|e| {
+                                mlua::Error::RuntimeError(format!(
+                                    "Failed to build self '{}': {}",
+                                    "Vec3", e
+                                ))
+                            })?;
+                            if let Some(concrete) = rfr.from_reflect(&dynamic) {
+                                *concrete.downcast::<Vec3>().map_err(|_| {
+                                    mlua::Error::RuntimeError(format!(
+                                        "Failed to downcast self to {}",
+                                        "Vec3"
+                                    ))
+                                })?
+                            } else {
+                                return Err(mlua::Error::RuntimeError(format!(
+                                    "Failed to construct self type '{}' via FromReflect",
+                                    "Vec3"
+                                )));
+                            }
+                        } else {
+                            return Err(mlua::Error::RuntimeError(format!(
+                                "Type '{}' has no FromReflect implementation",
+                                "Vec3"
+                            )));
+                        }
+                    } else {
+                        return Err(mlua::Error::RuntimeError(format!(
+                            "Type '{}' not found in TypeRegistry",
+                            "Vec3"
+                        )));
+                    }
+                } else {
+                    return Err(mlua::Error::RuntimeError(format!(
+                        "{}::{} self argument expected table, got {:?}",
+                        "Vec3",
+                        "abs_diff_eq",
+                        self_arg.type_name()
+                    )));
+                }
+            };
+            let typed_param_0: Vec3 = {
+                if let Some(arg_val) = args.pop_front() {
+                    bevy_lua_ecs::reflection::lua_value_to_type::<Vec3>(
+                        lua,
+                        arg_val,
+                        &app_type_registry,
+                    )
+                    .map_err(|e| {
+                        mlua::Error::RuntimeError(format!(
+                            "Failed to convert parameter '{}': {}",
+                            "Vec3", e
+                        ))
+                    })?
+                } else {
+                    let reflect_default = type_registry
+                        .get_with_short_type_path("Vec3")
+                        .and_then(|reg| reg.data::<bevy::prelude::ReflectDefault>());
+                    if let Some(rd) = reflect_default {
+                        let param_instance = rd.default();
+                        *param_instance.downcast::<Vec3>().map_err(|_| {
+                            mlua::Error::RuntimeError(format!(
+                                "Failed to downcast default to '{}'",
+                                "Vec3"
+                            ))
+                        })?
+                    } else {
+                        return Err (mlua :: Error :: RuntimeError (format ! ("Cannot construct parameter type '{}' - no argument provided and no Default" , "Vec3"))) ;
+                    }
+                }
+            };
+            let typed_param_1: f32 = {
+                if let Some(arg_val) = args.pop_front() {
+                    bevy_lua_ecs::reflection::lua_value_to_type::<f32>(
+                        lua,
+                        arg_val,
+                        &app_type_registry,
+                    )
+                    .map_err(|e| {
+                        mlua::Error::RuntimeError(format!(
+                            "Failed to convert parameter '{}': {}",
+                            "f32", e
+                        ))
+                    })?
+                } else {
+                    let reflect_default = type_registry
+                        .get_with_short_type_path("f32")
+                        .and_then(|reg| reg.data::<bevy::prelude::ReflectDefault>());
+                    if let Some(rd) = reflect_default {
+                        let param_instance = rd.default();
+                        *param_instance.downcast::<f32>().map_err(|_| {
+                            mlua::Error::RuntimeError(format!(
+                                "Failed to downcast default to '{}'",
+                                "f32"
+                            ))
+                        })?
+                    } else {
+                        return Err (mlua :: Error :: RuntimeError (format ! ("Cannot construct parameter type '{}' - no argument provided and no Default" , "f32"))) ;
+                    }
+                }
+            };
+            let result = self_instance.abs_diff_eq(typed_param_0, typed_param_1);
+            bevy_lua_ecs::reflection::try_reflect_to_lua_value(lua, &result)
+        }
+        ("Vec3", "clamp_length") => {
+            let app_type_registry = world.resource::<bevy::ecs::reflect::AppTypeRegistry>();
+            let type_registry = app_type_registry.read();
+            let self_instance: Vec3 = {
+                let self_arg = args.pop_front().ok_or_else(|| {
+                    mlua::Error::RuntimeError(format!(
+                        "{}::{} requires a self argument",
+                        "Vec3", "clamp_length"
+                    ))
+                })?;
+                if let mlua::Value::Table(ref arg_table) = self_arg {
+                    if let Some(reg) = type_registry.get_with_short_type_path("Vec3") {
+                        if let Some(rfr) = reg.data::<bevy::reflect::ReflectFromReflect>() {
+                            let type_info = reg.type_info();
+                            let dynamic = bevy_lua_ecs::lua_table_to_dynamic(
+                                lua,
+                                arg_table,
+                                type_info,
+                                &app_type_registry,
+                            )
+                            .map_err(|e| {
+                                mlua::Error::RuntimeError(format!(
+                                    "Failed to build self '{}': {}",
+                                    "Vec3", e
+                                ))
+                            })?;
+                            if let Some(concrete) = rfr.from_reflect(&dynamic) {
+                                *concrete.downcast::<Vec3>().map_err(|_| {
+                                    mlua::Error::RuntimeError(format!(
+                                        "Failed to downcast self to {}",
+                                        "Vec3"
+                                    ))
+                                })?
+                            } else {
+                                return Err(mlua::Error::RuntimeError(format!(
+                                    "Failed to construct self type '{}' via FromReflect",
+                                    "Vec3"
+                                )));
+                            }
+                        } else {
+                            return Err(mlua::Error::RuntimeError(format!(
+                                "Type '{}' has no FromReflect implementation",
+                                "Vec3"
+                            )));
+                        }
+                    } else {
+                        return Err(mlua::Error::RuntimeError(format!(
+                            "Type '{}' not found in TypeRegistry",
+                            "Vec3"
+                        )));
+                    }
+                } else {
+                    return Err(mlua::Error::RuntimeError(format!(
+                        "{}::{} self argument expected table, got {:?}",
+                        "Vec3",
+                        "clamp_length",
+                        self_arg.type_name()
+                    )));
+                }
+            };
+            let typed_param_0: f32 = {
+                if let Some(arg_val) = args.pop_front() {
+                    bevy_lua_ecs::reflection::lua_value_to_type::<f32>(
+                        lua,
+                        arg_val,
+                        &app_type_registry,
+                    )
+                    .map_err(|e| {
+                        mlua::Error::RuntimeError(format!(
+                            "Failed to convert parameter '{}': {}",
+                            "f32", e
+                        ))
+                    })?
+                } else {
+                    let reflect_default = type_registry
+                        .get_with_short_type_path("f32")
+                        .and_then(|reg| reg.data::<bevy::prelude::ReflectDefault>());
+                    if let Some(rd) = reflect_default {
+                        let param_instance = rd.default();
+                        *param_instance.downcast::<f32>().map_err(|_| {
+                            mlua::Error::RuntimeError(format!(
+                                "Failed to downcast default to '{}'",
+                                "f32"
+                            ))
+                        })?
+                    } else {
+                        return Err (mlua :: Error :: RuntimeError (format ! ("Cannot construct parameter type '{}' - no argument provided and no Default" , "f32"))) ;
+                    }
+                }
+            };
+            let typed_param_1: f32 = {
+                if let Some(arg_val) = args.pop_front() {
+                    bevy_lua_ecs::reflection::lua_value_to_type::<f32>(
+                        lua,
+                        arg_val,
+                        &app_type_registry,
+                    )
+                    .map_err(|e| {
+                        mlua::Error::RuntimeError(format!(
+                            "Failed to convert parameter '{}': {}",
+                            "f32", e
+                        ))
+                    })?
+                } else {
+                    let reflect_default = type_registry
+                        .get_with_short_type_path("f32")
+                        .and_then(|reg| reg.data::<bevy::prelude::ReflectDefault>());
+                    if let Some(rd) = reflect_default {
+                        let param_instance = rd.default();
+                        *param_instance.downcast::<f32>().map_err(|_| {
+                            mlua::Error::RuntimeError(format!(
+                                "Failed to downcast default to '{}'",
+                                "f32"
+                            ))
+                        })?
+                    } else {
+                        return Err (mlua :: Error :: RuntimeError (format ! ("Cannot construct parameter type '{}' - no argument provided and no Default" , "f32"))) ;
+                    }
+                }
+            };
+            let result = self_instance.clamp_length(typed_param_0, typed_param_1);
+            bevy_lua_ecs::reflection::try_reflect_to_lua_value(lua, &result)
+        }
+        ("Vec3", "clamp_length_max") => {
+            let app_type_registry = world.resource::<bevy::ecs::reflect::AppTypeRegistry>();
+            let type_registry = app_type_registry.read();
+            let self_instance: Vec3 = {
+                let self_arg = args.pop_front().ok_or_else(|| {
+                    mlua::Error::RuntimeError(format!(
+                        "{}::{} requires a self argument",
+                        "Vec3", "clamp_length_max"
+                    ))
+                })?;
+                if let mlua::Value::Table(ref arg_table) = self_arg {
+                    if let Some(reg) = type_registry.get_with_short_type_path("Vec3") {
+                        if let Some(rfr) = reg.data::<bevy::reflect::ReflectFromReflect>() {
+                            let type_info = reg.type_info();
+                            let dynamic = bevy_lua_ecs::lua_table_to_dynamic(
+                                lua,
+                                arg_table,
+                                type_info,
+                                &app_type_registry,
+                            )
+                            .map_err(|e| {
+                                mlua::Error::RuntimeError(format!(
+                                    "Failed to build self '{}': {}",
+                                    "Vec3", e
+                                ))
+                            })?;
+                            if let Some(concrete) = rfr.from_reflect(&dynamic) {
+                                *concrete.downcast::<Vec3>().map_err(|_| {
+                                    mlua::Error::RuntimeError(format!(
+                                        "Failed to downcast self to {}",
+                                        "Vec3"
+                                    ))
+                                })?
+                            } else {
+                                return Err(mlua::Error::RuntimeError(format!(
+                                    "Failed to construct self type '{}' via FromReflect",
+                                    "Vec3"
+                                )));
+                            }
+                        } else {
+                            return Err(mlua::Error::RuntimeError(format!(
+                                "Type '{}' has no FromReflect implementation",
+                                "Vec3"
+                            )));
+                        }
+                    } else {
+                        return Err(mlua::Error::RuntimeError(format!(
+                            "Type '{}' not found in TypeRegistry",
+                            "Vec3"
+                        )));
+                    }
+                } else {
+                    return Err(mlua::Error::RuntimeError(format!(
+                        "{}::{} self argument expected table, got {:?}",
+                        "Vec3",
+                        "clamp_length_max",
+                        self_arg.type_name()
+                    )));
+                }
+            };
+            let typed_param_0: f32 = {
+                if let Some(arg_val) = args.pop_front() {
+                    bevy_lua_ecs::reflection::lua_value_to_type::<f32>(
+                        lua,
+                        arg_val,
+                        &app_type_registry,
+                    )
+                    .map_err(|e| {
+                        mlua::Error::RuntimeError(format!(
+                            "Failed to convert parameter '{}': {}",
+                            "f32", e
+                        ))
+                    })?
+                } else {
+                    let reflect_default = type_registry
+                        .get_with_short_type_path("f32")
+                        .and_then(|reg| reg.data::<bevy::prelude::ReflectDefault>());
+                    if let Some(rd) = reflect_default {
+                        let param_instance = rd.default();
+                        *param_instance.downcast::<f32>().map_err(|_| {
+                            mlua::Error::RuntimeError(format!(
+                                "Failed to downcast default to '{}'",
+                                "f32"
+                            ))
+                        })?
+                    } else {
+                        return Err (mlua :: Error :: RuntimeError (format ! ("Cannot construct parameter type '{}' - no argument provided and no Default" , "f32"))) ;
+                    }
+                }
+            };
+            let result = self_instance.clamp_length_max(typed_param_0);
+            bevy_lua_ecs::reflection::try_reflect_to_lua_value(lua, &result)
+        }
+        ("Vec3", "clamp_length_min") => {
+            let app_type_registry = world.resource::<bevy::ecs::reflect::AppTypeRegistry>();
+            let type_registry = app_type_registry.read();
+            let self_instance: Vec3 = {
+                let self_arg = args.pop_front().ok_or_else(|| {
+                    mlua::Error::RuntimeError(format!(
+                        "{}::{} requires a self argument",
+                        "Vec3", "clamp_length_min"
+                    ))
+                })?;
+                if let mlua::Value::Table(ref arg_table) = self_arg {
+                    if let Some(reg) = type_registry.get_with_short_type_path("Vec3") {
+                        if let Some(rfr) = reg.data::<bevy::reflect::ReflectFromReflect>() {
+                            let type_info = reg.type_info();
+                            let dynamic = bevy_lua_ecs::lua_table_to_dynamic(
+                                lua,
+                                arg_table,
+                                type_info,
+                                &app_type_registry,
+                            )
+                            .map_err(|e| {
+                                mlua::Error::RuntimeError(format!(
+                                    "Failed to build self '{}': {}",
+                                    "Vec3", e
+                                ))
+                            })?;
+                            if let Some(concrete) = rfr.from_reflect(&dynamic) {
+                                *concrete.downcast::<Vec3>().map_err(|_| {
+                                    mlua::Error::RuntimeError(format!(
+                                        "Failed to downcast self to {}",
+                                        "Vec3"
+                                    ))
+                                })?
+                            } else {
+                                return Err(mlua::Error::RuntimeError(format!(
+                                    "Failed to construct self type '{}' via FromReflect",
+                                    "Vec3"
+                                )));
+                            }
+                        } else {
+                            return Err(mlua::Error::RuntimeError(format!(
+                                "Type '{}' has no FromReflect implementation",
+                                "Vec3"
+                            )));
+                        }
+                    } else {
+                        return Err(mlua::Error::RuntimeError(format!(
+                            "Type '{}' not found in TypeRegistry",
+                            "Vec3"
+                        )));
+                    }
+                } else {
+                    return Err(mlua::Error::RuntimeError(format!(
+                        "{}::{} self argument expected table, got {:?}",
+                        "Vec3",
+                        "clamp_length_min",
+                        self_arg.type_name()
+                    )));
+                }
+            };
+            let typed_param_0: f32 = {
+                if let Some(arg_val) = args.pop_front() {
+                    bevy_lua_ecs::reflection::lua_value_to_type::<f32>(
+                        lua,
+                        arg_val,
+                        &app_type_registry,
+                    )
+                    .map_err(|e| {
+                        mlua::Error::RuntimeError(format!(
+                            "Failed to convert parameter '{}': {}",
+                            "f32", e
+                        ))
+                    })?
+                } else {
+                    let reflect_default = type_registry
+                        .get_with_short_type_path("f32")
+                        .and_then(|reg| reg.data::<bevy::prelude::ReflectDefault>());
+                    if let Some(rd) = reflect_default {
+                        let param_instance = rd.default();
+                        *param_instance.downcast::<f32>().map_err(|_| {
+                            mlua::Error::RuntimeError(format!(
+                                "Failed to downcast default to '{}'",
+                                "f32"
+                            ))
+                        })?
+                    } else {
+                        return Err (mlua :: Error :: RuntimeError (format ! ("Cannot construct parameter type '{}' - no argument provided and no Default" , "f32"))) ;
+                    }
+                }
+            };
+            let result = self_instance.clamp_length_min(typed_param_0);
+            bevy_lua_ecs::reflection::try_reflect_to_lua_value(lua, &result)
+        }
+        ("Vec3", "mul_add") => {
+            let app_type_registry = world.resource::<bevy::ecs::reflect::AppTypeRegistry>();
+            let type_registry = app_type_registry.read();
+            let self_instance: Vec3 = {
+                let self_arg = args.pop_front().ok_or_else(|| {
+                    mlua::Error::RuntimeError(format!(
+                        "{}::{} requires a self argument",
+                        "Vec3", "mul_add"
+                    ))
+                })?;
+                if let mlua::Value::Table(ref arg_table) = self_arg {
+                    if let Some(reg) = type_registry.get_with_short_type_path("Vec3") {
+                        if let Some(rfr) = reg.data::<bevy::reflect::ReflectFromReflect>() {
+                            let type_info = reg.type_info();
+                            let dynamic = bevy_lua_ecs::lua_table_to_dynamic(
+                                lua,
+                                arg_table,
+                                type_info,
+                                &app_type_registry,
+                            )
+                            .map_err(|e| {
+                                mlua::Error::RuntimeError(format!(
+                                    "Failed to build self '{}': {}",
+                                    "Vec3", e
+                                ))
+                            })?;
+                            if let Some(concrete) = rfr.from_reflect(&dynamic) {
+                                *concrete.downcast::<Vec3>().map_err(|_| {
+                                    mlua::Error::RuntimeError(format!(
+                                        "Failed to downcast self to {}",
+                                        "Vec3"
+                                    ))
+                                })?
+                            } else {
+                                return Err(mlua::Error::RuntimeError(format!(
+                                    "Failed to construct self type '{}' via FromReflect",
+                                    "Vec3"
+                                )));
+                            }
+                        } else {
+                            return Err(mlua::Error::RuntimeError(format!(
+                                "Type '{}' has no FromReflect implementation",
+                                "Vec3"
+                            )));
+                        }
+                    } else {
+                        return Err(mlua::Error::RuntimeError(format!(
+                            "Type '{}' not found in TypeRegistry",
+                            "Vec3"
+                        )));
+                    }
+                } else {
+                    return Err(mlua::Error::RuntimeError(format!(
+                        "{}::{} self argument expected table, got {:?}",
+                        "Vec3",
+                        "mul_add",
+                        self_arg.type_name()
+                    )));
+                }
+            };
+            let typed_param_0: Vec3 = {
+                if let Some(arg_val) = args.pop_front() {
+                    bevy_lua_ecs::reflection::lua_value_to_type::<Vec3>(
+                        lua,
+                        arg_val,
+                        &app_type_registry,
+                    )
+                    .map_err(|e| {
+                        mlua::Error::RuntimeError(format!(
+                            "Failed to convert parameter '{}': {}",
+                            "Vec3", e
+                        ))
+                    })?
+                } else {
+                    let reflect_default = type_registry
+                        .get_with_short_type_path("Vec3")
+                        .and_then(|reg| reg.data::<bevy::prelude::ReflectDefault>());
+                    if let Some(rd) = reflect_default {
+                        let param_instance = rd.default();
+                        *param_instance.downcast::<Vec3>().map_err(|_| {
+                            mlua::Error::RuntimeError(format!(
+                                "Failed to downcast default to '{}'",
+                                "Vec3"
+                            ))
+                        })?
+                    } else {
+                        return Err (mlua :: Error :: RuntimeError (format ! ("Cannot construct parameter type '{}' - no argument provided and no Default" , "Vec3"))) ;
+                    }
+                }
+            };
+            let typed_param_1: Vec3 = {
+                if let Some(arg_val) = args.pop_front() {
+                    bevy_lua_ecs::reflection::lua_value_to_type::<Vec3>(
+                        lua,
+                        arg_val,
+                        &app_type_registry,
+                    )
+                    .map_err(|e| {
+                        mlua::Error::RuntimeError(format!(
+                            "Failed to convert parameter '{}': {}",
+                            "Vec3", e
+                        ))
+                    })?
+                } else {
+                    let reflect_default = type_registry
+                        .get_with_short_type_path("Vec3")
+                        .and_then(|reg| reg.data::<bevy::prelude::ReflectDefault>());
+                    if let Some(rd) = reflect_default {
+                        let param_instance = rd.default();
+                        *param_instance.downcast::<Vec3>().map_err(|_| {
+                            mlua::Error::RuntimeError(format!(
+                                "Failed to downcast default to '{}'",
+                                "Vec3"
+                            ))
+                        })?
+                    } else {
+                        return Err (mlua :: Error :: RuntimeError (format ! ("Cannot construct parameter type '{}' - no argument provided and no Default" , "Vec3"))) ;
+                    }
+                }
+            };
+            let result = self_instance.mul_add(typed_param_0, typed_param_1);
+            bevy_lua_ecs::reflection::try_reflect_to_lua_value(lua, &result)
+        }
+        ("Vec3", "reflect") => {
+            let app_type_registry = world.resource::<bevy::ecs::reflect::AppTypeRegistry>();
+            let type_registry = app_type_registry.read();
+            let self_instance: Vec3 = {
+                let self_arg = args.pop_front().ok_or_else(|| {
+                    mlua::Error::RuntimeError(format!(
+                        "{}::{} requires a self argument",
+                        "Vec3", "reflect"
+                    ))
+                })?;
+                if let mlua::Value::Table(ref arg_table) = self_arg {
+                    if let Some(reg) = type_registry.get_with_short_type_path("Vec3") {
+                        if let Some(rfr) = reg.data::<bevy::reflect::ReflectFromReflect>() {
+                            let type_info = reg.type_info();
+                            let dynamic = bevy_lua_ecs::lua_table_to_dynamic(
+                                lua,
+                                arg_table,
+                                type_info,
+                                &app_type_registry,
+                            )
+                            .map_err(|e| {
+                                mlua::Error::RuntimeError(format!(
+                                    "Failed to build self '{}': {}",
+                                    "Vec3", e
+                                ))
+                            })?;
+                            if let Some(concrete) = rfr.from_reflect(&dynamic) {
+                                *concrete.downcast::<Vec3>().map_err(|_| {
+                                    mlua::Error::RuntimeError(format!(
+                                        "Failed to downcast self to {}",
+                                        "Vec3"
+                                    ))
+                                })?
+                            } else {
+                                return Err(mlua::Error::RuntimeError(format!(
+                                    "Failed to construct self type '{}' via FromReflect",
+                                    "Vec3"
+                                )));
+                            }
+                        } else {
+                            return Err(mlua::Error::RuntimeError(format!(
+                                "Type '{}' has no FromReflect implementation",
+                                "Vec3"
+                            )));
+                        }
+                    } else {
+                        return Err(mlua::Error::RuntimeError(format!(
+                            "Type '{}' not found in TypeRegistry",
+                            "Vec3"
+                        )));
+                    }
+                } else {
+                    return Err(mlua::Error::RuntimeError(format!(
+                        "{}::{} self argument expected table, got {:?}",
+                        "Vec3",
+                        "reflect",
+                        self_arg.type_name()
+                    )));
+                }
+            };
+            let typed_param_0: Vec3 = {
+                if let Some(arg_val) = args.pop_front() {
+                    bevy_lua_ecs::reflection::lua_value_to_type::<Vec3>(
+                        lua,
+                        arg_val,
+                        &app_type_registry,
+                    )
+                    .map_err(|e| {
+                        mlua::Error::RuntimeError(format!(
+                            "Failed to convert parameter '{}': {}",
+                            "Vec3", e
+                        ))
+                    })?
+                } else {
+                    let reflect_default = type_registry
+                        .get_with_short_type_path("Vec3")
+                        .and_then(|reg| reg.data::<bevy::prelude::ReflectDefault>());
+                    if let Some(rd) = reflect_default {
+                        let param_instance = rd.default();
+                        *param_instance.downcast::<Vec3>().map_err(|_| {
+                            mlua::Error::RuntimeError(format!(
+                                "Failed to downcast default to '{}'",
+                                "Vec3"
+                            ))
+                        })?
+                    } else {
+                        return Err (mlua :: Error :: RuntimeError (format ! ("Cannot construct parameter type '{}' - no argument provided and no Default" , "Vec3"))) ;
+                    }
+                }
+            };
+            let result = self_instance.reflect(typed_param_0);
+            bevy_lua_ecs::reflection::try_reflect_to_lua_value(lua, &result)
+        }
+        ("Vec3", "refract") => {
+            let app_type_registry = world.resource::<bevy::ecs::reflect::AppTypeRegistry>();
+            let type_registry = app_type_registry.read();
+            let self_instance: Vec3 = {
+                let self_arg = args.pop_front().ok_or_else(|| {
+                    mlua::Error::RuntimeError(format!(
+                        "{}::{} requires a self argument",
+                        "Vec3", "refract"
+                    ))
+                })?;
+                if let mlua::Value::Table(ref arg_table) = self_arg {
+                    if let Some(reg) = type_registry.get_with_short_type_path("Vec3") {
+                        if let Some(rfr) = reg.data::<bevy::reflect::ReflectFromReflect>() {
+                            let type_info = reg.type_info();
+                            let dynamic = bevy_lua_ecs::lua_table_to_dynamic(
+                                lua,
+                                arg_table,
+                                type_info,
+                                &app_type_registry,
+                            )
+                            .map_err(|e| {
+                                mlua::Error::RuntimeError(format!(
+                                    "Failed to build self '{}': {}",
+                                    "Vec3", e
+                                ))
+                            })?;
+                            if let Some(concrete) = rfr.from_reflect(&dynamic) {
+                                *concrete.downcast::<Vec3>().map_err(|_| {
+                                    mlua::Error::RuntimeError(format!(
+                                        "Failed to downcast self to {}",
+                                        "Vec3"
+                                    ))
+                                })?
+                            } else {
+                                return Err(mlua::Error::RuntimeError(format!(
+                                    "Failed to construct self type '{}' via FromReflect",
+                                    "Vec3"
+                                )));
+                            }
+                        } else {
+                            return Err(mlua::Error::RuntimeError(format!(
+                                "Type '{}' has no FromReflect implementation",
+                                "Vec3"
+                            )));
+                        }
+                    } else {
+                        return Err(mlua::Error::RuntimeError(format!(
+                            "Type '{}' not found in TypeRegistry",
+                            "Vec3"
+                        )));
+                    }
+                } else {
+                    return Err(mlua::Error::RuntimeError(format!(
+                        "{}::{} self argument expected table, got {:?}",
+                        "Vec3",
+                        "refract",
+                        self_arg.type_name()
+                    )));
+                }
+            };
+            let typed_param_0: Vec3 = {
+                if let Some(arg_val) = args.pop_front() {
+                    bevy_lua_ecs::reflection::lua_value_to_type::<Vec3>(
+                        lua,
+                        arg_val,
+                        &app_type_registry,
+                    )
+                    .map_err(|e| {
+                        mlua::Error::RuntimeError(format!(
+                            "Failed to convert parameter '{}': {}",
+                            "Vec3", e
+                        ))
+                    })?
+                } else {
+                    let reflect_default = type_registry
+                        .get_with_short_type_path("Vec3")
+                        .and_then(|reg| reg.data::<bevy::prelude::ReflectDefault>());
+                    if let Some(rd) = reflect_default {
+                        let param_instance = rd.default();
+                        *param_instance.downcast::<Vec3>().map_err(|_| {
+                            mlua::Error::RuntimeError(format!(
+                                "Failed to downcast default to '{}'",
+                                "Vec3"
+                            ))
+                        })?
+                    } else {
+                        return Err (mlua :: Error :: RuntimeError (format ! ("Cannot construct parameter type '{}' - no argument provided and no Default" , "Vec3"))) ;
+                    }
+                }
+            };
+            let typed_param_1: f32 = {
+                if let Some(arg_val) = args.pop_front() {
+                    bevy_lua_ecs::reflection::lua_value_to_type::<f32>(
+                        lua,
+                        arg_val,
+                        &app_type_registry,
+                    )
+                    .map_err(|e| {
+                        mlua::Error::RuntimeError(format!(
+                            "Failed to convert parameter '{}': {}",
+                            "f32", e
+                        ))
+                    })?
+                } else {
+                    let reflect_default = type_registry
+                        .get_with_short_type_path("f32")
+                        .and_then(|reg| reg.data::<bevy::prelude::ReflectDefault>());
+                    if let Some(rd) = reflect_default {
+                        let param_instance = rd.default();
+                        *param_instance.downcast::<f32>().map_err(|_| {
+                            mlua::Error::RuntimeError(format!(
+                                "Failed to downcast default to '{}'",
+                                "f32"
+                            ))
+                        })?
+                    } else {
+                        return Err (mlua :: Error :: RuntimeError (format ! ("Cannot construct parameter type '{}' - no argument provided and no Default" , "f32"))) ;
+                    }
+                }
+            };
+            let result = self_instance.refract(typed_param_0, typed_param_1);
+            bevy_lua_ecs::reflection::try_reflect_to_lua_value(lua, &result)
+        }
+        ("Vec3", "angle_between") => {
+            let app_type_registry = world.resource::<bevy::ecs::reflect::AppTypeRegistry>();
+            let type_registry = app_type_registry.read();
+            let self_instance: Vec3 = {
+                let self_arg = args.pop_front().ok_or_else(|| {
+                    mlua::Error::RuntimeError(format!(
+                        "{}::{} requires a self argument",
+                        "Vec3", "angle_between"
+                    ))
+                })?;
+                if let mlua::Value::Table(ref arg_table) = self_arg {
+                    if let Some(reg) = type_registry.get_with_short_type_path("Vec3") {
+                        if let Some(rfr) = reg.data::<bevy::reflect::ReflectFromReflect>() {
+                            let type_info = reg.type_info();
+                            let dynamic = bevy_lua_ecs::lua_table_to_dynamic(
+                                lua,
+                                arg_table,
+                                type_info,
+                                &app_type_registry,
+                            )
+                            .map_err(|e| {
+                                mlua::Error::RuntimeError(format!(
+                                    "Failed to build self '{}': {}",
+                                    "Vec3", e
+                                ))
+                            })?;
+                            if let Some(concrete) = rfr.from_reflect(&dynamic) {
+                                *concrete.downcast::<Vec3>().map_err(|_| {
+                                    mlua::Error::RuntimeError(format!(
+                                        "Failed to downcast self to {}",
+                                        "Vec3"
+                                    ))
+                                })?
+                            } else {
+                                return Err(mlua::Error::RuntimeError(format!(
+                                    "Failed to construct self type '{}' via FromReflect",
+                                    "Vec3"
+                                )));
+                            }
+                        } else {
+                            return Err(mlua::Error::RuntimeError(format!(
+                                "Type '{}' has no FromReflect implementation",
+                                "Vec3"
+                            )));
+                        }
+                    } else {
+                        return Err(mlua::Error::RuntimeError(format!(
+                            "Type '{}' not found in TypeRegistry",
+                            "Vec3"
+                        )));
+                    }
+                } else {
+                    return Err(mlua::Error::RuntimeError(format!(
+                        "{}::{} self argument expected table, got {:?}",
+                        "Vec3",
+                        "angle_between",
+                        self_arg.type_name()
+                    )));
+                }
+            };
+            let typed_param_0: Vec3 = {
+                if let Some(arg_val) = args.pop_front() {
+                    bevy_lua_ecs::reflection::lua_value_to_type::<Vec3>(
+                        lua,
+                        arg_val,
+                        &app_type_registry,
+                    )
+                    .map_err(|e| {
+                        mlua::Error::RuntimeError(format!(
+                            "Failed to convert parameter '{}': {}",
+                            "Vec3", e
+                        ))
+                    })?
+                } else {
+                    let reflect_default = type_registry
+                        .get_with_short_type_path("Vec3")
+                        .and_then(|reg| reg.data::<bevy::prelude::ReflectDefault>());
+                    if let Some(rd) = reflect_default {
+                        let param_instance = rd.default();
+                        *param_instance.downcast::<Vec3>().map_err(|_| {
+                            mlua::Error::RuntimeError(format!(
+                                "Failed to downcast default to '{}'",
+                                "Vec3"
+                            ))
+                        })?
+                    } else {
+                        return Err (mlua :: Error :: RuntimeError (format ! ("Cannot construct parameter type '{}' - no argument provided and no Default" , "Vec3"))) ;
+                    }
+                }
+            };
+            let result = self_instance.angle_between(typed_param_0);
+            bevy_lua_ecs::reflection::try_reflect_to_lua_value(lua, &result)
+        }
+        ("Vec3", "rotate_x") => {
+            let app_type_registry = world.resource::<bevy::ecs::reflect::AppTypeRegistry>();
+            let type_registry = app_type_registry.read();
+            let self_instance: Vec3 = {
+                let self_arg = args.pop_front().ok_or_else(|| {
+                    mlua::Error::RuntimeError(format!(
+                        "{}::{} requires a self argument",
+                        "Vec3", "rotate_x"
+                    ))
+                })?;
+                if let mlua::Value::Table(ref arg_table) = self_arg {
+                    if let Some(reg) = type_registry.get_with_short_type_path("Vec3") {
+                        if let Some(rfr) = reg.data::<bevy::reflect::ReflectFromReflect>() {
+                            let type_info = reg.type_info();
+                            let dynamic = bevy_lua_ecs::lua_table_to_dynamic(
+                                lua,
+                                arg_table,
+                                type_info,
+                                &app_type_registry,
+                            )
+                            .map_err(|e| {
+                                mlua::Error::RuntimeError(format!(
+                                    "Failed to build self '{}': {}",
+                                    "Vec3", e
+                                ))
+                            })?;
+                            if let Some(concrete) = rfr.from_reflect(&dynamic) {
+                                *concrete.downcast::<Vec3>().map_err(|_| {
+                                    mlua::Error::RuntimeError(format!(
+                                        "Failed to downcast self to {}",
+                                        "Vec3"
+                                    ))
+                                })?
+                            } else {
+                                return Err(mlua::Error::RuntimeError(format!(
+                                    "Failed to construct self type '{}' via FromReflect",
+                                    "Vec3"
+                                )));
+                            }
+                        } else {
+                            return Err(mlua::Error::RuntimeError(format!(
+                                "Type '{}' has no FromReflect implementation",
+                                "Vec3"
+                            )));
+                        }
+                    } else {
+                        return Err(mlua::Error::RuntimeError(format!(
+                            "Type '{}' not found in TypeRegistry",
+                            "Vec3"
+                        )));
+                    }
+                } else {
+                    return Err(mlua::Error::RuntimeError(format!(
+                        "{}::{} self argument expected table, got {:?}",
+                        "Vec3",
+                        "rotate_x",
+                        self_arg.type_name()
+                    )));
+                }
+            };
+            let typed_param_0: f32 = {
+                if let Some(arg_val) = args.pop_front() {
+                    bevy_lua_ecs::reflection::lua_value_to_type::<f32>(
+                        lua,
+                        arg_val,
+                        &app_type_registry,
+                    )
+                    .map_err(|e| {
+                        mlua::Error::RuntimeError(format!(
+                            "Failed to convert parameter '{}': {}",
+                            "f32", e
+                        ))
+                    })?
+                } else {
+                    let reflect_default = type_registry
+                        .get_with_short_type_path("f32")
+                        .and_then(|reg| reg.data::<bevy::prelude::ReflectDefault>());
+                    if let Some(rd) = reflect_default {
+                        let param_instance = rd.default();
+                        *param_instance.downcast::<f32>().map_err(|_| {
+                            mlua::Error::RuntimeError(format!(
+                                "Failed to downcast default to '{}'",
+                                "f32"
+                            ))
+                        })?
+                    } else {
+                        return Err (mlua :: Error :: RuntimeError (format ! ("Cannot construct parameter type '{}' - no argument provided and no Default" , "f32"))) ;
+                    }
+                }
+            };
+            let result = self_instance.rotate_x(typed_param_0);
+            bevy_lua_ecs::reflection::try_reflect_to_lua_value(lua, &result)
+        }
+        ("Vec3", "rotate_y") => {
+            let app_type_registry = world.resource::<bevy::ecs::reflect::AppTypeRegistry>();
+            let type_registry = app_type_registry.read();
+            let self_instance: Vec3 = {
+                let self_arg = args.pop_front().ok_or_else(|| {
+                    mlua::Error::RuntimeError(format!(
+                        "{}::{} requires a self argument",
+                        "Vec3", "rotate_y"
+                    ))
+                })?;
+                if let mlua::Value::Table(ref arg_table) = self_arg {
+                    if let Some(reg) = type_registry.get_with_short_type_path("Vec3") {
+                        if let Some(rfr) = reg.data::<bevy::reflect::ReflectFromReflect>() {
+                            let type_info = reg.type_info();
+                            let dynamic = bevy_lua_ecs::lua_table_to_dynamic(
+                                lua,
+                                arg_table,
+                                type_info,
+                                &app_type_registry,
+                            )
+                            .map_err(|e| {
+                                mlua::Error::RuntimeError(format!(
+                                    "Failed to build self '{}': {}",
+                                    "Vec3", e
+                                ))
+                            })?;
+                            if let Some(concrete) = rfr.from_reflect(&dynamic) {
+                                *concrete.downcast::<Vec3>().map_err(|_| {
+                                    mlua::Error::RuntimeError(format!(
+                                        "Failed to downcast self to {}",
+                                        "Vec3"
+                                    ))
+                                })?
+                            } else {
+                                return Err(mlua::Error::RuntimeError(format!(
+                                    "Failed to construct self type '{}' via FromReflect",
+                                    "Vec3"
+                                )));
+                            }
+                        } else {
+                            return Err(mlua::Error::RuntimeError(format!(
+                                "Type '{}' has no FromReflect implementation",
+                                "Vec3"
+                            )));
+                        }
+                    } else {
+                        return Err(mlua::Error::RuntimeError(format!(
+                            "Type '{}' not found in TypeRegistry",
+                            "Vec3"
+                        )));
+                    }
+                } else {
+                    return Err(mlua::Error::RuntimeError(format!(
+                        "{}::{} self argument expected table, got {:?}",
+                        "Vec3",
+                        "rotate_y",
+                        self_arg.type_name()
+                    )));
+                }
+            };
+            let typed_param_0: f32 = {
+                if let Some(arg_val) = args.pop_front() {
+                    bevy_lua_ecs::reflection::lua_value_to_type::<f32>(
+                        lua,
+                        arg_val,
+                        &app_type_registry,
+                    )
+                    .map_err(|e| {
+                        mlua::Error::RuntimeError(format!(
+                            "Failed to convert parameter '{}': {}",
+                            "f32", e
+                        ))
+                    })?
+                } else {
+                    let reflect_default = type_registry
+                        .get_with_short_type_path("f32")
+                        .and_then(|reg| reg.data::<bevy::prelude::ReflectDefault>());
+                    if let Some(rd) = reflect_default {
+                        let param_instance = rd.default();
+                        *param_instance.downcast::<f32>().map_err(|_| {
+                            mlua::Error::RuntimeError(format!(
+                                "Failed to downcast default to '{}'",
+                                "f32"
+                            ))
+                        })?
+                    } else {
+                        return Err (mlua :: Error :: RuntimeError (format ! ("Cannot construct parameter type '{}' - no argument provided and no Default" , "f32"))) ;
+                    }
+                }
+            };
+            let result = self_instance.rotate_y(typed_param_0);
+            bevy_lua_ecs::reflection::try_reflect_to_lua_value(lua, &result)
+        }
+        ("Vec3", "rotate_z") => {
+            let app_type_registry = world.resource::<bevy::ecs::reflect::AppTypeRegistry>();
+            let type_registry = app_type_registry.read();
+            let self_instance: Vec3 = {
+                let self_arg = args.pop_front().ok_or_else(|| {
+                    mlua::Error::RuntimeError(format!(
+                        "{}::{} requires a self argument",
+                        "Vec3", "rotate_z"
+                    ))
+                })?;
+                if let mlua::Value::Table(ref arg_table) = self_arg {
+                    if let Some(reg) = type_registry.get_with_short_type_path("Vec3") {
+                        if let Some(rfr) = reg.data::<bevy::reflect::ReflectFromReflect>() {
+                            let type_info = reg.type_info();
+                            let dynamic = bevy_lua_ecs::lua_table_to_dynamic(
+                                lua,
+                                arg_table,
+                                type_info,
+                                &app_type_registry,
+                            )
+                            .map_err(|e| {
+                                mlua::Error::RuntimeError(format!(
+                                    "Failed to build self '{}': {}",
+                                    "Vec3", e
+                                ))
+                            })?;
+                            if let Some(concrete) = rfr.from_reflect(&dynamic) {
+                                *concrete.downcast::<Vec3>().map_err(|_| {
+                                    mlua::Error::RuntimeError(format!(
+                                        "Failed to downcast self to {}",
+                                        "Vec3"
+                                    ))
+                                })?
+                            } else {
+                                return Err(mlua::Error::RuntimeError(format!(
+                                    "Failed to construct self type '{}' via FromReflect",
+                                    "Vec3"
+                                )));
+                            }
+                        } else {
+                            return Err(mlua::Error::RuntimeError(format!(
+                                "Type '{}' has no FromReflect implementation",
+                                "Vec3"
+                            )));
+                        }
+                    } else {
+                        return Err(mlua::Error::RuntimeError(format!(
+                            "Type '{}' not found in TypeRegistry",
+                            "Vec3"
+                        )));
+                    }
+                } else {
+                    return Err(mlua::Error::RuntimeError(format!(
+                        "{}::{} self argument expected table, got {:?}",
+                        "Vec3",
+                        "rotate_z",
+                        self_arg.type_name()
+                    )));
+                }
+            };
+            let typed_param_0: f32 = {
+                if let Some(arg_val) = args.pop_front() {
+                    bevy_lua_ecs::reflection::lua_value_to_type::<f32>(
+                        lua,
+                        arg_val,
+                        &app_type_registry,
+                    )
+                    .map_err(|e| {
+                        mlua::Error::RuntimeError(format!(
+                            "Failed to convert parameter '{}': {}",
+                            "f32", e
+                        ))
+                    })?
+                } else {
+                    let reflect_default = type_registry
+                        .get_with_short_type_path("f32")
+                        .and_then(|reg| reg.data::<bevy::prelude::ReflectDefault>());
+                    if let Some(rd) = reflect_default {
+                        let param_instance = rd.default();
+                        *param_instance.downcast::<f32>().map_err(|_| {
+                            mlua::Error::RuntimeError(format!(
+                                "Failed to downcast default to '{}'",
+                                "f32"
+                            ))
+                        })?
+                    } else {
+                        return Err (mlua :: Error :: RuntimeError (format ! ("Cannot construct parameter type '{}' - no argument provided and no Default" , "f32"))) ;
+                    }
+                }
+            };
+            let result = self_instance.rotate_z(typed_param_0);
+            bevy_lua_ecs::reflection::try_reflect_to_lua_value(lua, &result)
+        }
+        ("Vec3", "rotate_axis") => {
+            let app_type_registry = world.resource::<bevy::ecs::reflect::AppTypeRegistry>();
+            let type_registry = app_type_registry.read();
+            let self_instance: Vec3 = {
+                let self_arg = args.pop_front().ok_or_else(|| {
+                    mlua::Error::RuntimeError(format!(
+                        "{}::{} requires a self argument",
+                        "Vec3", "rotate_axis"
+                    ))
+                })?;
+                if let mlua::Value::Table(ref arg_table) = self_arg {
+                    if let Some(reg) = type_registry.get_with_short_type_path("Vec3") {
+                        if let Some(rfr) = reg.data::<bevy::reflect::ReflectFromReflect>() {
+                            let type_info = reg.type_info();
+                            let dynamic = bevy_lua_ecs::lua_table_to_dynamic(
+                                lua,
+                                arg_table,
+                                type_info,
+                                &app_type_registry,
+                            )
+                            .map_err(|e| {
+                                mlua::Error::RuntimeError(format!(
+                                    "Failed to build self '{}': {}",
+                                    "Vec3", e
+                                ))
+                            })?;
+                            if let Some(concrete) = rfr.from_reflect(&dynamic) {
+                                *concrete.downcast::<Vec3>().map_err(|_| {
+                                    mlua::Error::RuntimeError(format!(
+                                        "Failed to downcast self to {}",
+                                        "Vec3"
+                                    ))
+                                })?
+                            } else {
+                                return Err(mlua::Error::RuntimeError(format!(
+                                    "Failed to construct self type '{}' via FromReflect",
+                                    "Vec3"
+                                )));
+                            }
+                        } else {
+                            return Err(mlua::Error::RuntimeError(format!(
+                                "Type '{}' has no FromReflect implementation",
+                                "Vec3"
+                            )));
+                        }
+                    } else {
+                        return Err(mlua::Error::RuntimeError(format!(
+                            "Type '{}' not found in TypeRegistry",
+                            "Vec3"
+                        )));
+                    }
+                } else {
+                    return Err(mlua::Error::RuntimeError(format!(
+                        "{}::{} self argument expected table, got {:?}",
+                        "Vec3",
+                        "rotate_axis",
+                        self_arg.type_name()
+                    )));
+                }
+            };
+            let typed_param_0: Vec3 = {
+                if let Some(arg_val) = args.pop_front() {
+                    bevy_lua_ecs::reflection::lua_value_to_type::<Vec3>(
+                        lua,
+                        arg_val,
+                        &app_type_registry,
+                    )
+                    .map_err(|e| {
+                        mlua::Error::RuntimeError(format!(
+                            "Failed to convert parameter '{}': {}",
+                            "Vec3", e
+                        ))
+                    })?
+                } else {
+                    let reflect_default = type_registry
+                        .get_with_short_type_path("Vec3")
+                        .and_then(|reg| reg.data::<bevy::prelude::ReflectDefault>());
+                    if let Some(rd) = reflect_default {
+                        let param_instance = rd.default();
+                        *param_instance.downcast::<Vec3>().map_err(|_| {
+                            mlua::Error::RuntimeError(format!(
+                                "Failed to downcast default to '{}'",
+                                "Vec3"
+                            ))
+                        })?
+                    } else {
+                        return Err (mlua :: Error :: RuntimeError (format ! ("Cannot construct parameter type '{}' - no argument provided and no Default" , "Vec3"))) ;
+                    }
+                }
+            };
+            let typed_param_1: f32 = {
+                if let Some(arg_val) = args.pop_front() {
+                    bevy_lua_ecs::reflection::lua_value_to_type::<f32>(
+                        lua,
+                        arg_val,
+                        &app_type_registry,
+                    )
+                    .map_err(|e| {
+                        mlua::Error::RuntimeError(format!(
+                            "Failed to convert parameter '{}': {}",
+                            "f32", e
+                        ))
+                    })?
+                } else {
+                    let reflect_default = type_registry
+                        .get_with_short_type_path("f32")
+                        .and_then(|reg| reg.data::<bevy::prelude::ReflectDefault>());
+                    if let Some(rd) = reflect_default {
+                        let param_instance = rd.default();
+                        *param_instance.downcast::<f32>().map_err(|_| {
+                            mlua::Error::RuntimeError(format!(
+                                "Failed to downcast default to '{}'",
+                                "f32"
+                            ))
+                        })?
+                    } else {
+                        return Err (mlua :: Error :: RuntimeError (format ! ("Cannot construct parameter type '{}' - no argument provided and no Default" , "f32"))) ;
+                    }
+                }
+            };
+            let result = self_instance.rotate_axis(typed_param_0, typed_param_1);
+            bevy_lua_ecs::reflection::try_reflect_to_lua_value(lua, &result)
+        }
+        ("Vec3", "rotate_towards") => {
+            let app_type_registry = world.resource::<bevy::ecs::reflect::AppTypeRegistry>();
+            let type_registry = app_type_registry.read();
+            let self_instance: Vec3 = {
+                let self_arg = args.pop_front().ok_or_else(|| {
+                    mlua::Error::RuntimeError(format!(
+                        "{}::{} requires a self argument",
+                        "Vec3", "rotate_towards"
+                    ))
+                })?;
+                if let mlua::Value::Table(ref arg_table) = self_arg {
+                    if let Some(reg) = type_registry.get_with_short_type_path("Vec3") {
+                        if let Some(rfr) = reg.data::<bevy::reflect::ReflectFromReflect>() {
+                            let type_info = reg.type_info();
+                            let dynamic = bevy_lua_ecs::lua_table_to_dynamic(
+                                lua,
+                                arg_table,
+                                type_info,
+                                &app_type_registry,
+                            )
+                            .map_err(|e| {
+                                mlua::Error::RuntimeError(format!(
+                                    "Failed to build self '{}': {}",
+                                    "Vec3", e
+                                ))
+                            })?;
+                            if let Some(concrete) = rfr.from_reflect(&dynamic) {
+                                *concrete.downcast::<Vec3>().map_err(|_| {
+                                    mlua::Error::RuntimeError(format!(
+                                        "Failed to downcast self to {}",
+                                        "Vec3"
+                                    ))
+                                })?
+                            } else {
+                                return Err(mlua::Error::RuntimeError(format!(
+                                    "Failed to construct self type '{}' via FromReflect",
+                                    "Vec3"
+                                )));
+                            }
+                        } else {
+                            return Err(mlua::Error::RuntimeError(format!(
+                                "Type '{}' has no FromReflect implementation",
+                                "Vec3"
+                            )));
+                        }
+                    } else {
+                        return Err(mlua::Error::RuntimeError(format!(
+                            "Type '{}' not found in TypeRegistry",
+                            "Vec3"
+                        )));
+                    }
+                } else {
+                    return Err(mlua::Error::RuntimeError(format!(
+                        "{}::{} self argument expected table, got {:?}",
+                        "Vec3",
+                        "rotate_towards",
+                        self_arg.type_name()
+                    )));
+                }
+            };
+            let typed_param_0: Vec3 = {
+                if let Some(arg_val) = args.pop_front() {
+                    bevy_lua_ecs::reflection::lua_value_to_type::<Vec3>(
+                        lua,
+                        arg_val,
+                        &app_type_registry,
+                    )
+                    .map_err(|e| {
+                        mlua::Error::RuntimeError(format!(
+                            "Failed to convert parameter '{}': {}",
+                            "Vec3", e
+                        ))
+                    })?
+                } else {
+                    let reflect_default = type_registry
+                        .get_with_short_type_path("Vec3")
+                        .and_then(|reg| reg.data::<bevy::prelude::ReflectDefault>());
+                    if let Some(rd) = reflect_default {
+                        let param_instance = rd.default();
+                        *param_instance.downcast::<Vec3>().map_err(|_| {
+                            mlua::Error::RuntimeError(format!(
+                                "Failed to downcast default to '{}'",
+                                "Vec3"
+                            ))
+                        })?
+                    } else {
+                        return Err (mlua :: Error :: RuntimeError (format ! ("Cannot construct parameter type '{}' - no argument provided and no Default" , "Vec3"))) ;
+                    }
+                }
+            };
+            let typed_param_1: f32 = {
+                if let Some(arg_val) = args.pop_front() {
+                    bevy_lua_ecs::reflection::lua_value_to_type::<f32>(
+                        lua,
+                        arg_val,
+                        &app_type_registry,
+                    )
+                    .map_err(|e| {
+                        mlua::Error::RuntimeError(format!(
+                            "Failed to convert parameter '{}': {}",
+                            "f32", e
+                        ))
+                    })?
+                } else {
+                    let reflect_default = type_registry
+                        .get_with_short_type_path("f32")
+                        .and_then(|reg| reg.data::<bevy::prelude::ReflectDefault>());
+                    if let Some(rd) = reflect_default {
+                        let param_instance = rd.default();
+                        *param_instance.downcast::<f32>().map_err(|_| {
+                            mlua::Error::RuntimeError(format!(
+                                "Failed to downcast default to '{}'",
+                                "f32"
+                            ))
+                        })?
+                    } else {
+                        return Err (mlua :: Error :: RuntimeError (format ! ("Cannot construct parameter type '{}' - no argument provided and no Default" , "f32"))) ;
+                    }
+                }
+            };
+            let result = self_instance.rotate_towards(typed_param_0, typed_param_1);
+            bevy_lua_ecs::reflection::try_reflect_to_lua_value(lua, &result)
+        }
+        ("Vec3", "any_orthogonal_vector") => {
+            let app_type_registry = world.resource::<bevy::ecs::reflect::AppTypeRegistry>();
+            let type_registry = app_type_registry.read();
+            let self_instance: Vec3 = {
+                let self_arg = args.pop_front().ok_or_else(|| {
+                    mlua::Error::RuntimeError(format!(
+                        "{}::{} requires a self argument",
+                        "Vec3", "any_orthogonal_vector"
+                    ))
+                })?;
+                if let mlua::Value::Table(ref arg_table) = self_arg {
+                    if let Some(reg) = type_registry.get_with_short_type_path("Vec3") {
+                        if let Some(rfr) = reg.data::<bevy::reflect::ReflectFromReflect>() {
+                            let type_info = reg.type_info();
+                            let dynamic = bevy_lua_ecs::lua_table_to_dynamic(
+                                lua,
+                                arg_table,
+                                type_info,
+                                &app_type_registry,
+                            )
+                            .map_err(|e| {
+                                mlua::Error::RuntimeError(format!(
+                                    "Failed to build self '{}': {}",
+                                    "Vec3", e
+                                ))
+                            })?;
+                            if let Some(concrete) = rfr.from_reflect(&dynamic) {
+                                *concrete.downcast::<Vec3>().map_err(|_| {
+                                    mlua::Error::RuntimeError(format!(
+                                        "Failed to downcast self to {}",
+                                        "Vec3"
+                                    ))
+                                })?
+                            } else {
+                                return Err(mlua::Error::RuntimeError(format!(
+                                    "Failed to construct self type '{}' via FromReflect",
+                                    "Vec3"
+                                )));
+                            }
+                        } else {
+                            return Err(mlua::Error::RuntimeError(format!(
+                                "Type '{}' has no FromReflect implementation",
+                                "Vec3"
+                            )));
+                        }
+                    } else {
+                        return Err(mlua::Error::RuntimeError(format!(
+                            "Type '{}' not found in TypeRegistry",
+                            "Vec3"
+                        )));
+                    }
+                } else {
+                    return Err(mlua::Error::RuntimeError(format!(
+                        "{}::{} self argument expected table, got {:?}",
+                        "Vec3",
+                        "any_orthogonal_vector",
+                        self_arg.type_name()
+                    )));
+                }
+            };
+            let result = self_instance.any_orthogonal_vector();
+            bevy_lua_ecs::reflection::try_reflect_to_lua_value(lua, &result)
+        }
+        ("Vec3", "any_orthonormal_vector") => {
+            let app_type_registry = world.resource::<bevy::ecs::reflect::AppTypeRegistry>();
+            let type_registry = app_type_registry.read();
+            let self_instance: Vec3 = {
+                let self_arg = args.pop_front().ok_or_else(|| {
+                    mlua::Error::RuntimeError(format!(
+                        "{}::{} requires a self argument",
+                        "Vec3", "any_orthonormal_vector"
+                    ))
+                })?;
+                if let mlua::Value::Table(ref arg_table) = self_arg {
+                    if let Some(reg) = type_registry.get_with_short_type_path("Vec3") {
+                        if let Some(rfr) = reg.data::<bevy::reflect::ReflectFromReflect>() {
+                            let type_info = reg.type_info();
+                            let dynamic = bevy_lua_ecs::lua_table_to_dynamic(
+                                lua,
+                                arg_table,
+                                type_info,
+                                &app_type_registry,
+                            )
+                            .map_err(|e| {
+                                mlua::Error::RuntimeError(format!(
+                                    "Failed to build self '{}': {}",
+                                    "Vec3", e
+                                ))
+                            })?;
+                            if let Some(concrete) = rfr.from_reflect(&dynamic) {
+                                *concrete.downcast::<Vec3>().map_err(|_| {
+                                    mlua::Error::RuntimeError(format!(
+                                        "Failed to downcast self to {}",
+                                        "Vec3"
+                                    ))
+                                })?
+                            } else {
+                                return Err(mlua::Error::RuntimeError(format!(
+                                    "Failed to construct self type '{}' via FromReflect",
+                                    "Vec3"
+                                )));
+                            }
+                        } else {
+                            return Err(mlua::Error::RuntimeError(format!(
+                                "Type '{}' has no FromReflect implementation",
+                                "Vec3"
+                            )));
+                        }
+                    } else {
+                        return Err(mlua::Error::RuntimeError(format!(
+                            "Type '{}' not found in TypeRegistry",
+                            "Vec3"
+                        )));
+                    }
+                } else {
+                    return Err(mlua::Error::RuntimeError(format!(
+                        "{}::{} self argument expected table, got {:?}",
+                        "Vec3",
+                        "any_orthonormal_vector",
+                        self_arg.type_name()
+                    )));
+                }
+            };
+            let result = self_instance.any_orthonormal_vector();
+            bevy_lua_ecs::reflection::try_reflect_to_lua_value(lua, &result)
+        }
+        ("Vec3", "slerp") => {
+            let app_type_registry = world.resource::<bevy::ecs::reflect::AppTypeRegistry>();
+            let type_registry = app_type_registry.read();
+            let self_instance: Vec3 = {
+                let self_arg = args.pop_front().ok_or_else(|| {
+                    mlua::Error::RuntimeError(format!(
+                        "{}::{} requires a self argument",
+                        "Vec3", "slerp"
+                    ))
+                })?;
+                if let mlua::Value::Table(ref arg_table) = self_arg {
+                    if let Some(reg) = type_registry.get_with_short_type_path("Vec3") {
+                        if let Some(rfr) = reg.data::<bevy::reflect::ReflectFromReflect>() {
+                            let type_info = reg.type_info();
+                            let dynamic = bevy_lua_ecs::lua_table_to_dynamic(
+                                lua,
+                                arg_table,
+                                type_info,
+                                &app_type_registry,
+                            )
+                            .map_err(|e| {
+                                mlua::Error::RuntimeError(format!(
+                                    "Failed to build self '{}': {}",
+                                    "Vec3", e
+                                ))
+                            })?;
+                            if let Some(concrete) = rfr.from_reflect(&dynamic) {
+                                *concrete.downcast::<Vec3>().map_err(|_| {
+                                    mlua::Error::RuntimeError(format!(
+                                        "Failed to downcast self to {}",
+                                        "Vec3"
+                                    ))
+                                })?
+                            } else {
+                                return Err(mlua::Error::RuntimeError(format!(
+                                    "Failed to construct self type '{}' via FromReflect",
+                                    "Vec3"
+                                )));
+                            }
+                        } else {
+                            return Err(mlua::Error::RuntimeError(format!(
+                                "Type '{}' has no FromReflect implementation",
+                                "Vec3"
+                            )));
+                        }
+                    } else {
+                        return Err(mlua::Error::RuntimeError(format!(
+                            "Type '{}' not found in TypeRegistry",
+                            "Vec3"
+                        )));
+                    }
+                } else {
+                    return Err(mlua::Error::RuntimeError(format!(
+                        "{}::{} self argument expected table, got {:?}",
+                        "Vec3",
+                        "slerp",
+                        self_arg.type_name()
+                    )));
+                }
+            };
+            let typed_param_0: Vec3 = {
+                if let Some(arg_val) = args.pop_front() {
+                    bevy_lua_ecs::reflection::lua_value_to_type::<Vec3>(
+                        lua,
+                        arg_val,
+                        &app_type_registry,
+                    )
+                    .map_err(|e| {
+                        mlua::Error::RuntimeError(format!(
+                            "Failed to convert parameter '{}': {}",
+                            "Vec3", e
+                        ))
+                    })?
+                } else {
+                    let reflect_default = type_registry
+                        .get_with_short_type_path("Vec3")
+                        .and_then(|reg| reg.data::<bevy::prelude::ReflectDefault>());
+                    if let Some(rd) = reflect_default {
+                        let param_instance = rd.default();
+                        *param_instance.downcast::<Vec3>().map_err(|_| {
+                            mlua::Error::RuntimeError(format!(
+                                "Failed to downcast default to '{}'",
+                                "Vec3"
+                            ))
+                        })?
+                    } else {
+                        return Err (mlua :: Error :: RuntimeError (format ! ("Cannot construct parameter type '{}' - no argument provided and no Default" , "Vec3"))) ;
+                    }
+                }
+            };
+            let typed_param_1: f32 = {
+                if let Some(arg_val) = args.pop_front() {
+                    bevy_lua_ecs::reflection::lua_value_to_type::<f32>(
+                        lua,
+                        arg_val,
+                        &app_type_registry,
+                    )
+                    .map_err(|e| {
+                        mlua::Error::RuntimeError(format!(
+                            "Failed to convert parameter '{}': {}",
+                            "f32", e
+                        ))
+                    })?
+                } else {
+                    let reflect_default = type_registry
+                        .get_with_short_type_path("f32")
+                        .and_then(|reg| reg.data::<bevy::prelude::ReflectDefault>());
+                    if let Some(rd) = reflect_default {
+                        let param_instance = rd.default();
+                        *param_instance.downcast::<f32>().map_err(|_| {
+                            mlua::Error::RuntimeError(format!(
+                                "Failed to downcast default to '{}'",
+                                "f32"
+                            ))
+                        })?
+                    } else {
+                        return Err (mlua :: Error :: RuntimeError (format ! ("Cannot construct parameter type '{}' - no argument provided and no Default" , "f32"))) ;
+                    }
+                }
+            };
+            let result = self_instance.slerp(typed_param_0, typed_param_1);
+            bevy_lua_ecs::reflection::try_reflect_to_lua_value(lua, &result)
+        }
+        _ => Err(mlua::Error::RuntimeError(format!(
+            "Unknown or unsupported static method: {}::{}",
+            type_name, method_name
+        ))),
+    }
+}
 #[doc = r" Returns a Lua table of events converted via reflection"]
 #[doc = r" Also supports reading Message types (uses MessageReader instead of EventReader)"]
 pub fn dispatch_read_events(
@@ -7034,6 +15166,7 @@ impl bevy::prelude::Plugin for LuaBindingsPlugin {
         bevy_lua_ecs::set_event_write_dispatcher(dispatch_write_events);
         bevy_lua_ecs::set_message_write_dispatcher(dispatch_write_message);
         bevy_lua_ecs::set_component_method_dispatcher(dispatch_component_method);
+        bevy_lua_ecs::set_static_method_dispatcher(dispatch_static_method);
         register_bevy_events(app);
         app.init_resource::<bevy_lua_ecs::BitflagsRegistry>();
         app.add_systems(bevy::prelude::Startup, setup_bitflags);

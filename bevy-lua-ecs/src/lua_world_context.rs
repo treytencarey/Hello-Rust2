@@ -354,6 +354,18 @@ impl LuaUserData for LuaWorldContext<'_> {
             )
         });
 
+        // call_static_method(type_name, method_name, ...args) - call static methods on math types
+        // Unlike call_component_method, this doesn't require an entity or world access
+        methods.add_method("call_static_method", |lua, this, (type_name, method_name, args): (String, String, mlua::MultiValue)| {
+            crate::systemparam_lua_trait::call_static_method_global(
+                lua,
+                this.world(),
+                &type_name,
+                &method_name,
+                args,
+            )
+        });
+
         // send_event(event_type_name, data_table) - send an event immediately
         methods.add_method("send_event", |lua, this, (event_type_name, data_table): (String, LuaTable)| {
             bevy::log::debug!("[SEND_EVENT] Writing event: '{}'", event_type_name);

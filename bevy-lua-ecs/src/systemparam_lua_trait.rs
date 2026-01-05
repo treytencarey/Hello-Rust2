@@ -187,6 +187,40 @@ pub fn call_component_method_global(
     }
 }
 
+/// Function signature for the auto-generated static method dispatcher (e.g., Quat::from_euler)
+/// Takes: Lua, type_name, method_name, args (no World or entity needed for math types)
+pub type StaticMethodDispatchFn =
+    fn(&Lua, &World, &str, &str, LuaMultiValue) -> LuaResult<LuaValue>;
+
+/// Global dispatch function for static method calls (e.g., Quat::from_euler, Vec3::new)
+static STATIC_METHOD_DISPATCHER: std::sync::OnceLock<StaticMethodDispatchFn> =
+    std::sync::OnceLock::new();
+
+/// Set the global static method dispatcher
+/// This should be called by the parent crate's initialization code
+/// to register the auto-generated dispatch_static_method function
+pub fn set_static_method_dispatcher(dispatcher: StaticMethodDispatchFn) {
+    let _ = STATIC_METHOD_DISPATCHER.set(dispatcher);
+}
+
+/// Call the registered static method dispatcher
+/// Returns an error if no dispatcher has been set
+pub fn call_static_method_global(
+    lua: &Lua,
+    world: &World,
+    type_name: &str,
+    method_name: &str,
+    args: LuaMultiValue,
+) -> LuaResult<LuaValue> {
+    if let Some(dispatcher) = STATIC_METHOD_DISPATCHER.get() {
+        dispatcher(lua, world, type_name, method_name, args)
+    } else {
+        Err(LuaError::RuntimeError(format!(
+            "Static method dispatch not configured. Call set_static_method_dispatcher() at initialization."
+        )))
+    }
+}
+
 /// This is the main infrastructure for exposing SystemParam methods to Lua
 #[derive(Resource, Clone, Default)]
 pub struct LuaSystemParamRegistry {

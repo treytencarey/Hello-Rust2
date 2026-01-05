@@ -340,6 +340,16 @@ fn generate_bindings_for_manifest(manifest_path: &Path) {
     // Auto-discover Component methods (e.g., Transform::looking_at)
     let discovered_component_methods = get_discovered_component_methods();
     
+    // Parse lua_methods configuration from [package.metadata.lua_methods]
+    // This MUST happen BEFORE get_discovered_static_methods so we can pass the config
+    let lua_methods_config = get_lua_methods_from_metadata(&manifest);
+    
+    // Auto-discover static methods on math types using config from lua_methods
+    let discovered_static_methods = get_discovered_static_methods(
+        &lua_methods_config.static_method_crates,
+        &lua_methods_config.static_types,
+    );
+    
     // Discover what types are exported from bevy::prelude (reserved for future use)
     let _bevy_prelude_types = discover_bevy_prelude_types();
 
@@ -358,9 +368,6 @@ fn generate_bindings_for_manifest(manifest_path: &Path) {
             });
         }
     }
-
-    // Parse lua_methods configuration from [package.metadata.lua_methods]
-    let lua_methods_config = get_lua_methods_from_metadata(&manifest);
 
     // Extract the package name from the manifest
     let parent_crate_name = manifest
@@ -384,6 +391,7 @@ fn generate_bindings_for_manifest(manifest_path: &Path) {
         discovered_systemparams,
         discovered_systemparam_methods,
         discovered_component_methods,
+        discovered_static_methods,
         &lua_methods_config,
         &parent_src_dir,
         &parent_crate_name,
@@ -538,6 +546,8 @@ struct LuaMethodsConfig {
     component_types: Vec<String>,
     /// Static types to expose static methods for (e.g., Quat, Vec3)
     static_types: Vec<String>,
+    /// Crates to scan for static methods (e.g., glam)
+    static_method_crates: Vec<String>,
 }
 
 /// Parse lua_methods configuration from [package.metadata.lua_methods] in Cargo.toml
@@ -556,6 +566,7 @@ fn get_lua_methods_from_metadata(manifest: &toml::Value) -> LuaMethodsConfig {
         return LuaMethodsConfig {
             component_types: vec!["Transform".into(), "GlobalTransform".into()],
             static_types: vec![],
+            static_method_crates: vec![],
         };
     };
 
@@ -579,15 +590,27 @@ fn get_lua_methods_from_metadata(manifest: &toml::Value) -> LuaMethodsConfig {
         })
         .unwrap_or_default();
 
+    let static_method_crates: Vec<String> = methods
+        .get("static_method_crates")
+        .and_then(|t| t.as_array())
+        .map(|arr| {
+            arr.iter()
+                .filter_map(|v| v.as_str().map(String::from))
+                .collect()
+        })
+        .unwrap_or_default();
+
     println!(
-        "cargo:warning=  ✓ Found lua_methods config: {} component types, {} static types",
+        "cargo:warning=  ✓ Found lua_methods config: {} component types, {} static types, {} crates",
         component_types.len(),
-        static_types.len()
+        static_types.len(),
+        static_method_crates.len()
     );
 
     LuaMethodsConfig {
         component_types,
         static_types,
+        static_method_crates,
     }
 }
 
@@ -1905,7 +1928,344 @@ fn get_discovered_component_methods() -> Vec<DiscoveredComponentMethod> {
     methods
 }
 
+// =============================================================================
+// STATIC METHOD DISCOVERY
+// Auto-discover static methods on math types (Quat, Vec3, etc.) from glam crate
+// =============================================================================
+
+/// Discovered static method on a math type
+#[derive(Debug, Clone, Serialize, Deserialize)]
+struct DiscoveredStaticMethod {
+    /// Short type name (e.g., "Quat", "Vec3")
+    type_name: String,
+    /// Method name (e.g., "from_euler", "mul_quat")
+    method_name: String,
+    /// Parameters (excluding self receiver if present)
+    params: Vec<SystemParamMethodParam>,
+    /// Return type as string
+    return_type: String,
+    /// Full crate path for imports (e.g., "glam")
+    source_crate: String,
+    /// Whether this method takes self (instance method vs true static)
+    takes_self: bool,
+}
+
+/// Cache for discovered static methods
+#[derive(Debug, Serialize, Deserialize)]
+struct StaticMethodCache {
+    /// Hash of Cargo.lock to detect dependency changes
+    cargo_lock_hash: String,
+    /// Discovered methods
+    methods: Vec<DiscoveredStaticMethod>,
+}
+
+/// Get cache file path for static methods
+fn get_static_method_cache_path() -> Option<PathBuf> {
+    env::var("OUT_DIR").ok().map(|d| PathBuf::from(d).join("static_method_cache.json"))
+}
+
+/// Load static method cache if valid
+fn load_static_method_cache() -> Option<StaticMethodCache> {
+    let cache_path = get_static_method_cache_path()?;
+    if !cache_path.exists() {
+        return None;
+    }
+    let content = fs::read_to_string(&cache_path).ok()?;
+    let cache: StaticMethodCache = serde_json::from_str(&content).ok()?;
+    if cache.cargo_lock_hash != compute_cargo_lock_hash() {
+        return None;
+    }
+    Some(cache)
+}
+
+/// Save static method cache
+fn save_static_method_cache(methods: &[DiscoveredStaticMethod]) {
+    let Some(cache_path) = get_static_method_cache_path() else {
+        return;
+    };
+    let cache = StaticMethodCache {
+        cargo_lock_hash: compute_cargo_lock_hash(),
+        methods: methods.to_vec(),
+    };
+    if let Ok(json) = serde_json::to_string_pretty(&cache) {
+        let _ = fs::write(&cache_path, json);
+    }
+}
+
+/// Get discovered static methods (from cache or by discovery)
+fn get_discovered_static_methods(static_method_crates: &[String], static_types: &[String]) -> Vec<DiscoveredStaticMethod> {
+    if let Some(cache) = load_static_method_cache() {
+        return cache.methods;
+    }
+    println!("cargo:warning=[CACHE] Cache miss - running static method discovery...");
+    let methods = discover_static_methods_for_crates(static_method_crates, static_types);
+    save_static_method_cache(&methods);
+    methods
+}
+
+/// Parse Cargo.lock to get versions of all packages
+fn get_dependencies_from_lock_file() -> std::collections::HashMap<String, String> {
+    let mut deps = std::collections::HashMap::new();
+    let lock_path = PathBuf::from(env::var("CARGO_MANIFEST_DIR").unwrap()).join("../Cargo.lock");
+    
+    // Attempt to finding Cargo.lock in parent directories if not in manifest dir (workspace root)
+    let lock_path = if lock_path.exists() {
+        lock_path
+    } else {
+         PathBuf::from("Cargo.lock")
+    };
+
+    println!("cargo:warning=[LOCKFILE] Reading lockfile from {:?}", lock_path.canonicalize().unwrap_or(lock_path.clone()));
+
+    if let Ok(content) = fs::read_to_string(&lock_path) {
+        let mut current_name: Option<String> = None;
+        for line in content.lines() {
+            let trimmed = line.trim();
+            if trimmed.starts_with("name = ") {
+                if let Some(name) = trimmed.strip_prefix("name = \"").and_then(|s| s.strip_suffix('"')) {
+                    current_name = Some(name.to_string());
+                }
+            } else if trimmed.starts_with("version = ") {
+                if let Some(name) = current_name.take() {
+                    if let Some(version) = trimmed.strip_prefix("version = \"").and_then(|s| s.strip_suffix('"')) {
+                        deps.insert(name, version.to_string());
+                    }
+                }
+            } else if trimmed == "[[package]]" {
+                current_name = None;
+            }
+        }
+    } else {
+        println!("cargo:warning=[LOCKFILE] Failed to read Cargo.lock");
+    }
+    deps
+}
+
+/// Discover static methods on math types from configured crates
+/// target_crates: Crates to scan (from static_method_crates config)
+/// static_types: Types to discover methods on (from static_types config)
+fn discover_static_methods_for_crates(target_crates: &[String], static_types: &[String]) -> Vec<DiscoveredStaticMethod> {
+    let mut methods = Vec::new();
+    
+    if target_crates.is_empty() {
+        println!("cargo:warning=[STATIC_DISCOVERY] No crates configured in static_method_crates");
+        return methods;
+    }
+    
+    if static_types.is_empty() {
+        println!("cargo:warning=[STATIC_DISCOVERY] No types configured in static_types");
+        return methods;
+    }
+    
+    println!("cargo:warning=[STATIC_DISCOVERY] Scanning for static methods in crates: {:?}", target_crates);
+    println!("cargo:warning=[STATIC_DISCOVERY] Looking for types: {:?}", static_types);
+
+    let cargo_home = env::var("CARGO_HOME")
+        .or_else(|_| env::var("HOME").map(|h| format!("{}/.cargo", h)))
+        .or_else(|_| env::var("USERPROFILE").map(|h| format!("{}/.cargo", h)))
+        .unwrap_or_default();
+
+    if cargo_home.is_empty() {
+        return methods;
+    }
+
+    let registry_src = PathBuf::from(&cargo_home).join("registry/src");
+    if !registry_src.exists() {
+        println!("cargo:warning=[STATIC_DISCOVERY] Registry src not found at {:?}", registry_src);
+        return methods;
+    }
+
+    let dependencies = get_dependencies_from_lock_file();
+    println!("cargo:warning=[STATIC_DISCOVERY] Found {} dependencies in lockfile", dependencies.len());
+
+    for index_entry in fs::read_dir(&registry_src).into_iter().flatten().flatten() {
+        let index_dir = index_entry.path();
+        if !index_dir.is_dir() {
+            continue;
+        }
+
+        for crate_entry in fs::read_dir(&index_dir).into_iter().flatten().flatten() {
+            let crate_dir = crate_entry.path();
+            let dir_name = crate_dir.file_name().and_then(|n| n.to_str()).unwrap_or("");
+
+            let parts: Vec<&str> = dir_name.rsplitn(2, '-').collect();
+            if parts.len() != 2 {
+                continue;
+            }
+            let dir_version = parts[0];
+            let base_crate = parts[1];
+
+            // Check if this crate is in our target list
+            if !target_crates.iter().any(|c| c == base_crate) {
+                continue;
+            }
+
+            let expected_version = match dependencies.get(base_crate) {
+                Some(v) => v,
+                None => continue,
+            };
+
+            if dir_version != expected_version {
+                println!("cargo:warning=[STATIC_DISCOVERY] Skipping {} version mismatch: {} != {}", base_crate, dir_version, expected_version);
+                continue;
+            }
+
+            let src_dir = crate_dir.join("src");
+            if src_dir.exists() {
+                println!("cargo:warning=[STATIC_DISCOVERY] Scanning {} source at: {:?}", base_crate, src_dir);
+                scan_directory_for_static_methods(&src_dir, base_crate, static_types, &mut methods);
+            } else {
+                println!("cargo:warning=[STATIC_DISCOVERY] {} src dir not found at: {:?}", base_crate, src_dir);
+            }
+        }
+    }
+
+    let mut seen = std::collections::HashSet::new();
+    methods.retain(|m| seen.insert((m.type_name.clone(), m.method_name.clone())));
+
+    println!("cargo:warning=  ✓ Discovered {} static methods", methods.len());
+    for method in &methods {
+        let params_str: Vec<String> = method.params.iter().map(|p| format!("{}: {}", p.name, p.type_str)).collect();
+        println!("cargo:warning=    - {}::{}({})", method.type_name, method.method_name, params_str.join(", "));
+    }
+
+    methods
+}
+
+/// Scan directory for static method implementations
+fn scan_directory_for_static_methods(dir: &Path, crate_name: &str, target_types: &[String], results: &mut Vec<DiscoveredStaticMethod>) {
+    for entry in fs::read_dir(dir).into_iter().flatten().flatten() {
+        let path = entry.path();
+        if path.is_dir() {
+            scan_directory_for_static_methods(&path, crate_name, target_types, results);
+        } else if path.extension().map_or(false, |ext| ext == "rs") {
+            if let Ok(source) = fs::read_to_string(&path) {
+                parse_static_methods_from_source(&source, crate_name, target_types, results);
+            }
+        }
+    }
+}
+
+/// Parse source file for static methods on configured types
+fn parse_static_methods_from_source(source: &str, crate_name: &str, target_types: &[String], results: &mut Vec<DiscoveredStaticMethod>) {
+    let Ok(file) = syn::parse_file(source) else {
+        return;
+    };
+
+    for item in &file.items {
+        if let Item::Impl(item_impl) = item {
+            if item_impl.trait_.is_some() {
+                continue;
+            }
+
+            let type_name = match &*item_impl.self_ty {
+                syn::Type::Path(tp) => tp.path.segments.last().map(|s| s.ident.to_string()),
+                _ => None,
+            };
+
+            let Some(type_name) = type_name else {
+                continue;
+            };
+
+            // Filter to only types configured in static_types
+            if !target_types.iter().any(|t| t == &type_name) {
+                continue;
+            }
+
+            for impl_item in &item_impl.items {
+                if let ImplItem::Fn(method) = impl_item {
+                    if !matches!(method.vis, Visibility::Public(_)) {
+                        continue;
+                    }
+
+                    // Check if method takes self (instance method) vs truly static
+                    let takes_self = method.sig.inputs.iter().any(|arg| matches!(arg, FnArg::Receiver(_)));
+
+                    if !method.sig.generics.params.is_empty() {
+                        continue;
+                    }
+
+                    let method_name = method.sig.ident.to_string();
+                    if method_name.starts_with('_') || method.sig.unsafety.is_some() {
+                        continue;
+                    }
+
+                    let mut params = Vec::new();
+                    let mut all_params_ok = true;
+
+                    for arg in &method.sig.inputs {
+                        // Skip self receiver - we handle it separately
+                        if matches!(arg, FnArg::Receiver(_)) {
+                            continue;
+                        }
+                        if let FnArg::Typed(pat_type) = arg {
+                            let param_name = match &*pat_type.pat {
+                                syn::Pat::Ident(pi) => pi.ident.to_string(),
+                                _ => {
+                                    all_params_ok = false;
+                                    break;
+                                }
+                            };
+
+                            let type_str = pat_type.ty.to_token_stream().to_string();
+                            
+                            // Filter to types that can be handled: primitives + target_types
+                            // This is necessary because runtime reflection requires TypeRegistry registration
+                            let base_type = type_str.trim();
+                            let is_target_type = target_types.iter().any(|t| t == base_type);
+                            let is_self = base_type == "Self";
+                            // EulerRot is an enum used by math types
+                            let is_known_enum = base_type == "EulerRot";
+                            
+                            if !is_primitive_type(base_type) && !is_target_type && !is_self && !is_known_enum {
+                                all_params_ok = false;
+                                break;
+                            }
+                            
+                            params.push(SystemParamMethodParam {
+                                name: param_name,
+                                type_str,
+                                is_reference: false,
+                                is_reflectable: true,
+                            });
+                        }
+                    }
+
+                    if !all_params_ok {
+                        continue;
+                    }
+
+                    let return_type = match &method.sig.output {
+                        ReturnType::Default => "()".to_string(),
+                        ReturnType::Type(_, ty) => ty.to_token_stream().to_string(),
+                    };
+
+                    // Filter return types to those we can convert: primitives, target_types, Self, ()
+                    let return_base = return_type.trim();
+                    let is_return_ok = return_base == "()" 
+                        || is_primitive_type(return_base)
+                        || target_types.iter().any(|t| t == return_base)
+                        || return_base == "Self";
+                    
+                    if !is_return_ok {
+                        continue;
+                    }
+                    results.push(DiscoveredStaticMethod {
+                        type_name: type_name.clone(),
+                        method_name,
+                        params,
+                        return_type,
+                        source_crate: crate_name.to_string(),
+                        takes_self,
+                    });
+                }
+            }
+        }
+    }
+}
+
 /// Discover all types exported from bevy::prelude by parsing bevy_internal/src/prelude.rs
+
 fn discover_bevy_prelude_types() -> std::collections::HashSet<String> {
     let mut prelude_types = std::collections::HashSet::new();
     
@@ -5906,6 +6266,7 @@ fn write_bindings_to_parent_crate(
     discovered_systemparams: Vec<DiscoveredSystemParam>, // Auto-discovered SystemParam types
     discovered_systemparam_methods: Vec<DiscoveredSystemParamMethod>, // Methods on SystemParam types
     discovered_component_methods: Vec<DiscoveredComponentMethod>, // Methods on Component types (e.g., Transform::looking_at)
+    discovered_static_methods: Vec<DiscoveredStaticMethod>, // Static methods on math types
     lua_methods_config: &LuaMethodsConfig, // Configuration for component/static method types
     parent_src_dir: &Path,
     parent_crate_name: &str,
@@ -7214,6 +7575,173 @@ fn write_bindings_to_parent_crate(
     // TODO: If we expand beyond Transform, we may need to add explicit imports.
     let dynamic_crate_imports: Vec<proc_macro2::TokenStream> = Vec::new();
 
+    // Generate static method dispatch arms based on the static_types config
+    // Only include arms for types explicitly listed in lua_methods_config.static_types
+    // Using discovered_static_methods which are auto-discovered from glam
+    let static_method_dispatch_arms: Vec<proc_macro2::TokenStream> = discovered_static_methods.iter()
+        .filter(|m| {
+            // Filter based on config
+            if !lua_methods_config.static_types.contains(&m.type_name) {
+                return false;
+            }
+            true
+        })
+        .filter_map(|m| {
+            let type_name = &m.type_name;
+            let method_name = &m.method_name;
+            let method_ident = syn::Ident::new(method_name, proc_macro2::Span::call_site());
+            
+            // For math types in prelude, we can use the type name directly
+            let type_path_ident = syn::Ident::new(type_name, proc_macro2::Span::call_site());
+            
+            println!("cargo:warning= + Generating static dispatch for {}::{} ({} params, takes_self={})", type_name, method_name, m.params.len(), m.takes_self);
+
+            // Generate parameter extraction using reflection
+            let mut param_extractions = Vec::new();
+            let mut param_names = Vec::new();
+            
+            for (i, p) in m.params.iter().enumerate() {
+                let typed_param_ident = syn::Ident::new(&format!("typed_param_{}", i), proc_macro2::Span::call_site());
+                
+                // Strip reference prefix for type registry lookup (short name)
+                let type_name_for_lookup = p.type_str
+                    .trim_start_matches("&mut ")
+                    .trim_start_matches("& ")
+                    .trim_start_matches('&');
+                // Replace Self with actual type name for lookup
+                let type_name_for_lookup = if type_name_for_lookup == "Self" { type_name.as_str() } else { type_name_for_lookup };
+                let type_name_lit = type_name_for_lookup.rsplit("::").next().unwrap_or(type_name_for_lookup);
+                
+                // Strip reference prefix for the concrete type path
+                let base_type = p.type_str
+                    .trim_start_matches("&mut ")
+                    .trim_start_matches("& ")
+                    .trim_start_matches('&');
+                
+                // Replace Self with actual type name (Self isn't valid outside impl block)
+                let base_type = if base_type == "Self" { type_name.as_str() } else { base_type };
+                
+                // Try to parse as a path
+                let param_type_path: syn::Path = match syn::parse_str(base_type) {
+                    Ok(path) => path,
+                    Err(_) => return None, 
+                };
+                
+                // Generate uniform parameter extraction using lua_value_to_type
+                // This function uses TypeInfo at runtime to handle all types correctly
+                param_extractions.push(quote::quote! {
+                    let #typed_param_ident: #param_type_path = {
+                        if let Some(arg_val) = args.pop_front() {
+                            bevy_lua_ecs::reflection::lua_value_to_type::<#param_type_path>(
+                                lua, arg_val, &app_type_registry
+                            ).map_err(|e| mlua::Error::RuntimeError(format!(
+                                "Failed to convert parameter '{}': {}", #type_name_lit, e
+                            )))?
+                        } else {
+                            // No argument provided - try to use default
+                            let reflect_default = type_registry.get_with_short_type_path(#type_name_lit)
+                                .and_then(|reg| reg.data::<bevy::prelude::ReflectDefault>());
+                            if let Some(rd) = reflect_default {
+                                let param_instance = rd.default();
+                                *param_instance.downcast::<#param_type_path>()
+                                    .map_err(|_| mlua::Error::RuntimeError(format!(
+                                        "Failed to downcast default to '{}'", #type_name_lit
+                                    )))?
+                            } else {
+                                return Err(mlua::Error::RuntimeError(format!(
+                                    "Cannot construct parameter type '{}' - no argument provided and no Default",
+                                    #type_name_lit
+                                )));
+                            }
+                        }
+                    };
+                });
+                
+                param_names.push(typed_param_ident);
+            }
+            
+            // Generate method call - different for instance vs static methods
+            let method_call = if m.takes_self {
+                // Instance method: first arg is self, call method on it
+                // We need to extract self first, then call method with remaining params
+                let self_extraction = quote::quote! {
+                    let self_instance: #type_path_ident = {
+                        let self_arg = args.pop_front().ok_or_else(|| mlua::Error::RuntimeError(
+                            format!("{}::{} requires a self argument", #type_name, #method_name)
+                        ))?;
+                        if let mlua::Value::Table(ref arg_table) = self_arg {
+                            if let Some(reg) = type_registry.get_with_short_type_path(#type_name) {
+                                if let Some(rfr) = reg.data::<bevy::reflect::ReflectFromReflect>() {
+                                    let type_info = reg.type_info();
+                                    let dynamic = bevy_lua_ecs::lua_table_to_dynamic(lua, arg_table, type_info, &app_type_registry)
+                                        .map_err(|e| mlua::Error::RuntimeError(format!("Failed to build self '{}': {}", #type_name, e)))?;
+                                    if let Some(concrete) = rfr.from_reflect(&dynamic) {
+                                        *concrete.downcast::<#type_path_ident>()
+                                            .map_err(|_| mlua::Error::RuntimeError(format!("Failed to downcast self to {}", #type_name)))?
+                                    } else {
+                                        return Err(mlua::Error::RuntimeError(format!(
+                                            "Failed to construct self type '{}' via FromReflect", #type_name
+                                        )));
+                                    }
+                                } else {
+                                    return Err(mlua::Error::RuntimeError(format!(
+                                        "Type '{}' has no FromReflect implementation", #type_name
+                                    )));
+                                }
+                            } else {
+                                return Err(mlua::Error::RuntimeError(format!(
+                                    "Type '{}' not found in TypeRegistry", #type_name
+                                )));
+                            }
+                        } else {
+                            return Err(mlua::Error::RuntimeError(format!(
+                                "{}::{} self argument expected table, got {:?}", #type_name, #method_name, self_arg.type_name()
+                            )));
+                        }
+                    };
+                };
+                // For instance methods, return the whole block including self extraction
+                return Some(quote::quote! {
+                    (#type_name, #method_name) => {
+                        let app_type_registry = world.resource::<bevy::ecs::reflect::AppTypeRegistry>();
+                        let type_registry = app_type_registry.read();
+                        
+                        #self_extraction
+                        
+                        #(#param_extractions)*
+                        
+                        let result = self_instance.#method_ident(#(#param_names),*);
+                        
+                        bevy_lua_ecs::reflection::try_reflect_to_lua_value(lua, &result)
+                    }
+                });
+            } else {
+                // Static method: call directly on type
+                quote::quote! {
+                    #type_path_ident::#method_ident(#(#param_names),*)
+                }
+            };
+
+            Some(quote::quote! {
+                (#type_name, #method_name) => {
+                    let app_type_registry = world.resource::<bevy::ecs::reflect::AppTypeRegistry>();
+                    let type_registry = app_type_registry.read();
+                    
+                    #(#param_extractions)*
+                    
+                    let result = #method_call;
+                    
+                    bevy_lua_ecs::reflection::try_reflect_to_lua_value(lua, &result)
+                }
+            })
+        })
+        .collect();
+
+    println!(
+        "cargo:warning=  ✓ Generated {} static method dispatch arms",
+        static_method_dispatch_arms.len()
+    );
+
     let full_code = quote! {
 
         // Auto-generated Lua resource and component method bindings
@@ -7227,7 +7755,7 @@ fn write_bindings_to_parent_crate(
         #(#dynamic_crate_imports)*
 
         pub fn register_auto_resource_bindings(registry: &bevy_lua_ecs::LuaResourceRegistry) {
-            #(#method_bindings)*
+            // Function retained for API compatibility, but registrations are now handled by LuaBindingsPlugin
         }
 
         /// Auto-discovered entity wrapper type names (for runtime TypeRegistry lookup)
@@ -7394,6 +7922,26 @@ fn write_bindings_to_parent_crate(
             }
         }
 
+        /// Dispatch a static method call from Lua for math types (Quat, Vec3, etc.)
+        /// These do not require entity access or World - they operate on pure data
+        /// Methods are generated based on [package.metadata.lua_methods] static_types config
+        pub fn dispatch_static_method(
+            lua: &mlua::Lua,
+            world: &bevy::prelude::World,
+            type_name: &str,
+            method_name: &str,
+            args: mlua::MultiValue,
+        ) -> mlua::Result<mlua::Value> {
+            let mut args: std::collections::VecDeque<mlua::Value> = args.into_iter().collect();
+            
+            match (type_name, method_name) {
+                #(#static_method_dispatch_arms),*
+                _ => Err(mlua::Error::RuntimeError(format!(
+                    "Unknown or unsupported static method: {}::{}", type_name, method_name
+                )))
+            }
+        }
+
         /// Returns a Lua table of events converted via reflection
         /// Also supports reading Message types (uses MessageReader instead of EventReader)
         pub fn dispatch_read_events(
@@ -7550,6 +8098,10 @@ fn write_bindings_to_parent_crate(
                 // Register the Component method dispatcher - this connects the generated
                 // dispatch_component_method function to the library's call_component_method
                 bevy_lua_ecs::set_component_method_dispatcher(dispatch_component_method);
+
+                // Register the static method dispatcher - this connects the generated
+                // dispatch_static_method function to the library's call_static_method
+                bevy_lua_ecs::set_static_method_dispatcher(dispatch_static_method);
 
                 // Register Bevy Event types for Lua read_events()
                 // This registers Events<T> for auto-discovered event types

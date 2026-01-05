@@ -193,6 +193,221 @@ pub fn try_reflect_to_lua_value<T: PartialReflect + ?Sized>(lua: &Lua, value: &T
     reflect_to_lua_value(lua, value.as_partial_reflect())
 }
 
+/// Convert a string to an enum value using reflection
+/// Looks up the enum in the type registry and finds the variant by name
+/// Returns an error if the type is not an enum
+pub fn string_to_enum<T: bevy::reflect::Reflect + 'static>(
+    variant_name: &str,
+    type_registry: &bevy::ecs::reflect::AppTypeRegistry,
+) -> Result<T, String> {
+    use bevy::reflect::{DynamicEnum, DynamicVariant, ReflectFromReflect};
+    
+    let registry = type_registry.read();
+    
+    // Get the type registration for T
+    let type_id = std::any::TypeId::of::<T>();
+    let registration = registry.get(type_id)
+        .ok_or_else(|| format!("Type not found in registry"))?;
+    
+    // Check if it's an enum
+    let type_info = registration.type_info();
+    let enum_info = match type_info {
+        bevy::reflect::TypeInfo::Enum(info) => info,
+        _ => return Err(format!("Type is not an enum")),
+    };
+    
+    // Find the variant by name
+    let variant_info = enum_info.variant(variant_name)
+        .ok_or_else(|| format!("Variant '{}' not found", variant_name))?;
+    
+    // Create a DynamicEnum for this variant
+    let dynamic_variant = match variant_info {
+        bevy::reflect::VariantInfo::Unit(_) => DynamicVariant::Unit,
+        _ => return Err(format!("Only unit variants are supported, '{}' is not a unit variant", variant_name)),
+    };
+    
+    let dynamic_enum = DynamicEnum::new(variant_name, dynamic_variant);
+    
+    // Use FromReflect to convert to concrete type
+    let from_reflect = registration.data::<ReflectFromReflect>()
+        .ok_or_else(|| format!("Type has no FromReflect implementation"))?;
+    
+    let concrete = from_reflect.from_reflect(&dynamic_enum)
+        .ok_or_else(|| format!("Failed to construct enum from reflection"))?;
+    
+    concrete.downcast::<T>()
+        .map(|boxed| *boxed)
+        .map_err(|_| format!("Failed to downcast to expected type"))
+}
+
+/// Convert a Lua value to a Rust type using reflection
+/// Uses TypeInfo at runtime to determine the appropriate conversion strategy:
+/// - Primitives (f32, i32, bool, etc.): direct conversion from Lua numbers/booleans
+/// - Enums: string -> variant lookup
+/// - Structs: table -> FromReflect
+pub fn lua_value_to_type<T: bevy::reflect::Reflect + 'static>(
+    lua: &mlua::Lua,
+    value: mlua::Value,
+    type_registry: &bevy::ecs::reflect::AppTypeRegistry,
+) -> Result<T, String> {
+    use bevy::reflect::{ReflectFromReflect, TypeInfo};
+    
+    let registry = type_registry.read();
+    let type_id = std::any::TypeId::of::<T>();
+    
+    let registration = registry.get(type_id)
+        .ok_or_else(|| format!("Type '{}' not registered in TypeRegistry", std::any::type_name::<T>()))?;
+    
+    let type_info = registration.type_info();
+    
+    // Check type kind and get string if enum (to allow dropping registry early for enum case)
+    let is_enum = matches!(type_info, TypeInfo::Enum(_));
+    let is_opaque = matches!(type_info, TypeInfo::Opaque(_));
+    
+    // Handle primitives first - no registry needed
+    if is_opaque {
+        drop(registry);
+        return convert_lua_to_primitive::<T>(&value);
+    }
+    
+    // Handle enums - extract string and drop registry before recursive call
+    if is_enum {
+        drop(registry);
+        return match value {
+            mlua::Value::String(s) => {
+                let s_str = s.to_str().map_err(|e| format!("Invalid UTF-8: {}", e))?;
+                string_to_enum::<T>(s_str.as_ref(), type_registry)
+            }
+            _ => Err(format!("Enum type '{}' requires a string value (variant name), got {:?}", 
+                std::any::type_name::<T>(), value.type_name()))
+        };
+    }
+    
+    // Handle structs - need registry for FromReflect
+    match type_info {
+        TypeInfo::Struct(_) | TypeInfo::TupleStruct(_) => {
+            match value {
+                mlua::Value::Table(ref t) => {
+                    let rfr = registration.data::<ReflectFromReflect>()
+                        .ok_or_else(|| format!("Type '{}' has no FromReflect", std::any::type_name::<T>()))?;
+                    let dynamic = crate::lua_table_to_dynamic(lua, t, type_info, type_registry)
+                        .map_err(|e| format!("Failed to build '{}': {}", std::any::type_name::<T>(), e))?;
+                    let concrete = rfr.from_reflect(&dynamic)
+                        .ok_or_else(|| format!("FromReflect failed for '{}'", std::any::type_name::<T>()))?;
+                    concrete.downcast::<T>()
+                        .map(|b| *b)
+                        .map_err(|_| format!("Downcast failed for '{}'", std::any::type_name::<T>()))
+                }
+                _ => Err(format!("Struct type '{}' requires a table value, got {:?}",
+                    std::any::type_name::<T>(), value.type_name()))
+            }
+        }
+        
+        // Lists, Arrays, Tuples - could be extended if needed
+        _ => Err(format!("Unsupported type kind for '{}': {:?}", 
+            std::any::type_name::<T>(), type_info))
+    }
+}
+
+/// Convert Lua value to a primitive type
+/// Handles f32, f64, i32, u32, i64, u64, bool
+fn convert_lua_to_primitive<T: 'static>(value: &mlua::Value) -> Result<T, String> {
+    use std::any::TypeId;
+    
+    let type_id = TypeId::of::<T>();
+    
+    // Handle numeric types
+    if type_id == TypeId::of::<f32>() {
+        match value {
+            mlua::Value::Number(n) => {
+                let v = *n as f32;
+                // SAFETY: We checked type_id matches f32
+                Ok(unsafe { std::mem::transmute_copy(&v) })
+            }
+            mlua::Value::Integer(i) => {
+                let v = *i as f32;
+                Ok(unsafe { std::mem::transmute_copy(&v) })
+            }
+            _ => Err(format!("f32 requires a number, got {:?}", value.type_name()))
+        }
+    } else if type_id == TypeId::of::<f64>() {
+        match value {
+            mlua::Value::Number(n) => {
+                let v = *n;
+                Ok(unsafe { std::mem::transmute_copy(&v) })
+            }
+            mlua::Value::Integer(i) => {
+                let v = *i as f64;
+                Ok(unsafe { std::mem::transmute_copy(&v) })
+            }
+            _ => Err(format!("f64 requires a number, got {:?}", value.type_name()))
+        }
+    } else if type_id == TypeId::of::<i32>() {
+        match value {
+            mlua::Value::Integer(i) => {
+                let v = *i as i32;
+                Ok(unsafe { std::mem::transmute_copy(&v) })
+            }
+            mlua::Value::Number(n) => {
+                let v = *n as i32;
+                Ok(unsafe { std::mem::transmute_copy(&v) })
+            }
+            _ => Err(format!("i32 requires an integer, got {:?}", value.type_name()))
+        }
+    } else if type_id == TypeId::of::<u32>() {
+        match value {
+            mlua::Value::Integer(i) => {
+                let v = *i as u32;
+                Ok(unsafe { std::mem::transmute_copy(&v) })
+            }
+            mlua::Value::Number(n) => {
+                let v = *n as u32;
+                Ok(unsafe { std::mem::transmute_copy(&v) })
+            }
+            _ => Err(format!("u32 requires an integer, got {:?}", value.type_name()))
+        }
+    } else if type_id == TypeId::of::<i64>() {
+        match value {
+            mlua::Value::Integer(i) => {
+                let v = *i;
+                Ok(unsafe { std::mem::transmute_copy(&v) })
+            }
+            mlua::Value::Number(n) => {
+                let v = *n as i64;
+                Ok(unsafe { std::mem::transmute_copy(&v) })
+            }
+            _ => Err(format!("i64 requires an integer, got {:?}", value.type_name()))
+        }
+    } else if type_id == TypeId::of::<u64>() {
+        match value {
+            mlua::Value::Integer(i) => {
+                let v = *i as u64;
+                Ok(unsafe { std::mem::transmute_copy(&v) })
+            }
+            mlua::Value::Number(n) => {
+                let v = *n as u64;
+                Ok(unsafe { std::mem::transmute_copy(&v) })
+            }
+            _ => Err(format!("u64 requires an integer, got {:?}", value.type_name()))
+        }
+    } else if type_id == TypeId::of::<bool>() {
+        match value {
+            mlua::Value::Boolean(b) => {
+                let v = *b;
+                Ok(unsafe { std::mem::transmute_copy(&v) })
+            }
+            mlua::Value::Integer(i) => {
+                let v = *i != 0;
+                Ok(unsafe { std::mem::transmute_copy(&v) })
+            }
+            _ => Err(format!("bool requires a boolean, got {:?}", value.type_name()))
+        }
+    } else {
+        Err(format!("Unsupported primitive type: {}", std::any::type_name::<T>()))
+    }
+}
+
+
 /// Trait for types that can be converted to Lua values from systemparam method results
 pub trait ToLuaValue {
     fn to_lua_value(&self, lua: &Lua) -> LuaResult<LuaValue>;

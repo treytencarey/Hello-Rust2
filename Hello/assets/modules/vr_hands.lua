@@ -20,49 +20,10 @@ local initialized = false
 local left_hand_root = nil   -- Entity ID of left hand scene root
 local right_hand_root = nil  -- Entity ID of right hand scene root
 
--- Helper: Extract translation from GlobalTransform using component method
--- world must be passed in since this is a helper function
-local function extract_translation(world, entity_id)
-    return world:call_component_method(entity_id, "GlobalTransform", "translation")
-end
-
--- Helper: Extract rotation from GlobalTransform using component method
-local function extract_rotation(world, entity_id)
-    return world:call_component_method(entity_id, "GlobalTransform", "rotation")
-end
-
--- Helper: Quaternion multiplication (q1 * q2)
--- Kept in Lua as we need to combine rotations without entity context
-local function quat_multiply(q1, q2)
-    if not q1 or not q2 then return nil end
-    return {
-        x = q1.w * q2.x + q1.x * q2.w + q1.y * q2.z - q1.z * q2.y,
-        y = q1.w * q2.y - q1.x * q2.z + q1.y * q2.w + q1.z * q2.x,
-        z = q1.w * q2.z + q1.x * q2.y - q1.y * q2.x + q1.z * q2.w,
-        w = q1.w * q2.w - q1.x * q2.x - q1.y * q2.y - q1.z * q2.z
-    }
-end
-
--- Helper: Create quaternion from Euler angles (degrees) - XYZ order
--- Uses math directly since these are computed at module load time (no world context)
-local function quat_from_euler(x_deg, y_deg, z_deg)
-    local x, y, z = math.rad(x_deg), math.rad(y_deg), math.rad(z_deg)
-    local cx, sx = math.cos(x * 0.5), math.sin(x * 0.5)
-    local cy, sy = math.cos(y * 0.5), math.sin(y * 0.5)
-    local cz, sz = math.cos(z * 0.5), math.sin(z * 0.5)
-    
-    -- XYZ extrinsic rotation order (equivalent to ZYX intrinsic)
-    return {
-        x = sx * cy * cz + cx * sy * sz,
-        y = cx * sy * cz - sx * cy * sz,
-        z = cx * cy * sz + sx * sy * cz,
-        w = cx * cy * cz - sx * sy * sz
-    }
-end
-
 -- Rotation offsets to align hand mesh with XR tracking
-local LEFT_HAND_OFFSET = quat_from_euler(-70, 10, 160)
-local RIGHT_HAND_OFFSET = quat_from_euler(-70, -10, 210)
+-- Computed lazily on first update when world is available
+local LEFT_HAND_OFFSET = nil
+local RIGHT_HAND_OFFSET = nil
 
 -- Bone name mapping: OpenXR HandBone enum -> glTF joint name
 local BONE_NAME_MAP = {
@@ -105,9 +66,18 @@ local BONE_NAME_MAP = {
     ["LittleTip"] = "PINK_UP_TOP_joint_018",
 }
 
--- Cache of mesh bone entity IDs by glTF name
-local mesh_bone_cache = {}
+-- Cache of mesh bone entity IDs by hand and glTF name
+-- Structure: mesh_bone_cache["left"]["THUMB_BASE_joint_019"] = entity_id
+-- Structure: mesh_bone_cache["right"]["THUMB_BASE_joint_019"] = entity_id
+local mesh_bone_cache = { left = {}, right = {} }
 local bone_cache_built = false
+
+-- Initial rotation caches for delta-based finger tracking
+-- Store palm-relative (local) rotations to isolate finger movement from hand movement
+local xr_bone_initial_local_rotations = {}  -- "hand_boneName" -> initial palm-relative rotation
+local xr_palm_initial_rotations = {}        -- "left"/"right" -> initial palm global rotation
+local mesh_bone_initial_rotations = {}      -- Entity ID -> initial local rotation
+local xr_initial_rotations_cached = false
 
 --- Initialize hand meshes
 function VrHands.init()
@@ -148,16 +118,19 @@ function VrHands.init()
     print("[VR_HANDS] Hand mesh system initialized")
 end
 
---- Build cache of mesh bone entities by name
+--- Build cache of mesh bone entities by sorting IDs (Left spawned first -> Lower IDs)
 local function build_mesh_bone_cache(world)
     if bone_cache_built then return end
     
-    local named_entities = world:query({"Name"}, nil)
+    local named_entities = world:query({"Name", "Transform"}, nil)
     if not named_entities or #named_entities == 0 then
         return
     end
     
     print(string.format("[VR_HANDS] Building mesh bone cache from %d named entities...", #named_entities))
+    
+    -- Temporary storage: bone_name -> list of {id, transform}
+    local found_bones = {}
     
     for _, entity in ipairs(named_entities) do
         local name_component = entity:get("Name")
@@ -169,35 +142,138 @@ local function build_mesh_bone_cache(world)
                 bone_name = name_component.name
             end
             
-            -- Strip embedded quotes
             if bone_name then
                 bone_name = bone_name:gsub('^"', ''):gsub('"$', '')
-            end
-            
-            -- Check if this is a bone we care about
-            if bone_name then
+                
+                -- Check if this is a bone we care about
                 for xr_bone_name, gltf_name in pairs(BONE_NAME_MAP) do
                     if bone_name == gltf_name then
-                        mesh_bone_cache[gltf_name] = mesh_bone_cache[gltf_name] or {}
-                        table.insert(mesh_bone_cache[gltf_name], entity:id())
+                        local entity_id = entity:id()
+                        found_bones[gltf_name] = found_bones[gltf_name] or {}
+                        
+                        -- Store ID and initial rotation
+                        local transform = entity:get("Transform")
+                        local rotation = (transform and transform.rotation) and {
+                            x = transform.rotation.x or 0,
+                            y = transform.rotation.y or 0,
+                            z = transform.rotation.z or 0,
+                            w = transform.rotation.w or 1
+                        } or { x = 0, y = 0, z = 0, w = 1 }
+                        
+                        table.insert(found_bones[gltf_name], { id = entity_id, rot = rotation })
+                        break
                     end
                 end
             end
         end
     end
     
-    local count = 0
-    for _ in pairs(mesh_bone_cache) do count = count + 1 end
-    print(string.format("[VR_HANDS] Mesh bone cache built: %d unique bone types", count))
+    -- Process found bones: Sort by ID and assign to Left/Right
+    mesh_bone_cache = { left = {}, right = {} }
+    local left_count = 0
+    local right_count = 0
     
-    if count > 0 then
+    for gltf_name, instances in pairs(found_bones) do
+        -- Sort by Entity ID (heuristic: Left spawned first -> lower ID)
+        -- Note: Entity IDs are userdata or numbers, assuming comparable
+        table.sort(instances, function(a, b) 
+            -- helper to handle userdata ID comparison if needed, though Lua handles simple types
+            return tostring(a.id) < tostring(b.id) 
+        end)
+        
+        -- First instance -> Left
+        if instances[1] then
+            local data = instances[1]
+            mesh_bone_cache.left[gltf_name] = data.id
+            mesh_bone_initial_rotations[data.id] = data.rot
+            left_count = left_count + 1
+        end
+        
+        -- Second instance -> Right
+        if instances[2] then
+            local data = instances[2]
+            mesh_bone_cache.right[gltf_name] = data.id
+            mesh_bone_initial_rotations[data.id] = data.rot
+            right_count = right_count + 1
+        end
+        
+        if #instances > 2 then
+            print(string.format("[VR_HANDS] Warning: Found %d instances of bone %s (expected 2)", #instances, gltf_name))
+        end
+    end
+    
+    print(string.format("[VR_HANDS] Mesh bone cache built: left=%d right=%d bones", left_count, right_count))
+    
+    if left_count > 0 and right_count > 0 then
         bone_cache_built = true
     end
+end
+
+--- Cache initial XR bone rotations relative to palm (rest pose)
+local function cache_xr_initial_rotations(world, hand_bones, hand_label)
+    if not hand_bones or #hand_bones == 0 then return false end
+    
+    -- First, find the palm rotation for this hand
+    local palm_rotation = nil
+    for _, bone_entity in ipairs(hand_bones) do
+        local hand_bone = bone_entity:get("HandBone")
+        local flags = bone_entity:get("XrSpaceLocationFlags")
+        if flags and (flags.position_tracked == false or flags.rotation_tracked == false) then
+            goto continue_palm
+        end
+        if hand_bone == "Palm" then
+            palm_rotation = world:call_component_method(bone_entity:id(), "GlobalTransform", "rotation")
+            break
+        end
+        ::continue_palm::
+    end
+    
+    if not palm_rotation then
+        return false  -- Can't cache without palm reference
+    end
+    
+    -- Cache palm rotation and inverse for this hand
+    xr_palm_initial_rotations[hand_label] = palm_rotation
+    
+    -- Now cache each bone's rotation relative to palm
+    local inv_palm = world:call_static_method("Quat", "inverse", palm_rotation)
+    local cached_count = 0
+    
+    for _, bone_entity in ipairs(hand_bones) do
+        local hand_bone = bone_entity:get("HandBone")
+        local flags = bone_entity:get("XrSpaceLocationFlags")
+        
+        -- Only cache if tracked
+        if flags and (flags.position_tracked == false or flags.rotation_tracked == false) then
+            goto continue_cache
+        end
+        
+        if hand_bone and hand_bone ~= "Palm" and hand_bone ~= "Wrist" then
+            local bone_rotation = world:call_component_method(bone_entity:id(), "GlobalTransform", "rotation")
+            if bone_rotation then
+                -- Compute rotation relative to palm: local_rot = inverse(palm) * bone
+                local local_rot = world:call_static_method("Quat", "mul_quat", inv_palm, bone_rotation)
+                local key = hand_label .. "_" .. hand_bone
+                xr_bone_initial_local_rotations[key] = local_rot
+                cached_count = cached_count + 1
+            end
+        end
+        
+        ::continue_cache::
+    end
+    
+    return cached_count > 0
 end
 
 --- Update hand mesh poses from XR hand tracking
 function VrHands.update(world)
     if not initialized then return end
+    
+    -- Initialize rotation offsets on first update (requires world context)
+    if LEFT_HAND_OFFSET == nil then
+        LEFT_HAND_OFFSET = world:call_static_method("Quat", "from_euler", "XYZ", math.rad(-90), math.rad(-135), math.rad(0))
+        RIGHT_HAND_OFFSET = world:call_static_method("Quat", "from_euler", "XYZ", math.rad(-90), math.rad(135), math.rad(0))
+    end
     
     -- Build mesh bone cache if not done yet
     if not bone_cache_built then
@@ -306,11 +382,11 @@ function VrHands.update(world)
     if left_palm_entity_id and left_hand_root then
         local left_mesh = world:get_entity(left_hand_root)
         if left_mesh then
-            local translation = extract_translation(world, left_palm_entity_id)
-            local rotation = extract_rotation(world, left_palm_entity_id)
+            local translation = world:call_component_method(left_palm_entity_id, "GlobalTransform", "translation")
+            local rotation = world:call_component_method(left_palm_entity_id, "GlobalTransform", "rotation")
             if translation then
                 -- Apply rotation offset to align mesh with XR tracking
-                local final_rotation = quat_multiply(rotation, LEFT_HAND_OFFSET) or LEFT_HAND_OFFSET
+                local final_rotation = world:call_static_method("Quat", "mul_quat", rotation, LEFT_HAND_OFFSET)
                 
                 if not VrHands._left_palm_printed then
                     local rot_str = final_rotation and string.format("%.2f,%.2f,%.2f,%.2f", 
@@ -337,11 +413,11 @@ function VrHands.update(world)
     if right_palm_entity_id and right_hand_root then
         local right_mesh = world:get_entity(right_hand_root)
         if right_mesh then
-            local translation = extract_translation(world, right_palm_entity_id)
-            local rotation = extract_rotation(world, right_palm_entity_id)
+            local translation = world:call_component_method(right_palm_entity_id, "GlobalTransform", "translation")
+            local rotation = world:call_component_method(right_palm_entity_id, "GlobalTransform", "rotation")
             if translation then
                 -- Apply rotation offset to align mesh with XR tracking
-                local final_rotation = quat_multiply(rotation, RIGHT_HAND_OFFSET) or RIGHT_HAND_OFFSET
+                local final_rotation = world:call_static_method("Quat", "mul_quat", rotation, RIGHT_HAND_OFFSET)
                 
                 right_mesh:set({
                     Transform = {
@@ -354,13 +430,39 @@ function VrHands.update(world)
         end
     end
     
-    -- Update finger bone rotations for both hands
-    local function update_finger_bones(hand_bones, hand_label, rotation_offset)
+    -- Cache initial XR bone rotations on first frame with tracking
+    if not xr_initial_rotations_cached then
+        local left_cached = cache_xr_initial_rotations(world, left_bones, "left")
+        local right_cached = cache_xr_initial_rotations(world, right_bones, "right")
+        if left_cached or right_cached then
+            local count = 0
+            for _ in pairs(xr_bone_initial_local_rotations) do count = count + 1 end
+            print(string.format("[VR_HANDS] Cached %d initial XR bone local rotations (palm-relative)", count))
+            xr_initial_rotations_cached = true
+        end
+    end
+    
+    -- Update finger bone rotations using palm-relative rotation deltas
+    local function update_finger_bones(hand_bones, hand_label)
         if not hand_bones or #hand_bones == 0 then return end
+        if not xr_initial_rotations_cached then return end
+        
+        -- Find current palm rotation for this hand
+        local current_palm_rot = nil
+        for _, bone_entity in ipairs(hand_bones) do
+            local hand_bone = bone_entity:get("HandBone")
+            if hand_bone == "Palm" then
+                current_palm_rot = world:call_component_method(bone_entity:id(), "GlobalTransform", "rotation")
+                break
+            end
+        end
+        
+        if not current_palm_rot then return end
+        
+        local inv_current_palm = world:call_static_method("Quat", "inverse", current_palm_rot)
         
         for _, bone_entity in ipairs(hand_bones) do
             local hand_bone = bone_entity:get("HandBone")
-            local global_transform = bone_entity:get("GlobalTransform")
             local flags = bone_entity:get("XrSpaceLocationFlags")
             
             -- Skip if not tracked
@@ -373,21 +475,44 @@ function VrHands.update(world)
                 goto continue_bone
             end
             
-            -- Find matching mesh bone name
+            -- Get initial palm-relative rotation for this bone
+            local key = hand_label .. "_" .. hand_bone
+            local initial_local_rot = xr_bone_initial_local_rotations[key]
+            if not initial_local_rot then
+                goto continue_bone
+            end
+            
+            -- Get current bone rotation and compute current palm-relative rotation
+            local current_bone_rot = world:call_component_method(bone_entity:id(), "GlobalTransform", "rotation")
+            if not current_bone_rot then
+                goto continue_bone
+            end
+            
+            -- Current local rotation = inverse(current_palm) * current_bone
+            local current_local_rot = world:call_static_method("Quat", "mul_quat", inv_current_palm, current_bone_rot)
+            
+            -- Compute rotation delta in palm-local space
+            -- This isolates finger movement from hand movement
+            -- delta = inverse(initial_local) * current_local
+            local inv_initial_local = world:call_static_method("Quat", "inverse", initial_local_rot)
+            local delta = world:call_static_method("Quat", "mul_quat", inv_initial_local, current_local_rot)
+            
+            -- Find matching mesh bone for THIS hand and apply delta to its initial rotation
             local gltf_bone_name = BONE_NAME_MAP[hand_bone]
-            if gltf_bone_name and mesh_bone_cache[gltf_bone_name] then
-                local rotation = extract_rotation(world, bone_entity:id())
-                if rotation then
-                    -- Apply the same offset as the hand root to align bone rotations
-                    local final_rotation = quat_multiply(rotation, rotation_offset)
-                    
-                    -- Update mesh bones with this name
-                    for _, mesh_bone_id in ipairs(mesh_bone_cache[gltf_bone_name]) do
+            if gltf_bone_name then
+                local mesh_bone_id = mesh_bone_cache[hand_label][gltf_bone_name]
+                if mesh_bone_id then
+                    local initial_mesh_rot = mesh_bone_initial_rotations[mesh_bone_id]
+                    if initial_mesh_rot then
+                        -- Apply delta to mesh bone's initial rotation
+                        -- new_rotation = initial_mesh_rotation * delta
+                        local new_rotation = world:call_static_method("Quat", "mul_quat", initial_mesh_rot, delta)
+                        
                         local mesh_bone = world:get_entity(mesh_bone_id)
                         if mesh_bone then
                             mesh_bone:set({
                                 Transform = {
-                                    rotation = final_rotation
+                                    rotation = new_rotation
                                 }
                             })
                         end
@@ -399,9 +524,9 @@ function VrHands.update(world)
         end
     end
     
-    -- DISABLED: Finger tracking causes visual issues - needs proper local rotation calculation
-    -- update_finger_bones(left_bones, "left", LEFT_HAND_OFFSET)
-    -- update_finger_bones(right_bones, "right", RIGHT_HAND_OFFSET)
+    -- Update finger bones for both hands
+    -- update_finger_bones(left_bones, "left")
+    -- update_finger_bones(right_bones, "right")
 end
 
 
@@ -418,8 +543,12 @@ function VrHands.cleanup()
         despawn(right_hand_root)
         right_hand_root = nil
     end
-    mesh_bone_cache = {}
+    mesh_bone_cache = { left = {}, right = {} }
+    mesh_bone_initial_rotations = {}
+    xr_bone_initial_local_rotations = {}
+    xr_palm_initial_rotations = {}
     bone_cache_built = false
+    xr_initial_rotations_cached = false
     initialized = false
     print("[VR_HANDS] Cleaned up hand meshes")
 end

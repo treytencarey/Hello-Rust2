@@ -44,9 +44,11 @@ TextureUsages = ["COPY_SRC", "COPY_DST", "TEXTURE_BINDING", "STORAGE_BINDING", "
 # Method types for Lua binding generation
 # component_types: Methods on these Component types are exposed via call_component_method
 # static_types: Static methods on these types are exposed via call_static_method
+# static_method_crates: Crates to scan for static methods (types must be listed in static_types)
 [package.metadata.lua_methods]
 component_types = ["Transform", "GlobalTransform"]
 static_types = ["Quat", "Vec3"]
+static_method_crates = ["glam"]
 
 [features]
 # Unified default for demos - maximizes build cache reuse
