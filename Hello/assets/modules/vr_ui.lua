@@ -397,7 +397,18 @@ end
 
 -- Initialize VR pointer and hands
 VrPointer.init()
-VrHands.init()
+local left_hand = VrHands.create({
+    asset_path = "vr_hand2/RightHand.gltf#Scene0",
+    hand = "left",
+    scale = 1.0,
+    -- bone_map = { ... } -- optional custom mapping
+})
+local right_hand = VrHands.create({
+    asset_path = "vr_hand2/RightHand.gltf#Scene0",
+    hand = "right",
+    scale = 1.0,
+    -- bone_map = { ... } -- optional custom mapping
+})
 
 -- Main Update system
 register_system("Update", function(world)
@@ -430,7 +441,8 @@ register_system("First", function(world)
     VrPointer.update(world)
     
     -- Update hand mesh poses from XR tracking
-    VrHands.update(world)
+    left_hand:update(world)
+    right_hand:update(world)
 end)
 
 print("[VR_UI] Module loaded - will auto-wrap UI nodes when VR is detected")
