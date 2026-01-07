@@ -336,6 +336,18 @@ impl LuaUserData for LuaWorldContext<'_> {
             )
         });
 
+        // call_resource_method(resource_name, method_name, ...args) - call a registered method on a resource
+        methods.add_method("call_resource_method", |lua, this, (resource_name, method_name, args): (String, String, mlua::MultiValue)| {
+            let resource_registry = this.world().resource::<crate::resource_lua_trait::LuaResourceRegistry>();
+            resource_registry.call_method(
+                lua,
+                this.world(),
+                &resource_name,
+                &method_name,
+                args,
+            )
+        });
+
         // call_component_method(entity_id, type_name, method_name, ...args)
         methods.add_method("call_component_method", |lua, this, (entity_id, type_name, method_name, args): (u64, String, String, mlua::MultiValue)| {
             #[allow(invalid_reference_casting)]

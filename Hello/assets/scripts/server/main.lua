@@ -3,12 +3,24 @@
 -- The server hosts assets but doesn't render a game UI
 
 print("=== Server Mode Started ===")
-print("Listening for client connections...")
-print("Files will be served from assets/ directory")
-print("File changes will be broadcast to subscribed clients")
 
--- Server-specific logic can go here
--- For example: game state management, authoritative game logic, etc.
+require("scripts/server/Conflux/main.lua")
+
+-- -- Load server networking module
+-- local NetServer = require("modules/net_server.lua")
+-- NetServer.start(5000, 10)
+
+-- print("Listening for client connections...")
+-- print("Files will be served from assets/ directory")
+-- print("File changes will be broadcast to subscribed clients")
+
+-- -- Server-specific logic can go here
+-- -- For example: game state management, authoritative game logic, etc.
+
+-- -- Register server update system
+-- register_system("Update", function(world)
+--     NetServer.update(world)
+-- end)
 
 -- Note: Most server functionality is handled by Rust systems:
 -- - handle_asset_requests_global: Serves file requests

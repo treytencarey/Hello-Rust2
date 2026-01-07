@@ -123,6 +123,10 @@ impl Plugin for HelloNetworkingPlugin {
         app.insert_resource(self.config.clone());
         app.init_resource::<NetworkReceivedFiles>();
         
+        // Register networking resource constructors and methods for Lua
+        // Must run in Startup (before PostStartup when Lua scripts execute)
+        app.add_systems(Startup, register_networking_registries);
+        
         match self.config.mode {
             NetworkMode::ServerOnly => {
                 info!("🖥️ Starting in SERVER ONLY mode");
@@ -299,3 +303,12 @@ fn cleanup_received_files(mut received: ResMut<NetworkReceivedFiles>) {
     received.cleanup_old(Duration::from_secs(5));
 }
 
+/// Register networking resource constructors and methods for Lua
+fn register_networking_registries(
+    builder_registry: Res<bevy_lua_ecs::ResourceBuilderRegistry>,
+    resource_registry: Res<bevy_lua_ecs::LuaResourceRegistry>,
+) {
+    crate::networking::register_networking_constructors(&builder_registry);
+    crate::networking::register_networking_methods(&resource_registry);
+    info!("✓ Registered networking Lua bindings (constructors + methods)");
+}

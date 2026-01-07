@@ -802,13 +802,28 @@ impl LuaScriptContext {
             end
             
             -- Override load_asset function to handle pending downloads
-            -- Works exactly like require() - yields if download needed
+            -- Works exactly like require() - yields if download needed AND we're in a coroutine
+            -- If not in a coroutine (e.g., called from a system callback), return immediately
             load_asset = function(path, opts)
                 local result = _orig_load_asset(path, opts)
                 
                 -- Check if the result is a pending download marker
                 if type(result) == "table" and result.__PENDING_DOWNLOAD__ then
-                    -- Yield the coroutine with the path - Bevy will resume after download
+                    -- Check if we're running inside a coroutine
+                    local running_co, is_main = coroutine.running()
+                    if running_co == nil or is_main then
+                        -- NOT in a coroutine (main thread) - cannot yield
+                        -- Return the asset_id anyway (if available) and queue async download
+                        -- The asset will load eventually via hot reload
+                        print("[LOAD_ASSET] Warning: Called from main thread, cannot yield for download: " .. tostring(result.path))
+                        print("[LOAD_ASSET] Use load_asset_async() for async loading in system callbacks")
+                        
+                        -- Return nil to indicate not loaded yet
+                        -- The calling code should handle this gracefully
+                        return nil
+                    end
+                    
+                    -- We ARE in a coroutine - yield and wait for download
                     local download_path = result.path
                     coroutine.yield(download_path)
                     

@@ -213,11 +213,21 @@ pub fn register_networking_constructors(registry: &bevy_lua_ecs::ResourceBuilder
         world.insert_resource(RenetServer::new(create_connection_config()));
         Ok(())
     });
+    // RenetServer removal
+    registry.register_removal("RenetServer", |world: &mut World| {
+        world.remove_resource::<RenetServer>();
+        bevy::log::debug!("🗑️ Removed RenetServer resource");
+    });
     
     // RenetClient constructor
     registry.register("RenetClient", |_lua, _data: LuaValue, world: &mut World| {
         world.insert_resource(RenetClient::new(create_connection_config()));
         Ok(())
+    });
+    // RenetClient removal
+    registry.register_removal("RenetClient", |world: &mut World| {
+        world.remove_resource::<RenetClient>();
+        bevy::log::debug!("🗑️ Removed RenetClient resource");
     });
     
     // NetcodeServerTransport constructor
@@ -254,6 +264,11 @@ pub fn register_networking_constructors(registry: &bevy_lua_ecs::ResourceBuilder
         
         world.insert_resource(transport);
         Ok(())
+    });
+    // NetcodeServerTransport removal - releases the socket
+    registry.register_removal("NetcodeServerTransport", |world: &mut World| {
+        world.remove_resource::<NetcodeServerTransport>();
+        bevy::log::debug!("🗑️ Removed NetcodeServerTransport resource (socket released)");
     });
     
     // NetcodeClientTransport constructor
@@ -295,5 +310,10 @@ pub fn register_networking_constructors(registry: &bevy_lua_ecs::ResourceBuilder
         
         world.insert_resource(transport);
         Ok(())
+    });
+    // NetcodeClientTransport removal
+    registry.register_removal("NetcodeClientTransport", |world: &mut World| {
+        world.remove_resource::<NetcodeClientTransport>();
+        bevy::log::debug!("🗑️ Removed NetcodeClientTransport resource");
     });
 }

@@ -94,6 +94,28 @@ impl LuaUserData for LuaEntitySnapshot {
 
         methods.add_method("id", |_, this, ()| Ok(this.entity.to_bits()));
 
+        methods.add_method("get_components", |lua, this, ()| {
+            let table = lua.create_table()?;
+            let mut index = 1;
+
+            // Add Lua components
+            for key in this.lua_components.keys() {
+                table.set(index, key.clone())?;
+                index += 1;
+            }
+
+            // Add Rust components
+            for key in this.component_data.keys() {
+                // Ensure no duplicates if a component exists in both maps (unlikely but safe)
+                if !this.lua_components.contains_key(key) {
+                    table.set(index, key.clone())?;
+                    index += 1;
+                }
+            }
+
+            Ok(LuaValue::Table(table))
+        });
+
         // Set/update components using spawn-style syntax
         // Usage: entity:set({ Text2d = { text = "..." }, Transform = {...} })
         methods.add_method(
@@ -118,6 +140,75 @@ impl LuaUserData for LuaEntitySnapshot {
                     let registry_key = lua.create_registry_value(component_data)?;
                     
                     // Queue the update
+                    this.update_queue
+                        .queue_update(this.entity, component_name, registry_key);
+                }
+
+                Ok(())
+            },
+        );
+
+        // Patch/merge components - only updates specified fields, preserves other existing fields
+        // Usage: entity:patch({ PlayerState = { velocity = {x=1,y=0,z=0} } })
+        // This merges with existing PlayerState, preserving fields like model_path, owner_client, etc.
+        methods.add_method(
+            "patch",
+            |lua, this, components: LuaTable| {
+                // Iterate through the table - keys are component names, values are partial component data
+                for pair in components.pairs::<String, LuaValue>() {
+                    let (component_name, patch_value) = pair?;
+                    
+                    // Get the current component value
+                    let current_value = if let Some(key) = this.lua_components.get(&component_name) {
+                        // Lua component - get from registry
+                        lua.registry_value::<LuaValue>(&**key)?
+                    } else if let Some(data_str) = this.component_data.get(&component_name) {
+                        // Rust component - parse JSON
+                        if let Ok(json_value) = serde_json::from_str::<serde_json::Value>(data_str) {
+                            json_to_lua(lua, &json_value)?
+                        } else {
+                            LuaValue::Nil
+                        }
+                    } else {
+                        LuaValue::Nil
+                    };
+                    
+                    // Merge the patch into current value
+                    let merged_data = match (current_value, patch_value) {
+                        (LuaValue::Table(current_table), LuaValue::Table(patch_table)) => {
+                            // Deep merge tables
+                            let merged = lua.create_table()?;
+                            
+                            // First, copy all existing fields
+                            for pair in current_table.pairs::<LuaValue, LuaValue>() {
+                                let (key, value) = pair?;
+                                merged.set(key, value)?;
+                            }
+                            
+                            // Then, overlay patch fields (overwrites existing)
+                            for pair in patch_table.pairs::<LuaValue, LuaValue>() {
+                                let (key, value) = pair?;
+                                merged.set(key, value)?;
+                            }
+                            
+                            merged
+                        }
+                        (_, LuaValue::Table(patch_table)) => {
+                            // No existing value or not a table, just use patch as-is
+                            patch_table
+                        }
+                        (_, other) => {
+                            // For non-table values, create a wrapper
+                            let wrapper = lua.create_table()?;
+                            wrapper.set("_0", other)?;
+                            wrapper
+                        }
+                    };
+                    
+                    // Create a registry key for the merged data
+                    let registry_key = lua.create_registry_value(merged_data)?;
+                    
+                    // Queue the update with merged data
                     this.update_queue
                         .queue_update(this.entity, component_name, registry_key);
                 }
@@ -238,6 +329,12 @@ pub fn reflection_to_lua(lua: &Lua, value: &dyn bevy::reflect::PartialReflect) -
             Ok(LuaValue::Table(table))
         }
         ReflectRef::Opaque(opaque) => {
+            // Get type info for logging
+            let type_path = value.get_represented_type_info()
+                .map(|ti| ti.type_path().to_string())
+                .unwrap_or_else(|| "unknown".to_string());
+            debug!("[REFLECTION_TO_LUA] Opaque type: {}", type_path);
+            
             // Try to extract primitive values
             if let Some(v) = opaque.try_downcast_ref::<f32>() {
                 return Ok(LuaValue::Number(*v as f64));
@@ -263,8 +360,15 @@ pub fn reflection_to_lua(lua: &Lua, value: &dyn bevy::reflect::PartialReflect) -
             if let Some(v) = opaque.try_downcast_ref::<String>() {
                 return Ok(LuaValue::String(lua.create_string(v)?));
             }
+            // Entity - return bits as integer for use with world:get_entity()
+            if let Some(entity) = opaque.try_downcast_ref::<Entity>() {
+                debug!("[REFLECTION_TO_LUA] Opaque: Successfully downcast to Entity: {:?}", entity);
+                return Ok(LuaValue::Integer(entity.to_bits() as i64));
+            }
             // Fallback to debug string for unknown opaque types
-            Ok(LuaValue::String(lua.create_string(&format!("{:?}", opaque))?))
+            let debug_str = format!("{:?}", opaque);
+            debug!("[REFLECTION_TO_LUA] Opaque fallback to debug: '{}'", debug_str);
+            Ok(LuaValue::String(lua.create_string(&debug_str)?))
         }
     }
 }

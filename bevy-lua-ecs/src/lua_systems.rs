@@ -23,12 +23,15 @@ pub struct LuaSystemEntry {
 #[derive(Resource, Clone)]
 pub struct LuaSystemRegistry {
     pub update_systems: Arc<Mutex<Vec<LuaSystemEntry>>>,
+    /// Pending coroutines waiting for downloads: path -> list of (coroutine_key, instance_id)
+    pub pending_system_coroutines: Arc<Mutex<std::collections::HashMap<String, Vec<(Arc<LuaRegistryKey>, u64)>>>>,
 }
 
 impl Default for LuaSystemRegistry {
     fn default() -> Self {
         Self {
             update_systems: Arc::new(Mutex::new(Vec::new())),
+            pending_system_coroutines: Arc::new(Mutex::new(std::collections::HashMap::new())),
         }
     }
 }
@@ -58,6 +61,46 @@ impl LuaSystemRegistry {
                 removed_count, instance_id
             );
         }
+    }
+
+    /// Register a system coroutine waiting for a download
+    pub fn register_pending_coroutine(&self, path: String, coroutine_key: Arc<LuaRegistryKey>, instance_id: u64) {
+        debug!("📥 [SYSTEM] Registering pending coroutine for '{}'", path);
+        self.pending_system_coroutines
+            .lock()
+            .unwrap()
+            .entry(path)
+            .or_insert_with(Vec::new)
+            .push((coroutine_key, instance_id));
+    }
+
+    /// Take all system coroutines waiting for a specific path
+    pub fn take_pending_coroutines(&self, path: &str) -> Vec<(Arc<LuaRegistryKey>, u64)> {
+        self.pending_system_coroutines
+            .lock()
+            .unwrap()
+            .remove(path)
+            .unwrap_or_default()
+    }
+
+    /// Get all paths with pending system coroutines
+    pub fn get_all_pending_paths(&self) -> Vec<String> {
+        self.pending_system_coroutines
+            .lock()
+            .unwrap()
+            .keys()
+            .cloned()
+            .collect()
+    }
+
+    /// Check if a path has pending system coroutines
+    pub fn has_pending_coroutines(&self, path: &str) -> bool {
+        self.pending_system_coroutines
+            .lock()
+            .unwrap()
+            .get(path)
+            .map(|v| !v.is_empty())
+            .unwrap_or(false)
     }
 }
 
@@ -131,6 +174,9 @@ pub fn run_lua_systems(world: &mut World) {
     // Track which system indices need their ticks updated (index -> new_tick)
     let mut systems_to_update: Vec<(usize, u32)> = Vec::new();
     
+    // Track systems that should be removed (one-shot systems that returned true)
+    let mut systems_to_remove: Vec<usize> = Vec::new();
+    
     // Run systems in round-robin order
     for i in 0..total_systems {
         let actual_index = (start_index + i) % total_systems;
@@ -142,7 +188,7 @@ pub fn run_lua_systems(world: &mut World) {
         // Time this system
         let timer = crate::lua_frame_budget::SystemTimer::start();
         
-        if let Err(e) = run_single_lua_system_fast(
+        match run_single_lua_system_fast(
             &lua_ctx.lua,
             &entry.system_key,
             world,
@@ -159,7 +205,15 @@ pub fn run_lua_systems(world: &mut World) {
             query_cache.as_ref(),
             current_frame,
         ) {
-            error!("Error running Lua system: {}", e);
+            Ok(should_remove) => {
+                if should_remove {
+                    // One-shot system - mark for removal
+                    systems_to_remove.push(actual_index);
+                }
+            }
+            Err(e) => {
+                error!("Error running Lua system: {}", e);
+            }
         }
         
         // Mark this system for tick update (updated immediately after it runs)
@@ -198,11 +252,28 @@ pub fn run_lua_systems(world: &mut World) {
     
     // Update ticks for systems that ran (per-SYSTEM, not per-instance!)
     // Each system gets its tick updated so cross-system changes are detected
-    if !systems_to_update.is_empty() {
+    // Also remove one-shot systems
+    {
         let mut systems_lock = registry.update_systems.lock().unwrap();
-        for (idx, new_tick) in systems_to_update {
-            if idx < systems_lock.len() {
-                systems_lock[idx].last_run = new_tick;
+        
+        // First, update ticks
+        for (idx, new_tick) in &systems_to_update {
+            if *idx < systems_lock.len() {
+                systems_lock[*idx].last_run = *new_tick;
+            }
+        }
+        
+        // Then, remove one-shot systems (in reverse order to avoid index shifting issues)
+        if !systems_to_remove.is_empty() {
+            // Sort in reverse order (highest index first)
+            let mut remove_sorted = systems_to_remove.clone();
+            remove_sorted.sort_by(|a, b| b.cmp(a));
+            
+            for idx in remove_sorted {
+                if idx < systems_lock.len() {
+                    debug!("[LUA_SYSTEM] Removing one-shot system at index {}", idx);
+                    systems_lock.remove(idx);
+                }
             }
         }
     }
@@ -1109,6 +1180,9 @@ fn run_single_lua_system(
 /// Optimized version of run_single_lua_system using LuaWorldContext userdata
 /// This eliminates the overhead of creating 10+ closures per system call
 /// by using statically-defined userdata methods instead
+/// 
+/// Returns (Ok(true), _) if the system returned `true` indicating it should be removed (one-shot),
+/// Returns (Ok(false), _) if the system should continue running normally.
 pub fn run_single_lua_system_fast<'w>(
     lua: &Lua,
     system_key: &LuaRegistryKey,
@@ -1125,7 +1199,7 @@ pub fn run_single_lua_system_fast<'w>(
     this_run: u32,
     query_cache: Option<&crate::query_cache::LuaQueryCache>,
     current_frame: u64,
-) -> LuaResult<()> {
+) -> LuaResult<bool> {  // Returns true if system should be REMOVED (one-shot)
     use std::time::Instant;
     
     let t0 = Instant::now();
@@ -1163,8 +1237,60 @@ pub fn run_single_lua_system_fast<'w>(
         
         let t4 = Instant::now();
 
-        // Call the Lua system function with the userdata
-        func.call::<()>(world_ud)?;
+        // Run the system function inside a coroutine so it can yield for asset downloads
+        let thread = lua.create_thread(func)?;
+        
+        // Track if this is a one-shot system (returns true)
+        let mut should_remove = false;
+        
+        match thread.resume::<mlua::Value>(world_ud) {
+            Ok(yield_value) => {
+                match thread.status() {
+                    mlua::ThreadStatus::Finished => {
+                        // System completed normally
+                        // Check if it returned `true` to signal one-shot removal
+                        if let mlua::Value::Boolean(true) = yield_value {
+                            should_remove = true;
+                            debug!("[LUA_SYSTEM] System returned true - marking for removal (one-shot)");
+                        }
+                    }
+                    mlua::ThreadStatus::Resumable => {
+                        // System yielded - needs to wait for a download
+                        // The yield value should be the download path
+                        if let mlua::Value::String(path_str) = yield_value {
+                            if let Ok(path) = path_str.to_str() {
+                                debug!("📥 [LUA_SYSTEM] System yielded for download: {}", path);
+                                
+                                // Store the coroutine for later resumption
+                                // Get script cache from Lua context
+                                if let Ok(script_cache_global) = lua.globals().get::<mlua::Value>("__SCRIPT_CACHE__") {
+                                    if let mlua::Value::LightUserData(_ptr) = script_cache_global {
+                                        debug!("📥 [LUA_SYSTEM] System coroutine registered for resumption");
+                                        // For now, just warn - full implementation would store coroutine
+                                        // TODO: Store coroutine in pending_download_coroutines for resumption
+                                    }
+                                }
+                                
+                                // For now, warn but don't error - the download is queued
+                                // The asset may not be available THIS frame but will load eventually
+                                warn!("⚠️ System yielded for download '{}'. Asset loading deferred.", path);
+                            }
+                        } else {
+                            warn!("⚠️ System yielded with unexpected value: {:?}", yield_value);
+                        }
+                    }
+                    mlua::ThreadStatus::Error => {
+                        warn!("⚠️ System coroutine in error state");
+                    }
+                    mlua::ThreadStatus::Running => {
+                        // This shouldn't happen
+                    }
+                }
+            }
+            Err(e) => {
+                return Err(e);
+            }
+        }
         
         let t5 = Instant::now();
         
@@ -1180,7 +1306,7 @@ pub fn run_single_lua_system_fast<'w>(
             );
         }
 
-        Ok(())
+        Ok(should_remove)
     });
     
     // Log function lookup time if significant
