@@ -152,4 +152,19 @@ impl ScriptRegistry {
 
         None
     }
+
+    /// Get all active (non-stopped) instance IDs across all scripts
+    /// Used by event accumulator to distribute events to all active scripts
+    pub fn all_active_instance_ids(&self) -> Vec<u64> {
+        let scripts = self.scripts.lock().unwrap();
+        scripts
+            .values()
+            .flat_map(|instances| {
+                instances
+                    .iter()
+                    .filter(|info| !info.stopped)
+                    .map(|info| info.instance_id)
+            })
+            .collect()
+    }
 }

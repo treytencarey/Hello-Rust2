@@ -181,7 +181,6 @@ end
 function NetGame.create_sync_inbound()
     return function(world)
         NetSync.inbound_system(world, function(channel)
-            -- In "both" mode, we're both server and client
             -- Try to receive as client if RenetClient exists
             local ok, msg = pcall(function()
                 return world:call_resource_method("RenetClient", "receive_message", channel)

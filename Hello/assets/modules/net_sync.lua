@@ -15,6 +15,7 @@ local NetSync = {}
 --------------------------------------------------------------------------------
 
 local json = require("modules/dkjson.lua")
+local NetRole = require("modules/net_role.lua")
 
 local function json_encode(tbl)
     return json.encode(tbl)
@@ -283,21 +284,14 @@ function NetSync.outbound_system(world, send_fn)
         local sync = entity:get("NetworkSync")
         if not sync or not sync.net_id then goto continue end
         
-        -- Only sync entities we own/control
-        -- "owner" = we created it locally
-        -- "server" = server created it (server syncs these to clients)
-        -- "any" = anyone can sync it
-        if sync.authority ~= "owner" and sync.authority ~= "server" and sync.authority ~= "any" then
-            goto continue
-        end
-        
         local net_id = sync.net_id
         local entity_id = entity:id()
+        local full_entity = world:get_entity(entity_id)
         
         -- Check if this is a new entity (needs spawn message)
         if not spawned_net_ids[net_id] then
             -- Debug: show what components this entity actually has
-            local components = entity:get_components()
+            local components = full_entity:get_components()
             local comp_names = {}
             for name, _ in pairs(components) do
                 table.insert(comp_names, name)
@@ -305,8 +299,7 @@ function NetSync.outbound_system(world, send_fn)
             print(string.format("[NET_SYNC] OUTBOUND entity net_id=%d entity_id=%d authority=%s has components: %s",
                 net_id, entity_id, tostring(sync.authority), table.concat(comp_names, ", ")))
                 
-            local spawn_msg = NetSync.build_spawn_msg(world, entity, net_id)
-            print(json_encode(spawn_msg))
+            local spawn_msg = NetSync.build_spawn_msg(world, full_entity, net_id)
             send_fn(CHANNEL_RELIABLE, json_encode(spawn_msg))
             spawned_net_ids[net_id] = true
             shared.known_entities[net_id] = entity_id
@@ -328,14 +321,30 @@ function NetSync.outbound_system(world, send_fn)
         local components_to_check = sync.sync_components or { Transform = { rate_hz = 30 } }
         
         for comp_name, config in pairs(components_to_check) do
+            -- Per-component authority check
+            local comp_authority = config.authority or sync.authority or "owner"
+            local can_sync = false
+            
+            if comp_authority == "server" and NetRole.is_server() then
+                can_sync = true
+            elseif comp_authority == "client" and NetRole.is_client() then
+                can_sync = true
+            elseif comp_authority == "owner" or comp_authority == "any" then
+                can_sync = true
+            end
+            
+            if not can_sync then
+                goto continue_comp
+            end
+            
             local rate_hz = config.rate_hz or 30
             local interval = 1.0 / rate_hz
             local last_time = entity_times[comp_name] or 0
             
             -- Rate limit check
             if (now - last_time) >= interval then
-                if entity:has(comp_name) then
-                    local current_value = entity:get(comp_name)
+                if full_entity:has(comp_name) then
+                    local current_value = full_entity:get(comp_name)
                     local current_hash = hash_value(current_value)
                     local last_hash = entity_values[comp_name]
                     
@@ -348,6 +357,8 @@ function NetSync.outbound_system(world, send_fn)
                     end
                 end
             end
+            
+            ::continue_comp::
         end
         
         if has_changes then
@@ -491,7 +502,7 @@ function NetSync.handle_update(world, msg)
     if not net_id then return end
     
     local entity_id = shared.known_entities[net_id]
-    if not entity_id then
+    if not entity_id then 
         -- Unknown entity - could request spawn (NAK)
         print(string.format("[NET_SYNC] Update for unknown net_id=%d", net_id))
         return
@@ -500,11 +511,36 @@ function NetSync.handle_update(world, msg)
     local entity = world:get_entity(entity_id)
     if not entity then return end
     
-    -- Apply component updates
+    -- Skip updates for our own entity - client prediction handles it
+    if net_id == shared.my_net_id then
+        return
+    end
+    
+    -- Get entity's NetworkSync for authority checks
+    local sync = entity:get("NetworkSync")
+    
+    -- Apply component updates (with authority validation on server)
     for comp_name, comp_data in pairs(msg.components or {}) do
-        if comp_name ~= "NetworkSync" then  -- Don't overwrite our NetworkSync
-            entity:set({ [comp_name] = comp_data })
+        if comp_name == "NetworkSync" then
+            goto continue_comp  -- Never overwrite NetworkSync
         end
+        
+        -- Server-side authority validation
+        if NetRole.is_server() and sync and sync.sync_components then
+            local config = sync.sync_components[comp_name]
+            local comp_authority = config and config.authority or sync.authority or "server"
+            
+            -- Server only accepts updates for "client" authority components
+            if comp_authority ~= "client" then
+                print(string.format("[NET_SYNC] Rejecting %s update from client - authority=%s", 
+                    comp_name, comp_authority))
+                goto continue_comp
+            end
+        end
+        
+        entity:set({ [comp_name] = comp_data })
+        
+        ::continue_comp::
     end
 end
 

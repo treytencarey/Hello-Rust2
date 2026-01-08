@@ -288,18 +288,48 @@ impl LuaUserData for LuaWorldContext<'_> {
             let type_registry = this.component_registry.type_registry();
             let registry = type_registry.read();
 
+            // Try direct lookup first (exact short path or full path match)
             let type_registration = registry
                 .get_with_short_type_path(&resource_type_name)
-                .or_else(|| registry.get_with_type_path(&resource_type_name));
+                .or_else(|| registry.get_with_type_path(&resource_type_name))
+                // Fallback: iterate and find by short name match (handles generics)
+                .or_else(|| {
+                    // For generic types like "ButtonInput<KeyCode>", the short_type_path might be
+                    // "ButtonInput<KeyCode>" but the full path is "bevy_input::ButtonInput<bevy_input::keyboard::KeyCode>"
+                    // We need to match the short_type_path which strips crate prefixes from generics
+                    registry.iter().find(|reg| {
+                        let short = reg.type_info().type_path_table().short_path();
+                        short == resource_type_name
+                    })
+                });
 
             let registration = match type_registration {
                 Some(r) => r,
-                None => return Ok(LuaValue::Nil),
+                None => {
+                    // Log available similar types for debugging
+                    debug!("[GET_RESOURCE] Type '{}' not found. Looking for similar types...", resource_type_name);
+                    for reg in registry.iter() {
+                        if reg.data::<bevy::ecs::reflect::ReflectResource>().is_some() {
+                            let short = reg.type_info().type_path_table().short_path();
+                            let full = reg.type_info().type_path();
+                            // Log types that might be similar (contain part of the requested name)
+                            if let Some(base_name) = resource_type_name.split(['<', '>']).next() {
+                                if short.contains(base_name) || full.contains(base_name) {
+                                    debug!("[GET_RESOURCE]   Found similar: short='{}', full='{}'", short, full);
+                                }
+                            }
+                        }
+                    }
+                    return Ok(LuaValue::Nil);
+                }
             };
 
             let reflect_resource = match registration.data::<bevy::ecs::reflect::ReflectResource>() {
                 Some(r) => r,
-                None => return Ok(LuaValue::Nil),
+                None => {
+                    debug!("[GET_RESOURCE] Type '{}' found but has no ReflectResource", resource_type_name);
+                    return Ok(LuaValue::Nil);
+                }
             };
 
             #[allow(invalid_reference_casting)]

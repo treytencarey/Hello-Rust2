@@ -5506,6 +5506,190 @@ fn discover_bevy_events() -> Vec<BevyEventSpec> {
     events
 }
 
+/// Spec for a discovered Bevy resource type that should be registered for Lua access
+struct BevyResourceSpec {
+    /// Full path like "bevy::input::ButtonInput<bevy::input::keyboard::KeyCode>"
+    registration_path: String,
+    /// Short name for logging like "ButtonInput<KeyCode>"
+    short_name: String,
+}
+
+/// Discover reflected resource types from Bevy crates
+/// Scans for register_type calls in lib.rs/plugin.rs to find generic instantiations
+fn discover_bevy_resources() -> Vec<BevyResourceSpec> {
+    let mut resources = Vec::new();
+
+    // Find cargo home
+    let cargo_home = env::var("CARGO_HOME")
+        .or_else(|_| env::var("HOME").map(|h| format!("{}/.cargo", h)))
+        .or_else(|_| env::var("USERPROFILE").map(|h| format!("{}/.cargo", h)))
+        .unwrap_or_else(|_| String::new());
+
+    if cargo_home.is_empty() {
+        println!("cargo:warning=  ⚠ Cannot find CARGO_HOME for resource discovery");
+        return resources;
+    }
+
+    let registry_src = PathBuf::from(&cargo_home).join("registry").join("src");
+
+    if !registry_src.exists() {
+        println!("cargo:warning=  ⚠ Registry source not found for resource discovery");
+        return resources;
+    }
+
+    // Scan bevy_input for ButtonInput registrations
+    'outer: for index_entry in fs::read_dir(&registry_src).into_iter().flatten().flatten() {
+        let index_dir = index_entry.path();
+        if !index_dir.is_dir() {
+            continue;
+        }
+
+        for crate_entry in fs::read_dir(&index_dir).into_iter().flatten().flatten() {
+            let crate_dir = crate_entry.path();
+            let dir_name = crate_dir.file_name().and_then(|n| n.to_str()).unwrap_or("");
+
+            // Look for bevy_input crate (matches "bevy_input-0.17.3" etc)
+            if !dir_name.starts_with("bevy_input-") {
+                continue;
+            }
+
+            // Scan lib.rs for init_resource and register_type calls
+            let lib_path = crate_dir.join("src").join("lib.rs");
+            if lib_path.exists() {
+                if let Ok(source) = fs::read_to_string(&lib_path) {
+                    resources.extend(parse_register_type_calls(&source, "bevy_input"));
+                }
+            }
+            
+            // Found resources, stop searching (avoid duplicates from multiple versions)
+            if !resources.is_empty() {
+                break 'outer;
+            }
+        }
+    }
+
+    println!(
+        "cargo:warning=  ✓ Discovered {} Bevy Resource types for Lua get_resource()",
+        resources.len()
+    );
+    for resource in &resources {
+        println!("cargo:warning=    - {}", resource.short_name);
+    }
+
+    resources
+}
+
+/// Parse register_type and init_resource calls from source to find generic instantiations
+fn parse_register_type_calls(source: &str, crate_name: &str) -> Vec<BevyResourceSpec> {
+    let mut resources = Vec::new();
+
+    // Look for patterns like:
+    // app.register_type::<ButtonInput<KeyCode>>();
+    // .init_resource::<ButtonInput<KeyCode>>()
+    
+    // Patterns to search for - both register_type and init_resource add reflected resources
+    let patterns = [
+        ("register_type::<", 16),  // "register_type::<" is 16 chars
+        ("init_resource::<", 16),  // "init_resource::<" is 16 chars
+    ];
+    
+    for line in source.lines() {
+        let trimmed = line.trim();
+        
+        // Skip comments
+        if trimmed.starts_with("//") {
+            continue;
+        }
+        
+        for (pattern, skip_len) in &patterns {
+            if let Some(start_idx) = trimmed.find(pattern) {
+                let after_marker = &trimmed[start_idx + skip_len..];
+                
+                // Find the closing ">>()" - need to handle nested generics
+                if let Some(end_idx) = after_marker.find(">>") {
+                    let type_str = &after_marker[..end_idx + 1]; // Include inner >
+                    
+                    // Only include generic types (those with < in them)
+                    if type_str.contains('<') {
+                        // Build the full bevy:: path by replacing crate-relative paths
+                        let registration_path = convert_to_bevy_path(type_str, crate_name);
+                        
+                        // Extract short name (remove crate prefixes from the type for Lua lookup)
+                        let short_name = extract_short_name(type_str);
+                        
+                        // Avoid duplicates
+                        if !resources.iter().any(|r: &BevyResourceSpec| r.short_name == short_name) {
+                            resources.push(BevyResourceSpec {
+                                registration_path,
+                                short_name,
+                            });
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    resources
+}
+
+/// Convert a crate-relative type path to a bevy:: path
+fn convert_to_bevy_path(type_str: &str, crate_name: &str) -> String {
+    // Map crate names to bevy re-export paths
+    let bevy_module = match crate_name {
+        "bevy_input" => "bevy::input",
+        "bevy_window" => "bevy::window",
+        "bevy_ecs" => "bevy::ecs",
+        _ => return format!("bevy::{}", type_str), // fallback
+    };
+
+    // Split into outer type and inner generic param
+    if let Some(open_idx) = type_str.find('<') {
+        let outer_type = &type_str[..open_idx];
+        let inner_raw = &type_str[open_idx + 1..type_str.len() - 1]; // Strip < and >
+        
+        // Parse inner type - may have module prefix like "keyboard::KeyCode"
+        let inner_bevy = if inner_raw.contains("::") {
+            format!("{}::{}", bevy_module, inner_raw)
+        } else {
+            // Try to find the right submodule based on type name
+            if inner_raw == "KeyCode" || inner_raw == "Key" {
+                format!("{}::keyboard::{}", bevy_module, inner_raw)
+            } else if inner_raw == "MouseButton" {
+                format!("{}::mouse::{}", bevy_module, inner_raw)
+            } else if inner_raw.contains("Gamepad") {
+                format!("{}::gamepad::{}", bevy_module, inner_raw)
+            } else {
+                format!("{}::{}", bevy_module, inner_raw)
+            }
+        };
+        
+        format!("{}::{}<{}>", bevy_module, outer_type, inner_bevy)
+    } else {
+        format!("{}::{}", bevy_module, type_str)
+    }
+}
+
+/// Extract short name for Lua lookup (strips crate prefixes)
+fn extract_short_name(type_str: &str) -> String {
+    // For "ButtonInput<keyboard::KeyCode>", return "ButtonInput<KeyCode>"
+    if let Some(open_idx) = type_str.find('<') {
+        let outer_type = &type_str[..open_idx];
+        let inner_raw = &type_str[open_idx + 1..type_str.len() - 1];
+        
+        // Strip module path from inner type
+        let inner_short = if let Some(pos) = inner_raw.rfind("::") {
+            &inner_raw[pos + 2..]
+        } else {
+            inner_raw
+        };
+        
+        format!("{}<{}>", outer_type, inner_short)
+    } else {
+        type_str.to_string()
+    }
+}
+
 /// Scan a specific crate for Event types (types with #[derive(Event)])
 fn scan_crate_for_events(
     registry_src: &Path,
@@ -6567,14 +6751,19 @@ fn write_bindings_to_parent_crate(
     // Also scan parent crate for #[derive(Message)] types using passed crate name from Cargo.toml
     let bevy_messages = discover_bevy_messages(Some(parent_src_dir), Some(parent_crate_name));
 
+    // Discover Bevy Resource types for Lua get_resource()
+    // Scans bevy_input for register_type calls to find generic resource instantiations
+    let bevy_resources = discover_bevy_resources();
+
     // Deprecated/removed types to skip
     let deprecated_types = ["ReceivedCharacter", "Ime"];
 
     // Generate event registration code AND event dispatch match arms (for both read AND write)
     // We use bevy:: re-export paths because internal crates (bevy_window) aren't accessible
     // Instead of reflection, we generate dispatch_read_events and dispatch_write_events functions with match arms
-    let mut event_match_arms = Vec::new(); // For reading events
+    let mut event_match_arms = Vec::new(); // For reading events from accumulator
     let mut event_write_match_arms = Vec::new(); // For writing events
+    let mut event_accumulator_arms = Vec::new(); // For accumulating events every frame
 
     // Generate message write match arms from discovered message types
     let message_write_match_arms: Vec<_> = bevy_messages.iter().filter_map(|msg| {
@@ -6737,6 +6926,26 @@ fn write_bindings_to_parent_crate(
         message_registrations.len()
     );
 
+    // Generate resource type registrations (for generic resources like ButtonInput<KeyCode>)
+    let resource_registrations: Vec<_> = bevy_resources
+        .iter()
+        .filter_map(|resource| {
+            let registration_path = &resource.registration_path;
+            let short_name = &resource.short_name;
+            let type_path: syn::Path = syn::parse_str(registration_path).ok()?;
+
+            Some(quote::quote! {
+                app.register_type::<#type_path>();
+                bevy::log::debug!("[REGISTER_RESOURCES] Adding resource type: {}", #short_name);
+            })
+        })
+        .collect();
+
+    println!(
+        "cargo:warning=  ✓ Generated {} resource type registrations",
+        resource_registrations.len()
+    );
+
     let event_registrations: Vec<_> = bevy_events.iter().filter_map(|event| {
         // Skip deprecated types
         if deprecated_types.contains(&event.type_name.as_str()) {
@@ -6770,20 +6979,39 @@ fn write_bindings_to_parent_crate(
         let short_name = &event.type_name;
         let full_internal_path = &event.full_path;
         
-        event_match_arms.push(quote::quote! {
-            #short_name | #full_internal_path | #bevy_path => {
-                // Read events using EventReader
+        // Generate accumulator arm - runs every frame to capture events before Bevy clears them
+        event_accumulator_arms.push(quote::quote! {
+            {
+                // Read events for this type and push to all active script instances
                 let mut system_state = bevy::ecs::system::SystemState::<bevy::prelude::EventReader<#type_path>>::new(world);
                 let mut event_reader = system_state.get_mut(world);
+                
+                for event in event_reader.read() {
+                    // Convert event to JSON for storage in accumulator (avoids lifetime issues)
+                    if let Ok(event_json) = serde_json::to_value(event) {
+                        accumulator.push_to_instances(&active_instances, #short_name, event_json);
+                    }
+                }
+            }
+        });
+        
+        // Generate match arm for reading events - reads from accumulator by instance_id
+        event_match_arms.push(quote::quote! {
+            #short_name | #full_internal_path | #bevy_path => {
+                // Get current script instance ID from Lua global
+                let instance_id: u64 = lua.globals().get("__INSTANCE_ID__").unwrap_or(0);
+                
+                // Get events from accumulator for this script instance
+                let accumulator = world.resource::<bevy_lua_ecs::LuaEventAccumulator>().clone();
+                let events = accumulator.drain(instance_id, #short_name);
                 
                 let results = lua.create_table()?;
                 let mut index = 1;
                 
-                for event in event_reader.read() {
-                    // Convert event to Lua via reflection
-                    // reflection_to_lua returns Result<LuaValue, LuaError>
-                    if let Ok(event_value) = bevy_lua_ecs::reflection_to_lua(lua, event as &dyn bevy::reflect::PartialReflect, &type_registry) {
-                        results.set(index, event_value)?;
+                // Convert JSON events back to Lua tables
+                for event_json in events {
+                    if let Ok(lua_value) = bevy_lua_ecs::json_to_lua_value(lua, &event_json) {
+                        results.set(index, lua_value)?;
                         index += 1;
                     }
                 }
@@ -8144,7 +8372,32 @@ fn write_bindings_to_parent_crate(
             // Register message types (e.g., PointerInput for MessageWriter)
             #(#message_registrations)*
 
-            bevy::log::debug!("Auto-discovered Bevy Events and Messages registered for Lua");
+            // Register resource types (e.g., ButtonInput<KeyCode> for get_resource)
+            #(#resource_registrations)*
+
+            // Add event accumulator system that runs BEFORE Lua systems
+            // This ensures all events are captured even if Lua systems are deferred by frame budget
+            app.add_systems(bevy::prelude::PreUpdate, accumulate_events_for_lua);
+
+            bevy::log::debug!("Auto-discovered Bevy Events, Messages, and Resources registered for Lua");
+        }
+
+        /// Accumulator system that runs every frame to capture events for Lua scripts
+        /// Events are copied to all active script instances so each can read them independently
+        fn accumulate_events_for_lua(world: &mut bevy::prelude::World) {
+            // Get accumulator and script registry
+            let accumulator = world.resource::<bevy_lua_ecs::LuaEventAccumulator>().clone();
+            let script_registry = world.resource::<bevy_lua_ecs::ScriptRegistry>().clone();
+            
+            // Get all active script instance IDs
+            let active_instances = script_registry.all_active_instance_ids();
+            
+            if active_instances.is_empty() {
+                return; // No scripts to accumulate events for
+            }
+            
+            // Accumulate events for each event type
+            #(#event_accumulator_arms)*
         }
 
         /// System to register auto-generated bitflags types
@@ -8379,6 +8632,8 @@ fn write_empty_bindings_with_events(event_types: Vec<String>) {
 
             // Register message types for reflection (e.g., PointerInput)
             #(#message_registrations)*
+            
+            // Note: Event accumulator system is not generated in fallback mode
         }
 
         /// Auto-generated event dispatch system

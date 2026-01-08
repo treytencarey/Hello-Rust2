@@ -807,11 +807,11 @@ pub const DISCOVERED_ASSET_TYPES: &[&str] = &[
     "TiledWorldAsset",
     "StandardTilemapMaterial",
     "GizmoAsset",
-    "GltfPrimitive",
-    "GltfSkin",
-    "GltfNode",
     "Gltf",
     "GltfMesh",
+    "GltfNode",
+    "GltfSkin",
+    "GltfPrimitive",
     "Image",
     "TextureAtlasLayout",
     "Mesh",
@@ -13499,57 +13499,48 @@ pub fn dispatch_read_events(
         .clone();
     match event_type {
         "WindowResized" | "bevy_window::event::WindowResized" | "bevy::window::WindowResized" => {
-            let mut system_state = bevy::ecs::system::SystemState::<
-                bevy::prelude::EventReader<bevy::window::WindowResized>,
-            >::new(world);
-            let mut event_reader = system_state.get_mut(world);
+            let instance_id: u64 = lua.globals().get("__INSTANCE_ID__").unwrap_or(0);
+            let accumulator = world
+                .resource::<bevy_lua_ecs::LuaEventAccumulator>()
+                .clone();
+            let events = accumulator.drain(instance_id, "WindowResized");
             let results = lua.create_table()?;
             let mut index = 1;
-            for event in event_reader.read() {
-                if let Ok(event_value) = bevy_lua_ecs::reflection_to_lua(
-                    lua,
-                    event as &dyn bevy::reflect::PartialReflect,
-                    &type_registry,
-                ) {
-                    results.set(index, event_value)?;
+            for event_json in events {
+                if let Ok(lua_value) = bevy_lua_ecs::json_to_lua_value(lua, &event_json) {
+                    results.set(index, lua_value)?;
                     index += 1;
                 }
             }
             Ok(mlua::Value::Table(results))
         }
         "RequestRedraw" | "bevy_window::event::RequestRedraw" | "bevy::window::RequestRedraw" => {
-            let mut system_state = bevy::ecs::system::SystemState::<
-                bevy::prelude::EventReader<bevy::window::RequestRedraw>,
-            >::new(world);
-            let mut event_reader = system_state.get_mut(world);
+            let instance_id: u64 = lua.globals().get("__INSTANCE_ID__").unwrap_or(0);
+            let accumulator = world
+                .resource::<bevy_lua_ecs::LuaEventAccumulator>()
+                .clone();
+            let events = accumulator.drain(instance_id, "RequestRedraw");
             let results = lua.create_table()?;
             let mut index = 1;
-            for event in event_reader.read() {
-                if let Ok(event_value) = bevy_lua_ecs::reflection_to_lua(
-                    lua,
-                    event as &dyn bevy::reflect::PartialReflect,
-                    &type_registry,
-                ) {
-                    results.set(index, event_value)?;
+            for event_json in events {
+                if let Ok(lua_value) = bevy_lua_ecs::json_to_lua_value(lua, &event_json) {
+                    results.set(index, lua_value)?;
                     index += 1;
                 }
             }
             Ok(mlua::Value::Table(results))
         }
         "WindowCreated" | "bevy_window::event::WindowCreated" | "bevy::window::WindowCreated" => {
-            let mut system_state = bevy::ecs::system::SystemState::<
-                bevy::prelude::EventReader<bevy::window::WindowCreated>,
-            >::new(world);
-            let mut event_reader = system_state.get_mut(world);
+            let instance_id: u64 = lua.globals().get("__INSTANCE_ID__").unwrap_or(0);
+            let accumulator = world
+                .resource::<bevy_lua_ecs::LuaEventAccumulator>()
+                .clone();
+            let events = accumulator.drain(instance_id, "WindowCreated");
             let results = lua.create_table()?;
             let mut index = 1;
-            for event in event_reader.read() {
-                if let Ok(event_value) = bevy_lua_ecs::reflection_to_lua(
-                    lua,
-                    event as &dyn bevy::reflect::PartialReflect,
-                    &type_registry,
-                ) {
-                    results.set(index, event_value)?;
+            for event_json in events {
+                if let Ok(lua_value) = bevy_lua_ecs::json_to_lua_value(lua, &event_json) {
+                    results.set(index, lua_value)?;
                     index += 1;
                 }
             }
@@ -13558,57 +13549,48 @@ pub fn dispatch_read_events(
         "WindowCloseRequested"
         | "bevy_window::event::WindowCloseRequested"
         | "bevy::window::WindowCloseRequested" => {
-            let mut system_state = bevy::ecs::system::SystemState::<
-                bevy::prelude::EventReader<bevy::window::WindowCloseRequested>,
-            >::new(world);
-            let mut event_reader = system_state.get_mut(world);
+            let instance_id: u64 = lua.globals().get("__INSTANCE_ID__").unwrap_or(0);
+            let accumulator = world
+                .resource::<bevy_lua_ecs::LuaEventAccumulator>()
+                .clone();
+            let events = accumulator.drain(instance_id, "WindowCloseRequested");
             let results = lua.create_table()?;
             let mut index = 1;
-            for event in event_reader.read() {
-                if let Ok(event_value) = bevy_lua_ecs::reflection_to_lua(
-                    lua,
-                    event as &dyn bevy::reflect::PartialReflect,
-                    &type_registry,
-                ) {
-                    results.set(index, event_value)?;
+            for event_json in events {
+                if let Ok(lua_value) = bevy_lua_ecs::json_to_lua_value(lua, &event_json) {
+                    results.set(index, lua_value)?;
                     index += 1;
                 }
             }
             Ok(mlua::Value::Table(results))
         }
         "WindowClosed" | "bevy_window::event::WindowClosed" | "bevy::window::WindowClosed" => {
-            let mut system_state = bevy::ecs::system::SystemState::<
-                bevy::prelude::EventReader<bevy::window::WindowClosed>,
-            >::new(world);
-            let mut event_reader = system_state.get_mut(world);
+            let instance_id: u64 = lua.globals().get("__INSTANCE_ID__").unwrap_or(0);
+            let accumulator = world
+                .resource::<bevy_lua_ecs::LuaEventAccumulator>()
+                .clone();
+            let events = accumulator.drain(instance_id, "WindowClosed");
             let results = lua.create_table()?;
             let mut index = 1;
-            for event in event_reader.read() {
-                if let Ok(event_value) = bevy_lua_ecs::reflection_to_lua(
-                    lua,
-                    event as &dyn bevy::reflect::PartialReflect,
-                    &type_registry,
-                ) {
-                    results.set(index, event_value)?;
+            for event_json in events {
+                if let Ok(lua_value) = bevy_lua_ecs::json_to_lua_value(lua, &event_json) {
+                    results.set(index, lua_value)?;
                     index += 1;
                 }
             }
             Ok(mlua::Value::Table(results))
         }
         "WindowClosing" | "bevy_window::event::WindowClosing" | "bevy::window::WindowClosing" => {
-            let mut system_state = bevy::ecs::system::SystemState::<
-                bevy::prelude::EventReader<bevy::window::WindowClosing>,
-            >::new(world);
-            let mut event_reader = system_state.get_mut(world);
+            let instance_id: u64 = lua.globals().get("__INSTANCE_ID__").unwrap_or(0);
+            let accumulator = world
+                .resource::<bevy_lua_ecs::LuaEventAccumulator>()
+                .clone();
+            let events = accumulator.drain(instance_id, "WindowClosing");
             let results = lua.create_table()?;
             let mut index = 1;
-            for event in event_reader.read() {
-                if let Ok(event_value) = bevy_lua_ecs::reflection_to_lua(
-                    lua,
-                    event as &dyn bevy::reflect::PartialReflect,
-                    &type_registry,
-                ) {
-                    results.set(index, event_value)?;
+            for event_json in events {
+                if let Ok(lua_value) = bevy_lua_ecs::json_to_lua_value(lua, &event_json) {
+                    results.set(index, lua_value)?;
                     index += 1;
                 }
             }
@@ -13617,95 +13599,80 @@ pub fn dispatch_read_events(
         "WindowDestroyed"
         | "bevy_window::event::WindowDestroyed"
         | "bevy::window::WindowDestroyed" => {
-            let mut system_state = bevy::ecs::system::SystemState::<
-                bevy::prelude::EventReader<bevy::window::WindowDestroyed>,
-            >::new(world);
-            let mut event_reader = system_state.get_mut(world);
+            let instance_id: u64 = lua.globals().get("__INSTANCE_ID__").unwrap_or(0);
+            let accumulator = world
+                .resource::<bevy_lua_ecs::LuaEventAccumulator>()
+                .clone();
+            let events = accumulator.drain(instance_id, "WindowDestroyed");
             let results = lua.create_table()?;
             let mut index = 1;
-            for event in event_reader.read() {
-                if let Ok(event_value) = bevy_lua_ecs::reflection_to_lua(
-                    lua,
-                    event as &dyn bevy::reflect::PartialReflect,
-                    &type_registry,
-                ) {
-                    results.set(index, event_value)?;
+            for event_json in events {
+                if let Ok(lua_value) = bevy_lua_ecs::json_to_lua_value(lua, &event_json) {
+                    results.set(index, lua_value)?;
                     index += 1;
                 }
             }
             Ok(mlua::Value::Table(results))
         }
         "CursorMoved" | "bevy_window::event::CursorMoved" | "bevy::window::CursorMoved" => {
-            let mut system_state = bevy::ecs::system::SystemState::<
-                bevy::prelude::EventReader<bevy::window::CursorMoved>,
-            >::new(world);
-            let mut event_reader = system_state.get_mut(world);
+            let instance_id: u64 = lua.globals().get("__INSTANCE_ID__").unwrap_or(0);
+            let accumulator = world
+                .resource::<bevy_lua_ecs::LuaEventAccumulator>()
+                .clone();
+            let events = accumulator.drain(instance_id, "CursorMoved");
             let results = lua.create_table()?;
             let mut index = 1;
-            for event in event_reader.read() {
-                if let Ok(event_value) = bevy_lua_ecs::reflection_to_lua(
-                    lua,
-                    event as &dyn bevy::reflect::PartialReflect,
-                    &type_registry,
-                ) {
-                    results.set(index, event_value)?;
+            for event_json in events {
+                if let Ok(lua_value) = bevy_lua_ecs::json_to_lua_value(lua, &event_json) {
+                    results.set(index, lua_value)?;
                     index += 1;
                 }
             }
             Ok(mlua::Value::Table(results))
         }
         "CursorEntered" | "bevy_window::event::CursorEntered" | "bevy::window::CursorEntered" => {
-            let mut system_state = bevy::ecs::system::SystemState::<
-                bevy::prelude::EventReader<bevy::window::CursorEntered>,
-            >::new(world);
-            let mut event_reader = system_state.get_mut(world);
+            let instance_id: u64 = lua.globals().get("__INSTANCE_ID__").unwrap_or(0);
+            let accumulator = world
+                .resource::<bevy_lua_ecs::LuaEventAccumulator>()
+                .clone();
+            let events = accumulator.drain(instance_id, "CursorEntered");
             let results = lua.create_table()?;
             let mut index = 1;
-            for event in event_reader.read() {
-                if let Ok(event_value) = bevy_lua_ecs::reflection_to_lua(
-                    lua,
-                    event as &dyn bevy::reflect::PartialReflect,
-                    &type_registry,
-                ) {
-                    results.set(index, event_value)?;
+            for event_json in events {
+                if let Ok(lua_value) = bevy_lua_ecs::json_to_lua_value(lua, &event_json) {
+                    results.set(index, lua_value)?;
                     index += 1;
                 }
             }
             Ok(mlua::Value::Table(results))
         }
         "CursorLeft" | "bevy_window::event::CursorLeft" | "bevy::window::CursorLeft" => {
-            let mut system_state = bevy::ecs::system::SystemState::<
-                bevy::prelude::EventReader<bevy::window::CursorLeft>,
-            >::new(world);
-            let mut event_reader = system_state.get_mut(world);
+            let instance_id: u64 = lua.globals().get("__INSTANCE_ID__").unwrap_or(0);
+            let accumulator = world
+                .resource::<bevy_lua_ecs::LuaEventAccumulator>()
+                .clone();
+            let events = accumulator.drain(instance_id, "CursorLeft");
             let results = lua.create_table()?;
             let mut index = 1;
-            for event in event_reader.read() {
-                if let Ok(event_value) = bevy_lua_ecs::reflection_to_lua(
-                    lua,
-                    event as &dyn bevy::reflect::PartialReflect,
-                    &type_registry,
-                ) {
-                    results.set(index, event_value)?;
+            for event_json in events {
+                if let Ok(lua_value) = bevy_lua_ecs::json_to_lua_value(lua, &event_json) {
+                    results.set(index, lua_value)?;
                     index += 1;
                 }
             }
             Ok(mlua::Value::Table(results))
         }
         "WindowFocused" | "bevy_window::event::WindowFocused" | "bevy::window::WindowFocused" => {
-            let mut system_state = bevy::ecs::system::SystemState::<
-                bevy::prelude::EventReader<bevy::window::WindowFocused>,
-            >::new(world);
-            let mut event_reader = system_state.get_mut(world);
+            let instance_id: u64 = lua.globals().get("__INSTANCE_ID__").unwrap_or(0);
+            let accumulator = world
+                .resource::<bevy_lua_ecs::LuaEventAccumulator>()
+                .clone();
+            let events = accumulator.drain(instance_id, "WindowFocused");
             let results = lua.create_table()?;
             let mut index = 1;
-            for event in event_reader.read() {
-                if let Ok(event_value) = bevy_lua_ecs::reflection_to_lua(
-                    lua,
-                    event as &dyn bevy::reflect::PartialReflect,
-                    &type_registry,
-                ) {
-                    results.set(index, event_value)?;
+            for event_json in events {
+                if let Ok(lua_value) = bevy_lua_ecs::json_to_lua_value(lua, &event_json) {
+                    results.set(index, lua_value)?;
                     index += 1;
                 }
             }
@@ -13714,19 +13681,16 @@ pub fn dispatch_read_events(
         "WindowOccluded"
         | "bevy_window::event::WindowOccluded"
         | "bevy::window::WindowOccluded" => {
-            let mut system_state = bevy::ecs::system::SystemState::<
-                bevy::prelude::EventReader<bevy::window::WindowOccluded>,
-            >::new(world);
-            let mut event_reader = system_state.get_mut(world);
+            let instance_id: u64 = lua.globals().get("__INSTANCE_ID__").unwrap_or(0);
+            let accumulator = world
+                .resource::<bevy_lua_ecs::LuaEventAccumulator>()
+                .clone();
+            let events = accumulator.drain(instance_id, "WindowOccluded");
             let results = lua.create_table()?;
             let mut index = 1;
-            for event in event_reader.read() {
-                if let Ok(event_value) = bevy_lua_ecs::reflection_to_lua(
-                    lua,
-                    event as &dyn bevy::reflect::PartialReflect,
-                    &type_registry,
-                ) {
-                    results.set(index, event_value)?;
+            for event_json in events {
+                if let Ok(lua_value) = bevy_lua_ecs::json_to_lua_value(lua, &event_json) {
+                    results.set(index, lua_value)?;
                     index += 1;
                 }
             }
@@ -13735,19 +13699,16 @@ pub fn dispatch_read_events(
         "WindowScaleFactorChanged"
         | "bevy_window::event::WindowScaleFactorChanged"
         | "bevy::window::WindowScaleFactorChanged" => {
-            let mut system_state = bevy::ecs::system::SystemState::<
-                bevy::prelude::EventReader<bevy::window::WindowScaleFactorChanged>,
-            >::new(world);
-            let mut event_reader = system_state.get_mut(world);
+            let instance_id: u64 = lua.globals().get("__INSTANCE_ID__").unwrap_or(0);
+            let accumulator = world
+                .resource::<bevy_lua_ecs::LuaEventAccumulator>()
+                .clone();
+            let events = accumulator.drain(instance_id, "WindowScaleFactorChanged");
             let results = lua.create_table()?;
             let mut index = 1;
-            for event in event_reader.read() {
-                if let Ok(event_value) = bevy_lua_ecs::reflection_to_lua(
-                    lua,
-                    event as &dyn bevy::reflect::PartialReflect,
-                    &type_registry,
-                ) {
-                    results.set(index, event_value)?;
+            for event_json in events {
+                if let Ok(lua_value) = bevy_lua_ecs::json_to_lua_value(lua, &event_json) {
+                    results.set(index, lua_value)?;
                     index += 1;
                 }
             }
@@ -13756,19 +13717,16 @@ pub fn dispatch_read_events(
         "WindowBackendScaleFactorChanged"
         | "bevy_window::event::WindowBackendScaleFactorChanged"
         | "bevy::window::WindowBackendScaleFactorChanged" => {
-            let mut system_state = bevy::ecs::system::SystemState::<
-                bevy::prelude::EventReader<bevy::window::WindowBackendScaleFactorChanged>,
-            >::new(world);
-            let mut event_reader = system_state.get_mut(world);
+            let instance_id: u64 = lua.globals().get("__INSTANCE_ID__").unwrap_or(0);
+            let accumulator = world
+                .resource::<bevy_lua_ecs::LuaEventAccumulator>()
+                .clone();
+            let events = accumulator.drain(instance_id, "WindowBackendScaleFactorChanged");
             let results = lua.create_table()?;
             let mut index = 1;
-            for event in event_reader.read() {
-                if let Ok(event_value) = bevy_lua_ecs::reflection_to_lua(
-                    lua,
-                    event as &dyn bevy::reflect::PartialReflect,
-                    &type_registry,
-                ) {
-                    results.set(index, event_value)?;
+            for event_json in events {
+                if let Ok(lua_value) = bevy_lua_ecs::json_to_lua_value(lua, &event_json) {
+                    results.set(index, lua_value)?;
                     index += 1;
                 }
             }
@@ -13777,38 +13735,32 @@ pub fn dispatch_read_events(
         "FileDragAndDrop"
         | "bevy_window::event::FileDragAndDrop"
         | "bevy::window::FileDragAndDrop" => {
-            let mut system_state = bevy::ecs::system::SystemState::<
-                bevy::prelude::EventReader<bevy::window::FileDragAndDrop>,
-            >::new(world);
-            let mut event_reader = system_state.get_mut(world);
+            let instance_id: u64 = lua.globals().get("__INSTANCE_ID__").unwrap_or(0);
+            let accumulator = world
+                .resource::<bevy_lua_ecs::LuaEventAccumulator>()
+                .clone();
+            let events = accumulator.drain(instance_id, "FileDragAndDrop");
             let results = lua.create_table()?;
             let mut index = 1;
-            for event in event_reader.read() {
-                if let Ok(event_value) = bevy_lua_ecs::reflection_to_lua(
-                    lua,
-                    event as &dyn bevy::reflect::PartialReflect,
-                    &type_registry,
-                ) {
-                    results.set(index, event_value)?;
+            for event_json in events {
+                if let Ok(lua_value) = bevy_lua_ecs::json_to_lua_value(lua, &event_json) {
+                    results.set(index, lua_value)?;
                     index += 1;
                 }
             }
             Ok(mlua::Value::Table(results))
         }
         "WindowMoved" | "bevy_window::event::WindowMoved" | "bevy::window::WindowMoved" => {
-            let mut system_state = bevy::ecs::system::SystemState::<
-                bevy::prelude::EventReader<bevy::window::WindowMoved>,
-            >::new(world);
-            let mut event_reader = system_state.get_mut(world);
+            let instance_id: u64 = lua.globals().get("__INSTANCE_ID__").unwrap_or(0);
+            let accumulator = world
+                .resource::<bevy_lua_ecs::LuaEventAccumulator>()
+                .clone();
+            let events = accumulator.drain(instance_id, "WindowMoved");
             let results = lua.create_table()?;
             let mut index = 1;
-            for event in event_reader.read() {
-                if let Ok(event_value) = bevy_lua_ecs::reflection_to_lua(
-                    lua,
-                    event as &dyn bevy::reflect::PartialReflect,
-                    &type_registry,
-                ) {
-                    results.set(index, event_value)?;
+            for event_json in events {
+                if let Ok(lua_value) = bevy_lua_ecs::json_to_lua_value(lua, &event_json) {
+                    results.set(index, lua_value)?;
                     index += 1;
                 }
             }
@@ -13817,38 +13769,32 @@ pub fn dispatch_read_events(
         "WindowThemeChanged"
         | "bevy_window::event::WindowThemeChanged"
         | "bevy::window::WindowThemeChanged" => {
-            let mut system_state = bevy::ecs::system::SystemState::<
-                bevy::prelude::EventReader<bevy::window::WindowThemeChanged>,
-            >::new(world);
-            let mut event_reader = system_state.get_mut(world);
+            let instance_id: u64 = lua.globals().get("__INSTANCE_ID__").unwrap_or(0);
+            let accumulator = world
+                .resource::<bevy_lua_ecs::LuaEventAccumulator>()
+                .clone();
+            let events = accumulator.drain(instance_id, "WindowThemeChanged");
             let results = lua.create_table()?;
             let mut index = 1;
-            for event in event_reader.read() {
-                if let Ok(event_value) = bevy_lua_ecs::reflection_to_lua(
-                    lua,
-                    event as &dyn bevy::reflect::PartialReflect,
-                    &type_registry,
-                ) {
-                    results.set(index, event_value)?;
+            for event_json in events {
+                if let Ok(lua_value) = bevy_lua_ecs::json_to_lua_value(lua, &event_json) {
+                    results.set(index, lua_value)?;
                     index += 1;
                 }
             }
             Ok(mlua::Value::Table(results))
         }
         "AppLifecycle" | "bevy_window::event::AppLifecycle" | "bevy::window::AppLifecycle" => {
-            let mut system_state = bevy::ecs::system::SystemState::<
-                bevy::prelude::EventReader<bevy::window::AppLifecycle>,
-            >::new(world);
-            let mut event_reader = system_state.get_mut(world);
+            let instance_id: u64 = lua.globals().get("__INSTANCE_ID__").unwrap_or(0);
+            let accumulator = world
+                .resource::<bevy_lua_ecs::LuaEventAccumulator>()
+                .clone();
+            let events = accumulator.drain(instance_id, "AppLifecycle");
             let results = lua.create_table()?;
             let mut index = 1;
-            for event in event_reader.read() {
-                if let Ok(event_value) = bevy_lua_ecs::reflection_to_lua(
-                    lua,
-                    event as &dyn bevy::reflect::PartialReflect,
-                    &type_registry,
-                ) {
-                    results.set(index, event_value)?;
+            for event_json in events {
+                if let Ok(lua_value) = bevy_lua_ecs::json_to_lua_value(lua, &event_json) {
+                    results.set(index, lua_value)?;
                     index += 1;
                 }
             }
@@ -13857,19 +13803,16 @@ pub fn dispatch_read_events(
         "KeyboardInput"
         | "bevy_input::keyboard::KeyboardInput"
         | "bevy::input::keyboard::KeyboardInput" => {
-            let mut system_state = bevy::ecs::system::SystemState::<
-                bevy::prelude::EventReader<bevy::input::keyboard::KeyboardInput>,
-            >::new(world);
-            let mut event_reader = system_state.get_mut(world);
+            let instance_id: u64 = lua.globals().get("__INSTANCE_ID__").unwrap_or(0);
+            let accumulator = world
+                .resource::<bevy_lua_ecs::LuaEventAccumulator>()
+                .clone();
+            let events = accumulator.drain(instance_id, "KeyboardInput");
             let results = lua.create_table()?;
             let mut index = 1;
-            for event in event_reader.read() {
-                if let Ok(event_value) = bevy_lua_ecs::reflection_to_lua(
-                    lua,
-                    event as &dyn bevy::reflect::PartialReflect,
-                    &type_registry,
-                ) {
-                    results.set(index, event_value)?;
+            for event_json in events {
+                if let Ok(lua_value) = bevy_lua_ecs::json_to_lua_value(lua, &event_json) {
+                    results.set(index, lua_value)?;
                     index += 1;
                 }
             }
@@ -13878,19 +13821,16 @@ pub fn dispatch_read_events(
         "KeyboardFocusLost"
         | "bevy_input::keyboard::KeyboardFocusLost"
         | "bevy::input::keyboard::KeyboardFocusLost" => {
-            let mut system_state = bevy::ecs::system::SystemState::<
-                bevy::prelude::EventReader<bevy::input::keyboard::KeyboardFocusLost>,
-            >::new(world);
-            let mut event_reader = system_state.get_mut(world);
+            let instance_id: u64 = lua.globals().get("__INSTANCE_ID__").unwrap_or(0);
+            let accumulator = world
+                .resource::<bevy_lua_ecs::LuaEventAccumulator>()
+                .clone();
+            let events = accumulator.drain(instance_id, "KeyboardFocusLost");
             let results = lua.create_table()?;
             let mut index = 1;
-            for event in event_reader.read() {
-                if let Ok(event_value) = bevy_lua_ecs::reflection_to_lua(
-                    lua,
-                    event as &dyn bevy::reflect::PartialReflect,
-                    &type_registry,
-                ) {
-                    results.set(index, event_value)?;
+            for event_json in events {
+                if let Ok(lua_value) = bevy_lua_ecs::json_to_lua_value(lua, &event_json) {
+                    results.set(index, lua_value)?;
                     index += 1;
                 }
             }
@@ -13899,57 +13839,48 @@ pub fn dispatch_read_events(
         "MouseButtonInput"
         | "bevy_input::mouse::MouseButtonInput"
         | "bevy::input::mouse::MouseButtonInput" => {
-            let mut system_state = bevy::ecs::system::SystemState::<
-                bevy::prelude::EventReader<bevy::input::mouse::MouseButtonInput>,
-            >::new(world);
-            let mut event_reader = system_state.get_mut(world);
+            let instance_id: u64 = lua.globals().get("__INSTANCE_ID__").unwrap_or(0);
+            let accumulator = world
+                .resource::<bevy_lua_ecs::LuaEventAccumulator>()
+                .clone();
+            let events = accumulator.drain(instance_id, "MouseButtonInput");
             let results = lua.create_table()?;
             let mut index = 1;
-            for event in event_reader.read() {
-                if let Ok(event_value) = bevy_lua_ecs::reflection_to_lua(
-                    lua,
-                    event as &dyn bevy::reflect::PartialReflect,
-                    &type_registry,
-                ) {
-                    results.set(index, event_value)?;
+            for event_json in events {
+                if let Ok(lua_value) = bevy_lua_ecs::json_to_lua_value(lua, &event_json) {
+                    results.set(index, lua_value)?;
                     index += 1;
                 }
             }
             Ok(mlua::Value::Table(results))
         }
         "MouseMotion" | "bevy_input::mouse::MouseMotion" | "bevy::input::mouse::MouseMotion" => {
-            let mut system_state = bevy::ecs::system::SystemState::<
-                bevy::prelude::EventReader<bevy::input::mouse::MouseMotion>,
-            >::new(world);
-            let mut event_reader = system_state.get_mut(world);
+            let instance_id: u64 = lua.globals().get("__INSTANCE_ID__").unwrap_or(0);
+            let accumulator = world
+                .resource::<bevy_lua_ecs::LuaEventAccumulator>()
+                .clone();
+            let events = accumulator.drain(instance_id, "MouseMotion");
             let results = lua.create_table()?;
             let mut index = 1;
-            for event in event_reader.read() {
-                if let Ok(event_value) = bevy_lua_ecs::reflection_to_lua(
-                    lua,
-                    event as &dyn bevy::reflect::PartialReflect,
-                    &type_registry,
-                ) {
-                    results.set(index, event_value)?;
+            for event_json in events {
+                if let Ok(lua_value) = bevy_lua_ecs::json_to_lua_value(lua, &event_json) {
+                    results.set(index, lua_value)?;
                     index += 1;
                 }
             }
             Ok(mlua::Value::Table(results))
         }
         "MouseWheel" | "bevy_input::mouse::MouseWheel" | "bevy::input::mouse::MouseWheel" => {
-            let mut system_state = bevy::ecs::system::SystemState::<
-                bevy::prelude::EventReader<bevy::input::mouse::MouseWheel>,
-            >::new(world);
-            let mut event_reader = system_state.get_mut(world);
+            let instance_id: u64 = lua.globals().get("__INSTANCE_ID__").unwrap_or(0);
+            let accumulator = world
+                .resource::<bevy_lua_ecs::LuaEventAccumulator>()
+                .clone();
+            let events = accumulator.drain(instance_id, "MouseWheel");
             let results = lua.create_table()?;
             let mut index = 1;
-            for event in event_reader.read() {
-                if let Ok(event_value) = bevy_lua_ecs::reflection_to_lua(
-                    lua,
-                    event as &dyn bevy::reflect::PartialReflect,
-                    &type_registry,
-                ) {
-                    results.set(index, event_value)?;
+            for event_json in events {
+                if let Ok(lua_value) = bevy_lua_ecs::json_to_lua_value(lua, &event_json) {
+                    results.set(index, lua_value)?;
                     index += 1;
                 }
             }
@@ -15362,7 +15293,310 @@ fn register_bevy_events(app: &mut bevy::prelude::App) {
         "[REGISTER_MESSAGES] Adding message type: {}",
         "bevy::picking::pointer::PointerInput"
     );
-    bevy::log::debug!("Auto-discovered Bevy Events and Messages registered for Lua");
+    app.register_type::<bevy::input::ButtonInput<bevy::input::keyboard::KeyCode>>();
+    bevy::log::debug!(
+        "[REGISTER_RESOURCES] Adding resource type: {}",
+        "ButtonInput<KeyCode>"
+    );
+    app.register_type::<bevy::input::ButtonInput<bevy::input::mouse::MouseButton>>();
+    bevy::log::debug!(
+        "[REGISTER_RESOURCES] Adding resource type: {}",
+        "ButtonInput<MouseButton>"
+    );
+    app.register_type::<bevy::input::ButtonInput<bevy::input::gamepad::GamepadButton>>();
+    bevy::log::debug!(
+        "[REGISTER_RESOURCES] Adding resource type: {}",
+        "ButtonInput<GamepadButton>"
+    );
+    app.register_type::<bevy::input::Axis<bevy::input::gamepad::GamepadAxis>>();
+    bevy::log::debug!(
+        "[REGISTER_RESOURCES] Adding resource type: {}",
+        "Axis<GamepadAxis>"
+    );
+    app.register_type::<bevy::input::Axis<bevy::input::gamepad::GamepadButton>>();
+    bevy::log::debug!(
+        "[REGISTER_RESOURCES] Adding resource type: {}",
+        "Axis<GamepadButton>"
+    );
+    app.add_systems(bevy::prelude::PreUpdate, accumulate_events_for_lua);
+    bevy::log::debug!("Auto-discovered Bevy Events, Messages, and Resources registered for Lua");
+}
+#[doc = r" Accumulator system that runs every frame to capture events for Lua scripts"]
+#[doc = r" Events are copied to all active script instances so each can read them independently"]
+fn accumulate_events_for_lua(world: &mut bevy::prelude::World) {
+    let accumulator = world
+        .resource::<bevy_lua_ecs::LuaEventAccumulator>()
+        .clone();
+    let script_registry = world.resource::<bevy_lua_ecs::ScriptRegistry>().clone();
+    let active_instances = script_registry.all_active_instance_ids();
+    if active_instances.is_empty() {
+        return;
+    }
+    {
+        let mut system_state = bevy::ecs::system::SystemState::<
+            bevy::prelude::EventReader<bevy::window::WindowResized>,
+        >::new(world);
+        let mut event_reader = system_state.get_mut(world);
+        for event in event_reader.read() {
+            if let Ok(event_json) = serde_json::to_value(event) {
+                accumulator.push_to_instances(&active_instances, "WindowResized", event_json);
+            }
+        }
+    }
+    {
+        let mut system_state = bevy::ecs::system::SystemState::<
+            bevy::prelude::EventReader<bevy::window::RequestRedraw>,
+        >::new(world);
+        let mut event_reader = system_state.get_mut(world);
+        for event in event_reader.read() {
+            if let Ok(event_json) = serde_json::to_value(event) {
+                accumulator.push_to_instances(&active_instances, "RequestRedraw", event_json);
+            }
+        }
+    }
+    {
+        let mut system_state = bevy::ecs::system::SystemState::<
+            bevy::prelude::EventReader<bevy::window::WindowCreated>,
+        >::new(world);
+        let mut event_reader = system_state.get_mut(world);
+        for event in event_reader.read() {
+            if let Ok(event_json) = serde_json::to_value(event) {
+                accumulator.push_to_instances(&active_instances, "WindowCreated", event_json);
+            }
+        }
+    }
+    {
+        let mut system_state = bevy::ecs::system::SystemState::<
+            bevy::prelude::EventReader<bevy::window::WindowCloseRequested>,
+        >::new(world);
+        let mut event_reader = system_state.get_mut(world);
+        for event in event_reader.read() {
+            if let Ok(event_json) = serde_json::to_value(event) {
+                accumulator.push_to_instances(
+                    &active_instances,
+                    "WindowCloseRequested",
+                    event_json,
+                );
+            }
+        }
+    }
+    {
+        let mut system_state = bevy::ecs::system::SystemState::<
+            bevy::prelude::EventReader<bevy::window::WindowClosed>,
+        >::new(world);
+        let mut event_reader = system_state.get_mut(world);
+        for event in event_reader.read() {
+            if let Ok(event_json) = serde_json::to_value(event) {
+                accumulator.push_to_instances(&active_instances, "WindowClosed", event_json);
+            }
+        }
+    }
+    {
+        let mut system_state = bevy::ecs::system::SystemState::<
+            bevy::prelude::EventReader<bevy::window::WindowClosing>,
+        >::new(world);
+        let mut event_reader = system_state.get_mut(world);
+        for event in event_reader.read() {
+            if let Ok(event_json) = serde_json::to_value(event) {
+                accumulator.push_to_instances(&active_instances, "WindowClosing", event_json);
+            }
+        }
+    }
+    {
+        let mut system_state = bevy::ecs::system::SystemState::<
+            bevy::prelude::EventReader<bevy::window::WindowDestroyed>,
+        >::new(world);
+        let mut event_reader = system_state.get_mut(world);
+        for event in event_reader.read() {
+            if let Ok(event_json) = serde_json::to_value(event) {
+                accumulator.push_to_instances(&active_instances, "WindowDestroyed", event_json);
+            }
+        }
+    }
+    {
+        let mut system_state = bevy::ecs::system::SystemState::<
+            bevy::prelude::EventReader<bevy::window::CursorMoved>,
+        >::new(world);
+        let mut event_reader = system_state.get_mut(world);
+        for event in event_reader.read() {
+            if let Ok(event_json) = serde_json::to_value(event) {
+                accumulator.push_to_instances(&active_instances, "CursorMoved", event_json);
+            }
+        }
+    }
+    {
+        let mut system_state = bevy::ecs::system::SystemState::<
+            bevy::prelude::EventReader<bevy::window::CursorEntered>,
+        >::new(world);
+        let mut event_reader = system_state.get_mut(world);
+        for event in event_reader.read() {
+            if let Ok(event_json) = serde_json::to_value(event) {
+                accumulator.push_to_instances(&active_instances, "CursorEntered", event_json);
+            }
+        }
+    }
+    {
+        let mut system_state = bevy::ecs::system::SystemState::<
+            bevy::prelude::EventReader<bevy::window::CursorLeft>,
+        >::new(world);
+        let mut event_reader = system_state.get_mut(world);
+        for event in event_reader.read() {
+            if let Ok(event_json) = serde_json::to_value(event) {
+                accumulator.push_to_instances(&active_instances, "CursorLeft", event_json);
+            }
+        }
+    }
+    {
+        let mut system_state = bevy::ecs::system::SystemState::<
+            bevy::prelude::EventReader<bevy::window::WindowFocused>,
+        >::new(world);
+        let mut event_reader = system_state.get_mut(world);
+        for event in event_reader.read() {
+            if let Ok(event_json) = serde_json::to_value(event) {
+                accumulator.push_to_instances(&active_instances, "WindowFocused", event_json);
+            }
+        }
+    }
+    {
+        let mut system_state = bevy::ecs::system::SystemState::<
+            bevy::prelude::EventReader<bevy::window::WindowOccluded>,
+        >::new(world);
+        let mut event_reader = system_state.get_mut(world);
+        for event in event_reader.read() {
+            if let Ok(event_json) = serde_json::to_value(event) {
+                accumulator.push_to_instances(&active_instances, "WindowOccluded", event_json);
+            }
+        }
+    }
+    {
+        let mut system_state = bevy::ecs::system::SystemState::<
+            bevy::prelude::EventReader<bevy::window::WindowScaleFactorChanged>,
+        >::new(world);
+        let mut event_reader = system_state.get_mut(world);
+        for event in event_reader.read() {
+            if let Ok(event_json) = serde_json::to_value(event) {
+                accumulator.push_to_instances(
+                    &active_instances,
+                    "WindowScaleFactorChanged",
+                    event_json,
+                );
+            }
+        }
+    }
+    {
+        let mut system_state = bevy::ecs::system::SystemState::<
+            bevy::prelude::EventReader<bevy::window::WindowBackendScaleFactorChanged>,
+        >::new(world);
+        let mut event_reader = system_state.get_mut(world);
+        for event in event_reader.read() {
+            if let Ok(event_json) = serde_json::to_value(event) {
+                accumulator.push_to_instances(
+                    &active_instances,
+                    "WindowBackendScaleFactorChanged",
+                    event_json,
+                );
+            }
+        }
+    }
+    {
+        let mut system_state = bevy::ecs::system::SystemState::<
+            bevy::prelude::EventReader<bevy::window::FileDragAndDrop>,
+        >::new(world);
+        let mut event_reader = system_state.get_mut(world);
+        for event in event_reader.read() {
+            if let Ok(event_json) = serde_json::to_value(event) {
+                accumulator.push_to_instances(&active_instances, "FileDragAndDrop", event_json);
+            }
+        }
+    }
+    {
+        let mut system_state = bevy::ecs::system::SystemState::<
+            bevy::prelude::EventReader<bevy::window::WindowMoved>,
+        >::new(world);
+        let mut event_reader = system_state.get_mut(world);
+        for event in event_reader.read() {
+            if let Ok(event_json) = serde_json::to_value(event) {
+                accumulator.push_to_instances(&active_instances, "WindowMoved", event_json);
+            }
+        }
+    }
+    {
+        let mut system_state = bevy::ecs::system::SystemState::<
+            bevy::prelude::EventReader<bevy::window::WindowThemeChanged>,
+        >::new(world);
+        let mut event_reader = system_state.get_mut(world);
+        for event in event_reader.read() {
+            if let Ok(event_json) = serde_json::to_value(event) {
+                accumulator.push_to_instances(&active_instances, "WindowThemeChanged", event_json);
+            }
+        }
+    }
+    {
+        let mut system_state = bevy::ecs::system::SystemState::<
+            bevy::prelude::EventReader<bevy::window::AppLifecycle>,
+        >::new(world);
+        let mut event_reader = system_state.get_mut(world);
+        for event in event_reader.read() {
+            if let Ok(event_json) = serde_json::to_value(event) {
+                accumulator.push_to_instances(&active_instances, "AppLifecycle", event_json);
+            }
+        }
+    }
+    {
+        let mut system_state = bevy::ecs::system::SystemState::<
+            bevy::prelude::EventReader<bevy::input::keyboard::KeyboardInput>,
+        >::new(world);
+        let mut event_reader = system_state.get_mut(world);
+        for event in event_reader.read() {
+            if let Ok(event_json) = serde_json::to_value(event) {
+                accumulator.push_to_instances(&active_instances, "KeyboardInput", event_json);
+            }
+        }
+    }
+    {
+        let mut system_state = bevy::ecs::system::SystemState::<
+            bevy::prelude::EventReader<bevy::input::keyboard::KeyboardFocusLost>,
+        >::new(world);
+        let mut event_reader = system_state.get_mut(world);
+        for event in event_reader.read() {
+            if let Ok(event_json) = serde_json::to_value(event) {
+                accumulator.push_to_instances(&active_instances, "KeyboardFocusLost", event_json);
+            }
+        }
+    }
+    {
+        let mut system_state = bevy::ecs::system::SystemState::<
+            bevy::prelude::EventReader<bevy::input::mouse::MouseButtonInput>,
+        >::new(world);
+        let mut event_reader = system_state.get_mut(world);
+        for event in event_reader.read() {
+            if let Ok(event_json) = serde_json::to_value(event) {
+                accumulator.push_to_instances(&active_instances, "MouseButtonInput", event_json);
+            }
+        }
+    }
+    {
+        let mut system_state = bevy::ecs::system::SystemState::<
+            bevy::prelude::EventReader<bevy::input::mouse::MouseMotion>,
+        >::new(world);
+        let mut event_reader = system_state.get_mut(world);
+        for event in event_reader.read() {
+            if let Ok(event_json) = serde_json::to_value(event) {
+                accumulator.push_to_instances(&active_instances, "MouseMotion", event_json);
+            }
+        }
+    }
+    {
+        let mut system_state = bevy::ecs::system::SystemState::<
+            bevy::prelude::EventReader<bevy::input::mouse::MouseWheel>,
+        >::new(world);
+        let mut event_reader = system_state.get_mut(world);
+        for event in event_reader.read() {
+            if let Ok(event_json) = serde_json::to_value(event) {
+                accumulator.push_to_instances(&active_instances, "MouseWheel", event_json);
+            }
+        }
+    }
 }
 #[doc = r" System to register auto-generated bitflags types"]
 fn setup_bitflags(registry: bevy::prelude::Res<bevy_lua_ecs::BitflagsRegistry>) {

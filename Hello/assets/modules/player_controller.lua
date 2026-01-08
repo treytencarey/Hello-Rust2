@@ -131,10 +131,17 @@ function PlayerController.create_client_controller(entity, send_fn)
     
     --- Process input and apply prediction
     function controller.process_input(world, input, dt)
-        local transform = controller.entity:get("Transform")
-        if not transform then return end
+        -- Use stored position if available, otherwise read from entity
+        -- This avoids stale reads when entity:set() hasn't been applied yet
+        local current_pos
+        if controller.predicted_pos then
+            current_pos = controller.predicted_pos
+        else
+            local transform = controller.entity:get("Transform")
+            if not transform then return end
+            current_pos = transform.translation
+        end
         
-        local current_pos = transform.translation
         local is_grounded = current_pos.y <= 0.01  -- Simple ground check
         
         -- Calculate predicted movement
@@ -146,13 +153,17 @@ function PlayerController.create_client_controller(entity, send_fn)
             is_grounded
         )
         
+        -- Store predicted position for next frame
+        controller.predicted_pos = new_pos
+        
         -- Apply prediction locally
         controller.velocity = new_velocity
         controller.entity:set({
             Transform = {
                 translation = new_pos,
-                rotation = transform.rotation,
-                scale = transform.scale
+                -- Get rotation/scale from stored entity (won't change)
+                rotation = {x = 0, y = 0, z = 0, w = 1},
+                scale = {x = 1, y = 1, z = 1}
             }
         })
         
@@ -161,41 +172,57 @@ function PlayerController.create_client_controller(entity, send_fn)
         local send_interval = 1.0 / PlayerController.config.network_send_rate
         
         if now - controller.last_send_time >= send_interval then
-            controller.sequence = controller.sequence + 1
+            -- Check if inputs actually changed
+            local last_input = controller.last_input or {}
+            local input_changed = (input.forward ~= (last_input.forward or 0)) or
+                                  (input.right ~= (last_input.right or 0)) or
+                                  (input.jump ~= (last_input.jump or false)) or
+                                  (input.sprint ~= (last_input.sprint or false))
             
-            -- Store prediction for later reconciliation
-            controller.predictions[controller.sequence] = {
-                position = new_pos,
-                velocity = new_velocity,
-                timestamp = now
-            }
-            
-            -- Send input to server
-            if controller.send_fn then
-                controller.send_fn({
-                    sequence = controller.sequence,
+            if input_changed then
+                controller.sequence = controller.sequence + 1
+                
+                -- Store prediction for later reconciliation
+                controller.predictions[controller.sequence] = {
+                    position = new_pos,
+                    velocity = new_velocity,
+                    timestamp = now
+                }
+                
+                -- Send input to server
+                if controller.send_fn then
+                    controller.send_fn({
+                        sequence = controller.sequence,
+                        forward = input.forward,
+                        right = input.right,
+                        jump = input.jump,
+                        sprint = input.sprint
+                    })
+                end
+                
+                -- Remember last sent input
+                controller.last_input = {
                     forward = input.forward,
                     right = input.right,
                     jump = input.jump,
-                    sprint = input.sprint,
-                    dt = dt
-                })
+                    sprint = input.sprint
+                }
+                
+                -- Clean up old predictions (keep last 60)
+                local to_remove = {}
+                local count = 0
+                for seq, _ in pairs(controller.predictions) do
+                    count = count + 1
+                    if seq < controller.sequence - 60 then
+                        table.insert(to_remove, seq)
+                    end
+                end
+                for _, seq in ipairs(to_remove) do
+                    controller.predictions[seq] = nil
+                end
             end
             
             controller.last_send_time = now
-            
-            -- Clean up old predictions (keep last 60)
-            local to_remove = {}
-            local count = 0
-            for seq, _ in pairs(controller.predictions) do
-                count = count + 1
-                if seq < controller.sequence - 60 then
-                    table.insert(to_remove, seq)
-                end
-            end
-            for _, seq in ipairs(to_remove) do
-                controller.predictions[seq] = nil
-            end
         end
     end
     
@@ -262,7 +289,8 @@ function PlayerController.process_server_input(entity)
         sprint = input_component.sprint or false
     }
     
-    local dt = input_component.dt or (1.0 / 60.0)
+    -- Use fixed dt - don't trust client's dt (security + determinism)
+    local dt = 1.0 / 60.0
     local current_pos = transform.translation
     local current_velocity = player_state.velocity or {x = 0, y = 0, z = 0}
     local is_grounded = current_pos.y <= 0.01

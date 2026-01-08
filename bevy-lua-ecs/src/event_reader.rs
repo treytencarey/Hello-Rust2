@@ -137,9 +137,16 @@ pub fn reflection_to_lua(
             let debug_str = format!("{:?}", v);
             Ok(LuaValue::String(lua.create_string(&debug_str)?))
         }
-        ReflectRef::Set(_) => {
-            // Sets are not commonly used in events, return empty table
-            Ok(LuaValue::Table(lua.create_table()?))
+        ReflectRef::Set(set) => {
+            // Convert set to a Lua array-style table with 1-indexed keys
+            let table = lua.create_table()?;
+            let mut index = 1;
+            for item in set.iter() {
+                let lua_value = reflection_to_lua(lua, item, registry)?;
+                table.set(index, lua_value)?;
+                index += 1;
+            }
+            Ok(LuaValue::Table(table))
         }
     }
 }

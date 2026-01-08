@@ -155,6 +155,12 @@ register_system("Update", function(world)
     local players = world:query({"NetworkSync", "PlayerInput", "Transform", "PlayerState"}, {"PlayerInput"})
     
     for _, entity in ipairs(players) do
+        -- Skip local player in "both" mode - client handles prediction
+        local sync = entity:get("NetworkSync")
+        if sync and sync.net_id == NetSync.get_my_net_id() then
+            goto continue
+        end
+        
         local result = PlayerController.process_server_input(entity)
         if result then
             -- Use patch() to preserve model_path and other existing fields
@@ -166,6 +172,8 @@ register_system("Update", function(world)
                 }
             })
         end
+        
+        ::continue::
     end
 end)
 

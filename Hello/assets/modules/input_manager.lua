@@ -1,5 +1,6 @@
 -- Input Manager Module
 -- Abstracts input with configurable bindings and VR controller simulation
+-- Uses Bevy's ButtonInput<KeyCode> resource for keyboard state
 --
 -- Usage:
 --   local InputManager = require("modules/input_manager.lua")
@@ -18,10 +19,10 @@ local InputManager = {}
 
 -- Default key bindings (can be overridden)
 InputManager.bindings = {
-    forward = {"W"},
-    backward = {"S"},
-    left = {"A"},
-    right = {"D"},
+    forward = {"KeyW"},
+    backward = {"KeyS"},
+    left = {"KeyA"},
+    right = {"KeyD"},
     jump = {"Space"},
     sprint = {"ShiftLeft"},
 }
@@ -49,22 +50,65 @@ function InputManager.clear_simulated()
 end
 
 --------------------------------------------------------------------------------
--- Input Queries
+-- Input Queries (uses ButtonInput<KeyCode> resource)
 --------------------------------------------------------------------------------
 
 --- Check if a specific key is pressed (keyboard or VR simulated)
+local warned_no_input = false
 function InputManager.is_key_pressed(world, key)
     -- Check VR simulated keys first
     if vr_simulated_keys[key] then
         return true
     end
     
-    -- Check actual keyboard
-    local ok, pressed = pcall(function()
-        return world:call_resource_method("ButtonInput<KeyCode>", "pressed", key)
-    end)
+    -- Get ButtonInput<KeyCode> resource via reflection
+    local input = world:get_resource("ButtonInput<KeyCode>")
+    if not input then
+        if not warned_no_input then
+            print("[INPUT] Warning: ButtonInput<KeyCode> not found - keyboard input unavailable")
+            warned_no_input = true
+        end
+        return false
+    end
     
-    return ok and pressed
+    -- Check if key is in the 'pressed' set
+    -- ButtonInput stores pressed keys in a HashSet field
+    if input.pressed then
+        for _, pressed_key in ipairs(input.pressed) do
+            for key_code, _ in pairs(pressed_key) do
+                if key_code == key then
+                    return true
+                end
+            end
+        end
+    end
+    return false
+end
+
+--- Check if a key was just pressed this frame
+function InputManager.is_key_just_pressed(world, key)
+    local input = world:get_resource("ButtonInput<KeyCode>")
+    if not input or not input.just_pressed then return false end
+    
+    for _, pressed_key in ipairs(input.just_pressed) do
+        if pressed_key == key then
+            return true
+        end
+    end
+    return false
+end
+
+--- Check if a key was just released this frame
+function InputManager.is_key_just_released(world, key)
+    local input = world:get_resource("ButtonInput<KeyCode>")
+    if not input or not input.just_released then return false end
+    
+    for _, released_key in ipairs(input.just_released) do
+        if released_key == key then
+            return true
+        end
+    end
+    return false
 end
 
 --- Check if an action is active (any bound key pressed)
@@ -88,8 +132,8 @@ function InputManager.get_movement_input(world)
     local left_pressed = InputManager.is_action_pressed(world, "left")
     local right_pressed = InputManager.is_action_pressed(world, "right")
     
-    local forward = (forward_pressed and 1 or 0) - (backward_pressed and 1 or 0)
-    local right = (right_pressed and 1 or 0) - (left_pressed and 1 or 0)
+    local forward = (backward_pressed and 1 or 0) - (forward_pressed and 1 or 0)
+    local right = (left_pressed and 1 or 0) - (right_pressed and 1 or 0)
     
     return {
         forward = forward,
@@ -121,6 +165,6 @@ function InputManager.get_binding(action)
     return InputManager.bindings[action] or {}
 end
 
-print("[INPUT_MANAGER] Module loaded")
+print("[INPUT_MANAGER] Module loaded (using ButtonInput<KeyCode>)")
 
 return InputManager

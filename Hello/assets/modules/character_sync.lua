@@ -61,14 +61,15 @@ function CharacterSync.create_character(config)
             rotation = rotation,
             scale = scale
         },
-        -- Network sync component
+        -- Network sync component with per-component authority
         NetworkSync = {
             net_id = net_id,
             authority = owner_client and "server" or "owner",
             sync_components = {
-                Transform = { rate_hz = 20 },
-                PlayerState = { rate_hz = 20, reliable = true },
-                AnimationState = { rate_hz = 10 }
+                Transform = { rate_hz = 20, authority = "server" },
+                PlayerState = { rate_hz = 20, reliable = true, authority = "server" },
+                AnimationState = { rate_hz = 10, authority = "server" },
+                PlayerInput = { rate_hz = 60, authority = "client" }  -- Client controls input
             }
         },
         -- Player state for server-authoritative movement
@@ -92,8 +93,7 @@ function CharacterSync.create_character(config)
             forward = 0,
             right = 0,
             jump = false,
-            sprint = false,
-            dt = 0
+            sprint = false
         }
     end
     

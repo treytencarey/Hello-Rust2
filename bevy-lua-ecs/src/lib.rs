@@ -9,6 +9,7 @@ pub mod components;
 pub mod despawn_queue;
 pub mod entity_spawner;
 pub mod event_reader;
+pub mod event_accumulator;
 pub mod event_sender;
 pub mod lua_file_watcher;
 pub mod lua_frame_budget;
@@ -56,6 +57,7 @@ pub use entity_spawner::process_spawn_queue;
 pub use event_reader::{
     lua_table_to_dynamic, lua_table_to_dynamic_with_assets, lua_to_reflection, reflection_to_lua,
 };
+pub use event_accumulator::{LuaEventAccumulator, json_to_lua_value};
 pub use event_sender::{LuaEventSenderPlugin, PendingLuaEvents, PendingLuaMessages};
 pub use lua_file_watcher::{LuaFileChangeEvent, LuaFileWatcherPlugin};
 pub use lua_integration::{LuaScriptContext, LuaSpawnPlugin};
