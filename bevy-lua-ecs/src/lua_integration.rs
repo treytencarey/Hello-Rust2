@@ -1530,9 +1530,13 @@ fn cleanup_script_instance(instance_id: u64, world: &World, recursive: bool) {
         let num_cleared = cleared_keys.len();
 
         // Clean up the Lua registry keys to prevent memory leaks
+        // Arc ensures we only clean up once all references are dropped
         if let Some(lua_ctx) = world.get_resource::<LuaScriptContext>() {
-            for key in cleared_keys {
-                let _ = lua_ctx.lua.remove_registry_value(key);
+            for key_arc in cleared_keys {
+                // Try to unwrap Arc - if this is the last reference, clean up
+                if let Ok(key) = Arc::try_unwrap(key_arc) {
+                    let _ = lua_ctx.lua.remove_registry_value(key);
+                }
             }
         }
 

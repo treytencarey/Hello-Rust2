@@ -38,7 +38,7 @@ pub fn process_component_updates(
         // Get Lua data before we start mutable access
         let data_value: LuaValue = {
             let lua_ctx = world.resource::<LuaScriptContext>();
-            match lua_ctx.lua.registry_value(&request.data) {
+            match lua_ctx.lua.registry_value(&*request.data) {
                 Ok(value) => value,
                 Err(e) => {
                     error!("Failed to retrieve Lua value for {}: {}", type_path, e);
@@ -56,8 +56,8 @@ pub fn process_component_updates(
         
         // Check entity exists
         if world.get_entity(request.entity).is_err() {
-            let lua_ctx = world.resource::<LuaScriptContext>();
-            let _ = lua_ctx.lua.remove_registry_value(request.data);
+            // Arc will be dropped automatically - don't need to remove_registry_value
+            // (multiple Arcs might reference same key)
             continue;
         }
         
@@ -206,24 +206,27 @@ pub fn process_component_updates(
         }
         
         if component_updated {
-            let lua_ctx = world.resource::<LuaScriptContext>();
-            let _ = lua_ctx.lua.remove_registry_value(request.data);
+            // Arc will be dropped automatically
             continue;
         }
         
         // Fallback: It's a generic Lua component - store in LuaCustomComponents
+        // Get current tick for change tracking BEFORE borrowing world mutably
+        let current_tick = world.read_change_tick().get();
+        
         if let Ok(mut entity_mut) = world.get_entity_mut(request.entity) {
             if let Some(mut lua_components) = entity_mut.get_mut::<LuaCustomComponents>() {
-                lua_components.components.insert(request.component_name.clone(), Arc::new(request.data));
+                lua_components.components.insert(request.component_name.clone(), request.data.clone());
+                lua_components.changed_ticks.insert(request.component_name.clone(), current_tick);
             } else {
                 let mut lua_components = LuaCustomComponents::default();
-                lua_components.components.insert(request.component_name.clone(), Arc::new(request.data));
+                lua_components.components.insert(request.component_name.clone(), request.data.clone());
+                lua_components.changed_ticks.insert(request.component_name.clone(), current_tick);
                 entity_mut.insert(lua_components);
             }
         } else {
             warn!("Entity {:?} not found for component update", request.entity);
-            let lua_ctx = world.resource::<LuaScriptContext>();
-            let _ = lua_ctx.lua.remove_registry_value(request.data);
+            // Arc will be dropped automatically
         }
     }
     

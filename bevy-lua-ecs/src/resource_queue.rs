@@ -5,7 +5,7 @@ use std::sync::{Arc, Mutex};
 /// Resource insertion request with resource type name and data
 pub struct ResourceRequest {
     pub resource_name: String,
-    pub data: LuaRegistryKey,
+    pub data: Arc<LuaRegistryKey>,
     pub instance_id: Option<u64>,
 }
 
@@ -36,7 +36,7 @@ impl ResourceQueue {
     ) {
         let request = ResourceRequest {
             resource_name,
-            data,
+            data: Arc::new(data),
             instance_id,
         };
         self.queue.lock().unwrap().push(request);

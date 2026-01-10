@@ -42,13 +42,19 @@ pub fn process_despawn_queue(
     let removed_keys = component_update_queue.clear_for_entities(&entities_to_despawn);
 
     // Clean up Lua registry values
-    for key in removed_keys {
-        if let Err(e) = lua_ctx.lua.remove_registry_value(key) {
-            warn!(
-                "Failed to remove registry value for despawned entity: {}",
-                e
-            );
+    // Arc ensures we only clean up once all references are dropped
+    for key_arc in removed_keys {
+        // Try to unwrap Arc - if this is the last reference, clean up
+        if let Ok(key) = Arc::try_unwrap(key_arc) {
+            if let Err(e) = lua_ctx.lua.remove_registry_value(key) {
+                warn!(
+                    "Failed to remove registry value for despawned entity: {}",
+                    e
+                );
+            }
         }
+        // If Arc::try_unwrap fails, there are other references (e.g., in peek_pending)
+        // so we shouldn't clean up yet
     }
 
     // Despawn the entities (Bevy 0.16+ despawn() handles children automatically)

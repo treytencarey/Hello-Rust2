@@ -13,6 +13,8 @@ type ComponentHandler = Box<dyn Fn(&LuaValue, &mut EntityCommands) -> LuaResult<
 #[derive(Component, Default, Clone)]
 pub struct LuaCustomComponents {
     pub components: HashMap<String, Arc<LuaRegistryKey>>,
+    /// Change ticks per component key - tracks when each Lua component was last modified
+    pub changed_ticks: HashMap<String, u32>,
 }
 
 /// Type for non-reflected component serializer callback

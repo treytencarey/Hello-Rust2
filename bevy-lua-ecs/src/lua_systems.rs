@@ -735,8 +735,12 @@ fn run_single_lua_system(
                         component_update_queue.clear_for_entities(&entities_to_despawn);
 
                     // Clean up the Lua registry keys
-                    for key in cleared_keys {
-                        let _ = lua_ctx.remove_registry_value(key);
+                    // Arc ensures we only clean up once all references are dropped
+                    for key_arc in cleared_keys {
+                        // Try to unwrap Arc - if this is the last reference, clean up
+                        if let Ok(key) = Arc::try_unwrap(key_arc) {
+                            let _ = lua_ctx.remove_registry_value(key);
+                        }
                     }
                 }
 

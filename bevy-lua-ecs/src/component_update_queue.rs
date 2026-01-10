@@ -6,7 +6,7 @@ use std::sync::{Arc, Mutex};
 pub struct ComponentUpdateRequest {
     pub entity: Entity,
     pub component_name: String,
-    pub data: LuaRegistryKey,
+    pub data: Arc<LuaRegistryKey>,
 }
 
 /// Resource that holds the component update queue
@@ -29,7 +29,7 @@ impl ComponentUpdateQueue {
         let request = ComponentUpdateRequest {
             entity,
             component_name,
-            data,
+            data: Arc::new(data),
         };
         self.queue.lock().unwrap().push(request);
     }
@@ -40,7 +40,7 @@ impl ComponentUpdateQueue {
     }
 
     /// Remove all pending updates for specific entities (e.g., when they're despawned)
-    pub fn clear_for_entities(&self, entities: &[Entity]) -> Vec<LuaRegistryKey> {
+    pub fn clear_for_entities(&self, entities: &[Entity]) -> Vec<Arc<LuaRegistryKey>> {
         let mut queue = self.queue.lock().unwrap();
         let mut removed_requests = Vec::new();
 
@@ -59,5 +59,17 @@ impl ComponentUpdateQueue {
 
         // Return the registry keys that need to be cleaned up
         removed_requests.into_iter().map(|r| r.data).collect()
+    }
+
+    /// Peek at pending update for a specific entity+component (for read-through cache)
+    /// Returns a reference to the most recent pending update's data if one exists
+    pub fn peek_pending(&self, entity: Entity, component_name: &str) -> Option<Arc<LuaRegistryKey>> {
+        let queue = self.queue.lock().unwrap();
+        
+        // Find the LAST (most recent) update for this entity+component and clone the Arc
+        queue.iter()
+            .rev()
+            .find(|req| req.entity == entity && req.component_name == component_name)
+            .map(|req| Arc::clone(&req.data))
     }
 }

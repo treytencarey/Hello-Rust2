@@ -3,6 +3,7 @@ use crate::lua_integration::LuaScriptContext;
 use crate::spawn_queue::SpawnQueue;
 use bevy::core_pipeline::core_2d::graph::Core2d;
 use bevy::core_pipeline::core_3d::graph::Core3d;
+use bevy::ecs::system::SystemChangeTick;
 use bevy::prelude::*;
 use bevy::render::camera::CameraRenderGraph;
 use mlua::prelude::*;
@@ -15,6 +16,7 @@ pub fn process_spawn_queue(
     serde_registry: Res<crate::serde_components::SerdeComponentRegistry>,
     lua_ctx: Res<LuaScriptContext>,
     query: Query<Entity>,
+    system_tick: SystemChangeTick,
 ) {
     let requests = queue.drain();
 
@@ -138,7 +140,10 @@ pub fn process_spawn_queue(
                 // We keep the registry key alive in the component
                 lua_custom_components
                     .components
-                    .insert(component_name, std::sync::Arc::new(registry_key));
+                    .insert(component_name.clone(), std::sync::Arc::new(registry_key));
+                // Mark as changed at current tick so change detection picks it up
+                let current_tick = system_tick.this_run().get();
+                lua_custom_components.changed_ticks.insert(component_name, current_tick);
                 // We don't remove the registry value here because it's stored in Arc
                 // But wait, we retrieved it above. We need to be careful about ownership.
                 // The registry_key passed in the loop is owned by us.

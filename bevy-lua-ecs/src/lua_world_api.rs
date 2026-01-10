@@ -66,13 +66,20 @@ impl Clone for LuaEntitySnapshot {
 impl LuaUserData for LuaEntitySnapshot {
     fn add_methods<M: LuaUserDataMethods<Self>>(methods: &mut M) {
         methods.add_method("get", |lua, this, component_name: String| {
-            // Check generic Lua components first
+            // FIRST: Check for pending updates in the queue (read-through cache)
+            // This ensures get() returns the most recent set() value, even if not yet applied
+            if let Some(pending_key) = this.update_queue.peek_pending(this.entity, &component_name) {
+                let value: LuaValue = lua.registry_value(&*pending_key)?;
+                return Ok(value);
+            }
+
+            // Check generic Lua components (snapshot data)
             if let Some(key) = this.lua_components.get(&component_name) {
                 let value: LuaValue = lua.registry_value(&**key)?;
                 return Ok(value);
             }
 
-            // Check reflected Rust components
+            // Check reflected Rust components (snapshot data)
             if let Some(data_str) = this.component_data.get(&component_name) {
                 // Try to deserialize JSON string to Lua table
                 if let Ok(json_value) = serde_json::from_str::<serde_json::Value>(data_str) {
@@ -662,6 +669,7 @@ pub fn execute_query(
             
             // Check changed() filters
             for component_name in &query_builder.changed_components {
+                // First check if it's a Rust component
                 if let Some(type_path) = component_registry.get_type_path(component_name) {
                     if let Some(registration) = type_registry.get_with_type_path(&type_path) {
                         if registration.data::<ReflectComponent>().is_some() {
@@ -676,6 +684,34 @@ pub fn execute_query(
                             }
                         }
                     }
+                    continue; // Rust component - handled above
+                }
+                
+                // Check if it's a Lua custom component with per-key change tracking
+                if let Some(custom_components) = entity_ref.get::<LuaCustomComponents>() {
+                    if custom_components.components.contains_key(component_name) {
+                        // Check the per-key change tick
+                        if let Some(&component_tick) = custom_components.changed_ticks.get(component_name) {
+                            use bevy::ecs::component::Tick;
+                            let changed_tick = Tick::new(component_tick);
+                            let last_run_tick = Tick::new(last_run);
+                            let this_run_tick = Tick::new(this_run);
+                            
+                            // Check if the component was changed since last_run
+                            if !changed_tick.is_newer_than(last_run_tick, this_run_tick) {
+                                return None; // Lua component not changed
+                            }
+                        } else {
+                            // No tick recorded - treat as not changed (shouldn't happen normally)
+                            return None;
+                        }
+                    } else {
+                        // Component doesn't exist on entity
+                        return None;
+                    }
+                } else {
+                    // No LuaCustomComponents on entity
+                    return None;
                 }
             }
             

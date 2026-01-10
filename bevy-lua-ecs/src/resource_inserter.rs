@@ -27,7 +27,7 @@ pub fn process_resource_queue(world: &mut World) {
         }
 
         // Retrieve the Lua value from the registry
-        let data_value: LuaValue = match lua_ctx.lua.registry_value(&request.data) {
+        let data_value: LuaValue = match lua_ctx.lua.registry_value(&*request.data) {
             Ok(value) => value,
             Err(e) => {
                 error!(
@@ -73,12 +73,6 @@ pub fn process_resource_queue(world: &mut World) {
             );
         }
 
-        // Remove the registry value to free memory
-        if let Err(e) = lua_ctx.lua.remove_registry_value(request.data) {
-            warn!(
-                "Failed to remove registry value for resource {}: {}",
-                request.resource_name, e
-            );
-        }
+        // Arc will be dropped automatically when request goes out of scope
     }
 }
