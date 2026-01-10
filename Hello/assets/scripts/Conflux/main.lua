@@ -10,6 +10,7 @@ local WorldBuilder = require("modules/world_builder.lua")
 local InputManager = require("modules/input_manager.lua")
 local PlayerController = require("modules/player_controller.lua")
 local CameraController = require("modules/camera_controller.lua")
+local TransformInterpolation = require("modules/transform_interpolation.lua")
 
 print("[CONFLUX CLIENT] Initializing...")
 
@@ -86,8 +87,6 @@ end
 -- Find our character when it spawns
 local debug_find_character = true  -- Enable to debug
 register_system("Update", function(world)
-    if my_entity_id then return end  -- Already found
-    
     -- Wait for server to tell us which character is ours
     local my_net_id = NetSync.get_my_net_id()
     if not my_net_id then
@@ -126,13 +125,15 @@ register_system("Update", function(world)
         entity:set({
             PlayerInput = input_msg
         })
-    end)
+    end, CameraController.get_camera_entity)
     
     -- Attach camera
     CameraController.attach(my_entity_id)
     
     print(string.format("[CONFLUX CLIENT] Found my character: entity=%d net_id=%d", 
         my_entity_id, my_net_id))
+
+    return true -- Stop processing
 end)
 
 -- Process input and apply prediction
@@ -142,35 +143,43 @@ register_system("Update", function(world)
     local input = InputManager.get_movement_input(world)
     local dt = world:delta_time()
     
-    -- Process input with prediction
+    -- Process input with prediction (client-only mode)
     my_controller.process_input(world, input, dt)
-end)
-
--- Update camera
-register_system("Update", function(world)
-    local dt = world:delta_time()
+    
     CameraController.update(world, dt)
 end)
 
+-- Outbound sync (send input updates to server)
+register_system("Update", NetGame.create_sync_outbound())
+
 -- Inbound sync (receive entity updates from server)
 register_system("Update", NetGame.create_sync_inbound())
+
+-- Smooth interpolation for remote entities
+register_system("Update", TransformInterpolation.create_system())
 
 -- Handle server state updates for reconciliation
 register_system("Update", function(world)
     if not my_controller or not my_entity_id then return end
     
+    -- Skip reconciliation in "both" mode - server directly updates entity, no prediction needed
+    if NetRole.get_role() == "both" then return end
+    
+    -- Get server's authoritative state (stored when we receive Transform updates for own entity)
+    local server_state = NetSync.get_server_authoritative_state()
+    if not server_state or not server_state.position then return end
+    
     local entity = world:get_entity(my_entity_id)
     if not entity then return end
     
     local player_state = entity:get("PlayerState")
-    if player_state then
-        -- Reconcile with server state
-        my_controller.on_server_state({
-            sequence = player_state.last_acked_seq,
-            position = entity:get("Transform").translation,
-            velocity = player_state.velocity
-        })
-    end
+    local velocity = player_state and player_state.velocity or {x = 0, y = 0, z = 0}
+    
+    -- Reconcile with server state
+    my_controller.on_server_state({
+        position = server_state.position,
+        velocity = velocity
+    })
 end)
 
 print("[CONFLUX CLIENT] Connecting to " .. GAME_CONFIG.server_addr .. ":" .. GAME_CONFIG.port)

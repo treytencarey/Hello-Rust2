@@ -72,6 +72,29 @@ local last_synced_values = {}  -- entity_id -> { component_name -> value_hash }
 -- Entities we've sent spawn messages for
 local spawned_net_ids = {}  -- net_id -> true
 
+-- Cache of known syncable component types with reference counts
+local known_sync_types = {}  -- comp_name -> reference_count
+
+-- Cache of each entity's sync_components config (to detect config changes)
+local entity_sync_config = {}  -- entity_id -> { comp_name -> config }
+
+-- Interpolation targets for smooth transform updates
+local interpolation_targets = {}  -- entity_id -> { position, rotation, timestamp }
+
+-- Server's authoritative position for our own entity (for reconciliation)
+-- We don't apply it to Transform (prediction handles that), but we use it to reconcile
+local server_authoritative_state = nil  -- { position, velocity }
+
+--- Get interpolation targets (for use by transform_interpolation module)
+function NetSync.get_interpolation_targets()
+    return interpolation_targets
+end
+
+--- Get server's authoritative state for our own entity (for reconciliation)
+function NetSync.get_server_authoritative_state()
+    return server_authoritative_state
+end
+
 --------------------------------------------------------------------------------
 -- Net ID Management
 --------------------------------------------------------------------------------
@@ -168,21 +191,6 @@ function NetSync.get_spawn_message_for(world, net_id)
     return json_encode(spawn_msg)
 end
 
--- Simple value hash for change detection
-local function hash_value(val)
-    local t = type(val)
-    if t == "table" then
-        local parts = {}
-        for k, v in pairs(val) do
-            parts[#parts + 1] = tostring(k) .. "=" .. hash_value(v)
-        end
-        table.sort(parts)
-        return "{" .. table.concat(parts, ",") .. "}"
-    else
-        return tostring(val)
-    end
-end
-
 --------------------------------------------------------------------------------
 -- Message Building
 --------------------------------------------------------------------------------
@@ -267,6 +275,35 @@ end
 -- Outbound System (Local → Network)
 --------------------------------------------------------------------------------
 
+--- Increment reference count for a component type
+local function add_sync_type_ref(comp_name)
+    known_sync_types[comp_name] = (known_sync_types[comp_name] or 0) + 1
+end
+
+--- Decrement reference count for a component type (removes if reaches 0)
+local function remove_sync_type_ref(comp_name)
+    local count = known_sync_types[comp_name]
+    if count then
+        if count <= 1 then
+            known_sync_types[comp_name] = nil
+        else
+            known_sync_types[comp_name] = count - 1
+        end
+    end
+end
+
+--- Check if entity can sync a component based on authority
+local function can_sync_component(comp_authority)
+    if comp_authority == "server" and NetRole.is_server() then
+        return true
+    elseif comp_authority == "client" and NetRole.is_client() then
+        return true
+    elseif comp_authority == "owner" or comp_authority == "any" then
+        return true
+    end
+    return false
+end
+
 --- Query for changed NetworkSync entities and send updates
 --- @param world userdata
 --- @param send_fn function(channel, message_string) - How to send data
@@ -274,87 +311,151 @@ function NetSync.outbound_system(world, send_fn)
     if not send_fn then return end
     
     local now = os.clock()
-
-    -- Query entities with NetworkSync AND Transform that have changed NetworkSync
-    -- We must include Transform in the query because the snapshot only includes queried components.
-    -- This ensures we only get fully-spawned entities (not still in spawn queue).
-    local synced = world:query({"NetworkSync", "Transform"}, {"NetworkSync"})
+    local entities_to_spawn = {}  -- entity_id -> entity
+    local changed_components = {}  -- entity_id -> { comp_name -> true }
     
-    for _, entity in ipairs(synced) do
+    -- Step 1: Query for NetworkSync changes (new entities or config changes)
+    local network_sync_changed = world:query({"NetworkSync"}, {"NetworkSync"})
+    for _, entity in ipairs(network_sync_changed) do
         local sync = entity:get("NetworkSync")
-        if not sync or not sync.net_id then goto continue end
+        if not sync or not sync.net_id then goto continue_ns end
         
-        local net_id = sync.net_id
         local entity_id = entity:id()
-        local full_entity = world:get_entity(entity_id)
+        local current_config = sync.sync_components or { Transform = { rate_hz = 30 } }
+        local cached_config = entity_sync_config[entity_id]
         
-        -- Check if this is a new entity (needs spawn message)
-        if not spawned_net_ids[net_id] then
-            -- Debug: show what components this entity actually has
-            local components = full_entity:get_components()
-            local comp_names = {}
-            for name, _ in pairs(components) do
-                table.insert(comp_names, name)
+        if not cached_config then
+            -- New entity: cache config, increment reference counts
+            entity_sync_config[entity_id] = current_config
+            for comp_name, _ in pairs(current_config) do
+                add_sync_type_ref(comp_name)
             end
-            print(string.format("[NET_SYNC] OUTBOUND entity net_id=%d entity_id=%d authority=%s has components: %s",
-                net_id, entity_id, tostring(sync.authority), table.concat(comp_names, ", ")))
-                
-            local spawn_msg = NetSync.build_spawn_msg(world, full_entity, net_id)
-            send_fn(CHANNEL_RELIABLE, json_encode(spawn_msg))
-            spawned_net_ids[net_id] = true
-            shared.known_entities[net_id] = entity_id
-            print(string.format("[NET_SYNC] Sent spawn for net_id=%d entity_id=%d", net_id, entity_id))
-            goto continue
+            entities_to_spawn[entity_id] = entity
+        else
+            -- Existing entity: check if config changed
+            local config_changed = false
+            for comp_name, _ in pairs(current_config) do
+                if not cached_config[comp_name] then config_changed = true break end
+            end
+            for comp_name, _ in pairs(cached_config) do
+                if not current_config[comp_name] then config_changed = true break end
+            end
+            
+            if config_changed then
+                -- Remove references from old config
+                for comp_name, _ in pairs(cached_config) do
+                    if not current_config[comp_name] then
+                        remove_sync_type_ref(comp_name)
+                    end
+                end
+                -- Add references from new config
+                for comp_name, _ in pairs(current_config) do
+                    if not cached_config[comp_name] then
+                        add_sync_type_ref(comp_name)
+                    end
+                end
+                entity_sync_config[entity_id] = current_config
+            end
         end
         
-        -- Rate limit updates per component
+        ::continue_ns::
+    end
+    
+    -- Step 2: Query for component data changes (only types we know about)
+    for comp_name, _ in pairs(known_sync_types) do
+        local comp_changed = world:query({"NetworkSync", comp_name}, {comp_name})
+        for _, entity in ipairs(comp_changed) do
+            local entity_id = entity:id()
+            -- Skip entities marked for spawn (they send all components anyway)
+            if not entities_to_spawn[entity_id] then
+                changed_components[entity_id] = changed_components[entity_id] or {}
+                changed_components[entity_id][comp_name] = true
+            end
+        end
+    end
+    
+    -- Step 3a: Process spawn entities (send all sync_components)
+    for entity_id, entity in pairs(entities_to_spawn) do
+        local sync = entity:get("NetworkSync")
+        local net_id = sync.net_id
+        
+        if spawned_net_ids[net_id] then goto continue_spawn end
+        
+        local full_entity = world:get_entity(entity_id)
+        if not full_entity then goto continue_spawn end
+        
+        local spawn_msg = NetSync.build_spawn_msg(world, full_entity, net_id)
+        send_fn(CHANNEL_RELIABLE, json_encode(spawn_msg))
+        spawned_net_ids[net_id] = true
+        shared.known_entities[net_id] = entity_id
+        
+        -- Initialize hash cache for future change detection
+        local sync_comps = sync.sync_components or { Transform = { rate_hz = 30 } }
+        last_synced_values[entity_id] = {}
+        last_sync_times[entity_id] = {}
+        for comp_name, _ in pairs(sync_comps) do
+            if full_entity:has(comp_name) then
+                last_synced_values[entity_id][comp_name] = json_encode(full_entity:get(comp_name))
+                last_sync_times[entity_id][comp_name] = now
+            end
+        end
+        
+        ::continue_spawn::
+    end
+    
+    -- Step 3b: Process entities with changed components (send only changed)
+    for entity_id, comps_changed in pairs(changed_components) do
+        local full_entity = world:get_entity(entity_id)
+        if not full_entity then goto continue_update end
+        if not full_entity:has("NetworkSync") then goto continue_update end
+        
+        local sync = full_entity:get("NetworkSync")
+        if not sync or not sync.net_id then goto continue_update end
+        
+        local net_id = sync.net_id
+        
+        -- Skip if not yet spawned (will be caught next frame)
+        if not spawned_net_ids[net_id] then goto continue_update end
+        
         local entity_times = last_sync_times[entity_id] or {}
         last_sync_times[entity_id] = entity_times
         
         local entity_values = last_synced_values[entity_id] or {}
         last_synced_values[entity_id] = entity_values
         
-        local changed_components = {}
+        local sync_comps = sync.sync_components or { Transform = { rate_hz = 30 } }
+        local components_to_send = {}
         local has_changes = false
+        local needs_reliable = false
         
-        -- Determine which components to check
-        local components_to_check = sync.sync_components or { Transform = { rate_hz = 30 } }
-        
-        for comp_name, config in pairs(components_to_check) do
-            -- Per-component authority check
+        -- Only check components that ECS reported as changed
+        for comp_name, _ in pairs(comps_changed) do
+            local config = sync_comps[comp_name]
+            -- Skip if not in this entity's sync_components
+            if not config then goto continue_comp end
+            
+            -- Authority check
             local comp_authority = config.authority or sync.authority or "owner"
-            local can_sync = false
+            if not can_sync_component(comp_authority) then goto continue_comp end
             
-            if comp_authority == "server" and NetRole.is_server() then
-                can_sync = true
-            elseif comp_authority == "client" and NetRole.is_client() then
-                can_sync = true
-            elseif comp_authority == "owner" or comp_authority == "any" then
-                can_sync = true
-            end
-            
-            if not can_sync then
-                goto continue_comp
-            end
-            
+            -- Rate limit check
             local rate_hz = config.rate_hz or 30
             local interval = 1.0 / rate_hz
             local last_time = entity_times[comp_name] or 0
+            if (now - last_time) < interval then goto continue_comp end
             
-            -- Rate limit check
-            if (now - last_time) >= interval then
-                if full_entity:has(comp_name) then
-                    local current_value = full_entity:get(comp_name)
-                    local current_hash = hash_value(current_value)
-                    local last_hash = entity_values[comp_name]
-                    
-                    -- Only send if value actually changed
-                    if current_hash ~= last_hash then
-                        changed_components[comp_name] = current_value
-                        entity_times[comp_name] = now
-                        entity_values[comp_name] = current_hash
-                        has_changes = true
-                    end
+            -- Hash check (final verification)
+            if full_entity:has(comp_name) then
+                local current_value = full_entity:get(comp_name)
+                local current_hash = json_encode(current_value)
+                local last_hash = entity_values[comp_name]
+                
+                if current_hash ~= last_hash then
+                    components_to_send[comp_name] = current_value
+                    entity_times[comp_name] = now
+                    entity_values[comp_name] = current_hash
+                    has_changes = true
+                    if config.reliable then needs_reliable = true end
                 end
             end
             
@@ -362,19 +463,11 @@ function NetSync.outbound_system(world, send_fn)
         end
         
         if has_changes then
-            local update_msg = NetSync.build_update_msg(entity, net_id, changed_components)
-            local reliable = false
-            -- Use reliable channel if any component requires it
-            for comp_name, config in pairs(components_to_check) do
-                if config.reliable and changed_components[comp_name] then
-                    reliable = true
-                    break
-                end
-            end
-            send_fn(reliable and CHANNEL_RELIABLE or CHANNEL_UNRELIABLE, json_encode(update_msg))
+            local update_msg = NetSync.build_update_msg(full_entity, net_id, components_to_send)
+            send_fn(needs_reliable and CHANNEL_RELIABLE or CHANNEL_UNRELIABLE, json_encode(update_msg))
         end
         
-        ::continue::
+        ::continue_update::
     end
 end
 
@@ -511,11 +604,6 @@ function NetSync.handle_update(world, msg)
     local entity = world:get_entity(entity_id)
     if not entity then return end
     
-    -- Skip updates for our own entity - client prediction handles it
-    if net_id == shared.my_net_id then
-        return
-    end
-    
     -- Get entity's NetworkSync for authority checks
     local sync = entity:get("NetworkSync")
     
@@ -601,6 +689,10 @@ function NetSync.handle_despawn(world, msg)
         spawned_net_ids[net_id] = nil
         last_sync_times[entity_id] = nil
         last_synced_values[entity_id] = nil
+        if entity_sync_config[entity_id] then
+            entity_sync_config[entity_id] = nil
+            rebuild_known_sync_types()
+        end
     else
         print(string.format("[NET_SYNC] handle_despawn: net_id=%d not in known_entities", net_id))
     end
@@ -655,6 +747,13 @@ function NetSync.despawn_by_net_id(world, net_id, send_fn)
     if entity_id then
         last_sync_times[entity_id] = nil
         last_synced_values[entity_id] = nil
+        if entity_sync_config[entity_id] then
+            -- Decrement reference counts for this entity's components
+            for comp_name, _ in pairs(entity_sync_config[entity_id]) do
+                remove_sync_type_ref(comp_name)
+            end
+            entity_sync_config[entity_id] = nil
+        end
     end
 end
 

@@ -85,10 +85,10 @@ end
 function handle_mouse_buttons(world)
     local button_events = world:read_events("MouseButtonInput")
     for _, event in ipairs(button_events) do
-        if event.button and event.button.Left then
-            if event.state.Pressed then
+        if event.button == "Left" then
+            if event.state == "Pressed" then
                 is_dragging = true
-            elseif event.state.Released then
+            elseif event.state == "Released" then
                 is_dragging = false
             end
         end
@@ -110,8 +110,8 @@ function apply_drag_rotation(world)
             if event.delta then
                 -- Create rotation deltas relative to model's current orientation
                 -- Horizontal drag (delta.x) -> rotate around world Y axis (yaw)
-                local yaw_delta = event.delta.x * rotation_speed
-                local pitch_delta = event.delta.y * rotation_speed  -- No inversion needed
+                local yaw_delta = event.delta[1] * rotation_speed
+                local pitch_delta = event.delta[2] * rotation_speed  -- No inversion needed
                 
                 -- Create incremental rotations
                 local yaw_quat = quat_from_axis_angle(0, 1, 0, yaw_delta)  -- Around Y (up)
@@ -142,7 +142,7 @@ function apply_drag_rotation(world)
 end
 
 -- Spawn the FBX scene using load_asset (generic asset loading)
-local scene_id = load_asset("examples/ufbx/MiMi_idle_stance.glb#Scene0")
+local scene_id = load_asset("Conflux/MiMi_idle_stance.glb#Scene0")
 print("Loaded scene with ID:", scene_id)
 
 local scene = spawn({
@@ -197,79 +197,79 @@ print("✓ Lighting added")
 
 -- === Material Override System ===
 -- Create materials with our textures (order: floating, clothes, face, hair)
-local texture_body = load_asset("examples/ufbx/mimi new body uvs_base color.png")
-local texture_floating = load_asset("examples/ufbx/Mimi_Floating_BaseColor.png")
-local texture_clothes = load_asset("examples/ufbx/Mimi_ClothesMain_BaseColor.png")
-local texture_face = load_asset("examples/ufbx/Mimi_Face_BaseColor.png")
-local texture_hair = load_asset("examples/ufbx/Mimi_Hair_BaseColor.png")
-local texture_wand = load_asset("examples/ufbx/MimiWand_BaseColor.png")
+-- local texture_body = load_asset("examples/ufbx/mimi new body uvs_base color.png")
+-- local texture_floating = load_asset("examples/ufbx/Mimi_Floating_BaseColor.png")
+-- local texture_clothes = load_asset("examples/ufbx/Mimi_ClothesMain_BaseColor.png")
+-- local texture_face = load_asset("examples/ufbx/Mimi_Face_BaseColor.png")
+-- local texture_hair = load_asset("examples/ufbx/Mimi_Hair_BaseColor.png")
+-- local texture_wand = load_asset("examples/ufbx/MimiWand_BaseColor.png")
 
-print("[TEXTURES] Loaded texture IDs: floating=" .. tostring(texture_floating) .. 
-      ", clothes=" .. tostring(texture_clothes) .. 
-      ", face=" .. tostring(texture_face) .. 
-      ", hair=" .. tostring(texture_hair) ..
-      ", wand=" .. tostring(texture_wand))
+-- print("[TEXTURES] Loaded texture IDs: floating=" .. tostring(texture_floating) .. 
+--       ", clothes=" .. tostring(texture_clothes) .. 
+--       ", face=" .. tostring(texture_face) .. 
+--       ", hair=" .. tostring(texture_hair) ..
+--       ", wand=" .. tostring(texture_wand))
 
--- Create StandardMaterial assets with the textures
-local mat_body = create_asset("bevy_pbr::pbr_material::StandardMaterial", {
-    base_color_texture = texture_body,
-    perceptual_roughness = 0.8,  -- Non-shiny skin
-    metallic = 0.0,              -- Not metallic
-    reflectance = 0.5,           -- Standard reflectance
-    unlit = false,
-    double_sided = true
-})
+-- -- Create StandardMaterial assets with the textures
+-- local mat_body = create_asset("bevy_pbr::pbr_material::StandardMaterial", {
+--     base_color_texture = texture_body,
+--     perceptual_roughness = 0.8,  -- Non-shiny skin
+--     metallic = 0.0,              -- Not metallic
+--     reflectance = 0.5,           -- Standard reflectance
+--     unlit = false,
+--     double_sided = true
+-- })
 
-local mat_floating = create_asset("bevy_pbr::pbr_material::StandardMaterial", {
-    base_color_texture = texture_floating,
-    perceptual_roughness = 0.7,
-    metallic = 0.0,
-    reflectance = 0.5,
-    unlit = false,
-    double_sided = true
-})
+-- local mat_floating = create_asset("bevy_pbr::pbr_material::StandardMaterial", {
+--     base_color_texture = texture_floating,
+--     perceptual_roughness = 0.7,
+--     metallic = 0.0,
+--     reflectance = 0.5,
+--     unlit = false,
+--     double_sided = true
+-- })
 
-local mat_clothes = create_asset("bevy_pbr::pbr_material::StandardMaterial", {
-    base_color_texture = texture_clothes,
-    perceptual_roughness = 0.9,  -- Cloth is quite rough
-    metallic = 0.0,
-    reflectance = 0.5,
-    unlit = false,
-    double_sided = true
-})
+-- local mat_clothes = create_asset("bevy_pbr::pbr_material::StandardMaterial", {
+--     base_color_texture = texture_clothes,
+--     perceptual_roughness = 0.9,  -- Cloth is quite rough
+--     metallic = 0.0,
+--     reflectance = 0.5,
+--     unlit = false,
+--     double_sided = true
+-- })
 
-local mat_face = create_asset("bevy_pbr::pbr_material::StandardMaterial", {
-    base_color_texture = texture_face,
-    perceptual_roughness = 0.6,  -- Face slightly less rough than body
-    metallic = 0.0,
-    reflectance = 0.5,
-    unlit = false,
-    double_sided = true
-})
+-- local mat_face = create_asset("bevy_pbr::pbr_material::StandardMaterial", {
+--     base_color_texture = texture_face,
+--     perceptual_roughness = 0.6,  -- Face slightly less rough than body
+--     metallic = 0.0,
+--     reflectance = 0.5,
+--     unlit = false,
+--     double_sided = true
+-- })
 
-local mat_hair = create_asset("bevy_pbr::pbr_material::StandardMaterial", {
-    base_color_texture = texture_hair,
-    perceptual_roughness = 0.5,  -- Hair has some shine
-    metallic = 0.0,
-    reflectance = 0.5,
-    unlit = false,
-    double_sided = true,
-    alpha_mode = "Blend"  -- Hair often needs transparency
-})
+-- local mat_hair = create_asset("bevy_pbr::pbr_material::StandardMaterial", {
+--     base_color_texture = texture_hair,
+--     perceptual_roughness = 0.5,  -- Hair has some shine
+--     metallic = 0.0,
+--     reflectance = 0.5,
+--     unlit = false,
+--     double_sided = true,
+--     alpha_mode = "Blend"  -- Hair often needs transparency
+-- })
 
-local mat_wand = create_asset("bevy_pbr::pbr_material::StandardMaterial", {
-    base_color_texture = texture_wand,
-    perceptual_roughness = 0.3,  -- Wand might be shinier
-    metallic = 0.1,              -- Slight metallic for magical effect
-    reflectance = 0.5,
-    unlit = false,
-    double_sided = true
-})
+-- local mat_wand = create_asset("bevy_pbr::pbr_material::StandardMaterial", {
+--     base_color_texture = texture_wand,
+--     perceptual_roughness = 0.3,  -- Wand might be shinier
+--     metallic = 0.1,              -- Slight metallic for magical effect
+--     reflectance = 0.5,
+--     unlit = false,
+--     double_sided = true
+-- })
 
 -- Store materials for assignment (6 meshes total)
 -- Common order: body, face, hair, clothes, floating, (extra - maybe eyes or accessories)
 --                                                                           wand
-local materials_to_assign = { mat_hair, mat_face, mat_clothes, mat_floating, mat_wand, mat_body }
+local materials_to_assign = {} -- { mat_hair, mat_face, mat_clothes, mat_floating, mat_wand, mat_body }
 local materials_assigned = false
 local frames_waited = 0
 local FRAMES_TO_WAIT = 0  -- Wait 60 frames (~1 second) for scene to load
@@ -370,6 +370,7 @@ function play_animation(world)
 end
 
 -- Register systems
+print("Registering systems...")
 register_system("Update", handle_mouse_buttons)
 register_system("Update", apply_drag_rotation)
 -- register_system("Update", play_animation)

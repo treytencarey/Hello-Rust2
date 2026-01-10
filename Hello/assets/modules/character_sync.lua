@@ -66,7 +66,7 @@ function CharacterSync.create_character(config)
             net_id = net_id,
             authority = owner_client and "server" or "owner",
             sync_components = {
-                Transform = { rate_hz = 20, authority = "server" },
+                Transform = { rate_hz = 20, authority = "server", interpolate = true },
                 PlayerState = { rate_hz = 20, reliable = true, authority = "server" },
                 AnimationState = { rate_hz = 10, authority = "server" },
                 PlayerInput = { rate_hz = 60, authority = "client" }  -- Client controls input
