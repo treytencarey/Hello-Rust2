@@ -24,6 +24,7 @@ pub mod os_utilities;
 pub mod path_utils;
 pub mod query_cache;
 pub mod reflection;
+pub mod removed_components;
 pub mod resource_builder;
 pub mod resource_constructors;
 pub mod resource_inserter;
@@ -48,7 +49,7 @@ pub use auto_bindings::{
 };
 pub use bitflags_registry::BitflagsRegistry;
 pub use component_lua_trait::LuaComponentRegistry;
-pub use component_update_queue::ComponentUpdateQueue;
+pub use component_update_queue::{ComponentUpdateQueue, get_component_with_queue};
 pub use component_updater::process_component_updates;
 pub use components::{register_entity_wrappers_runtime, ComponentRegistry, LuaCustomComponents, NonReflectedSerializer};
 
@@ -72,6 +73,7 @@ pub use lua_world_api::{execute_query, LuaEntitySnapshot, LuaQueryBuilder};
 pub use network_asset_trait::{AssetDownloadStatus, NetworkAssetLoader, NetworkAssetRequestor};
 pub use path_utils::{normalize_path, normalize_path_separators, to_forward_slash};
 pub use query_cache::LuaQueryCache;
+pub use removed_components::{update_removed_components_tracker, RemovedComponentsTracker};
 pub use resource_builder::ResourceBuilderRegistry;
 pub use resource_constructors::{OsUtilities, ResourceConstructorRegistry};
 pub use resource_inserter::process_resource_queue;

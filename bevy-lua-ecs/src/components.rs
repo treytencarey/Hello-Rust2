@@ -1107,6 +1107,24 @@ pub fn set_field_from_lua(
     );
     if type_path.contains("Handle<") {
         debug!("[FIELD_SET] Handle detected: {}", type_path);
+        
+        // NEW: Handle path string - for network replication where Handle is serialized as path
+        if let LuaValue::String(path_str) = lua_value {
+            if let Ok(path) = path_str.to_str() {
+                if let Some(registry) = asset_registry {
+                    if let Some(asset_server) = registry.asset_server.as_ref() {
+                        if let Some(handle) = registry.try_load_from_path(path.as_ref(), &type_path, asset_server) {
+                            if registry.try_set_handle_field(field, &type_path, handle) {
+                                debug!("[FIELD_SET] ✓ Loaded handle from path '{}' for {}", path, type_path);
+                                return Ok(());
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        
+        // Existing: Handle integer asset ID
         if let LuaValue::Integer(asset_id) = lua_value {
             if let Some(registry) = asset_registry {
                 debug!("[FIELD_SET] Looking up asset ID {} in registry", asset_id);

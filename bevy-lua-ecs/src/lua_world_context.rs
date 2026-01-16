@@ -36,6 +36,8 @@ pub struct LuaWorldContext<'w> {
     pub this_run: u32,
     pub query_cache: Option<crate::query_cache::LuaQueryCache>,
     pub current_frame: u64,
+    /// Optional AssetRegistry for Handle→path serialization in queries
+    pub asset_registry: Option<crate::asset_loading::AssetRegistry>,
 }
 
 impl<'w> LuaWorldContext<'w> {
@@ -54,6 +56,7 @@ impl<'w> LuaWorldContext<'w> {
         this_run: u32,
         query_cache: Option<crate::query_cache::LuaQueryCache>,
         current_frame: u64,
+        asset_registry: Option<crate::asset_loading::AssetRegistry>,
     ) -> Self {
         Self {
             world,
@@ -69,6 +72,7 @@ impl<'w> LuaWorldContext<'w> {
             this_run,
             query_cache,
             current_frame,
+            asset_registry,
         }
     }
 
@@ -114,6 +118,7 @@ impl LuaUserData for LuaWorldContext<'_> {
                 this.this_run,
                 this.query_cache.as_ref(),
                 this.current_frame,
+                this.asset_registry.as_ref(),
             )?;
             
             let t2 = std::time::Instant::now();
@@ -137,6 +142,39 @@ impl LuaUserData for LuaWorldContext<'_> {
                 );
             }
 
+            Ok(results_table)
+        });
+
+        // query_removed(component_names) - get entities that had components removed this frame
+        methods.add_method("query_removed", |lua, this, component_names: LuaTable| {
+            // Get the RemovedComponentsTracker resource
+            let tracker = this.world().get_resource::<crate::removed_components::RemovedComponentsTracker>();
+            
+            let tracker = match tracker {
+                Some(t) => t,
+                None => {
+                    debug!("[QUERY_REMOVED] RemovedComponentsTracker resource not found");
+                    return Ok(lua.create_table()?);
+                }
+            };
+            
+            // Collect entity bits for all requested component names
+            let mut all_entity_bits: std::collections::HashSet<u64> = std::collections::HashSet::new();
+            
+            for comp_name_result in component_names.sequence_values::<String>() {
+                let comp_name = comp_name_result?;
+                let removed = tracker.get_removed(&comp_name);
+                for bits in removed {
+                    all_entity_bits.insert(bits);
+                }
+            }
+            
+            // Return as Lua table array of entity bits
+            let results_table = lua.create_table()?;
+            for (i, entity_bits) in all_entity_bits.into_iter().enumerate() {
+                results_table.set(i + 1, entity_bits as i64)?;
+            }
+            
             Ok(results_table)
         });
 
@@ -182,8 +220,8 @@ impl LuaUserData for LuaWorldContext<'_> {
                                     let type_path = registration.type_info().type_path();
                                     let short_name = type_path.rsplit("::").next().unwrap_or(type_path);
                                     
-                                    // Convert to Lua via reflection
-                                    if let Ok(lua_value) = crate::lua_world_api::reflection_to_lua(lua, component) {
+                                    // Convert to Lua via reflection (with asset_registry for Handle→path)
+                                    if let Ok(lua_value) = crate::lua_world_api::reflection_to_lua_with_assets(lua, component, this.asset_registry.as_ref()) {
                                         if let Ok(registry_key) = lua.create_registry_value(lua_value) {
                                             reflected_components.insert(short_name.to_string(), Arc::new(registry_key));
                                         }

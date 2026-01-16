@@ -948,6 +948,18 @@ cargo run --example button
 cargo run --example basic
 ```
 
+## Testing
+
+Run the test suite to verify functionality:
+
+```bash
+# Run all tests
+cargo test --package bevy-lua-ecs
+
+# Run specific integration tests (e.g., module system tests)
+cargo test --package bevy-lua-ecs --test require_tests
+```
+
 ## Troubleshooting
 
 ### Debug Logging

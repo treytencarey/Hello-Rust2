@@ -17,6 +17,7 @@ pub struct LuaSystemEntry {
     pub instance_id: u64,
     pub system_key: Arc<LuaRegistryKey>,
     pub last_run: u32,  // Per-system tick for change detection
+    pub state_id: usize,  // Which Lua state this system belongs to (0=primary, >=1=instanced)
 }
 
 /// Resource that stores registered Lua systems
@@ -38,12 +39,14 @@ impl Default for LuaSystemRegistry {
 
 impl LuaSystemRegistry {
     /// Register a new system with initial tick of 0
-    pub fn register_system(&self, instance_id: u64, system_key: Arc<LuaRegistryKey>) {
+    /// state_id: Which Lua state this system runs in (0=primary, >=1=instanced)
+    pub fn register_system(&self, instance_id: u64, system_key: Arc<LuaRegistryKey>, state_id: usize) {
         let mut systems = self.update_systems.lock().unwrap();
         systems.push(LuaSystemEntry {
             instance_id,
             system_key,
             last_run: 0,
+            state_id,
         });
     }
     
@@ -185,11 +188,20 @@ pub fn run_lua_systems(world: &mut World) {
         // Get this system's own last_run tick (per-system, not per-instance!)
         let last_run_for_system = entry.last_run;
         
+        // Get the correct Lua state for this system (instanced systems use different states)
+        let lua_state = lua_ctx.get_lua_state(entry.state_id);
+        
+        // Set __LUA_STATE_ID__ global so system code sees the correct state_id
+        // This is critical for instanced systems to maintain isolation
+        if let Err(e) = lua_state.globals().set("__LUA_STATE_ID__", entry.state_id) {
+            error!("Failed to set __LUA_STATE_ID__ for system: {}", e);
+        }
+        
         // Time this system
         let timer = crate::lua_frame_budget::SystemTimer::start();
         
         match run_single_lua_system_fast(
-            &lua_ctx.lua,
+            &lua_state,
             &entry.system_key,
             world,
             component_registry,
@@ -350,6 +362,7 @@ fn run_single_lua_system(
                         this_run,
                         query_cache,
                         current_frame,
+                        None, // asset_registry
                     )?;
 
                     let results_table = lua_ctx.create_table()?;
@@ -360,6 +373,37 @@ fn run_single_lua_system(
                     Ok(results_table)
                 },
             )?,
+        )?;
+
+        // query_removed(component_names) - get entities that had components removed this frame
+        // Returns a table of entity bits for entities whose specified component was removed
+        // Works for Lua custom components (stored in LuaCustomComponents)
+        // Usage: local removed = world:query_removed({"NetworkSync"})
+        world_table.set(
+            "query_removed",
+            scope.create_function({
+                let removed_tracker = world
+                    .get_resource::<crate::removed_components::RemovedComponentsTracker>()
+                    .cloned()
+                    .unwrap_or_default();
+                move |lua_ctx, (_self, component_names): (LuaTable, LuaTable)| {
+                    let results_table = lua_ctx.create_table()?;
+                    let mut result_index = 1;
+                    
+                    // Collect all component names to query
+                    for comp_name in component_names.sequence_values::<String>() {
+                        let name = comp_name?;
+                        let removed_entities = removed_tracker.get_removed(&name);
+                        
+                        for entity_bits in removed_entities {
+                            results_table.set(result_index, entity_bits)?;
+                            result_index += 1;
+                        }
+                    }
+                    
+                    Ok(results_table)
+                }
+            })?,
         )?;
 
         // query_resource(resource_name) - check if a resource exists
@@ -1217,6 +1261,9 @@ pub fn run_single_lua_system_fast<'w>(
     let result = lua.scope(|scope| {
         let t2 = Instant::now();
         
+        // Get AssetRegistry for Handle→path serialization
+        let asset_registry = world.get_resource::<crate::asset_loading::AssetRegistry>().cloned();
+        
         // Create LuaWorldContext with all methods defined statically
         let world_ctx = crate::lua_world_context::LuaWorldContext::new(
             world,
@@ -1232,6 +1279,7 @@ pub fn run_single_lua_system_fast<'w>(
             this_run,
             query_cache.cloned(),
             current_frame,
+            asset_registry,
         );
         
         let t3 = Instant::now();

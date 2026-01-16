@@ -641,8 +641,14 @@ fn resume_coroutines_with_source(
         let module_name = format!("@{}", path);
         match bevy_lua_ecs::script_cache::execute_module(&lua_ctx.lua, &source, &module_name) {
             Ok(module_result) => {
-                // Invoke each callback with the module result
-                for (callback_key, parent_instance_id) in callbacks {
+                // Invoke each callback with the module result (only if should_invoke_callback is true)
+                for (callback_key, parent_instance_id, should_invoke_callback, _state_id) in callbacks {
+                    // Skip callbacks that shouldn't be invoked (reload=false)
+                    if !should_invoke_callback {
+                        debug!("Skipping callback for '{}' (reload=false)", path);
+                        continue;
+                    }
+                    
                     if let Ok(callback) = lua_ctx.lua.registry_value::<mlua::Function>(&*callback_key) {
                         // Set parent instance ID
                         if let Err(e) = lua_ctx.lua.globals().set("__INSTANCE_ID__", parent_instance_id) {

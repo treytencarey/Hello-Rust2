@@ -7,10 +7,14 @@ use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 
 /// Resource that caches loaded Lua modules and tracks dependencies
+/// 
+/// Modules are cached by (path, state_id) to support isolated instanced states.
+/// state_id=0 is the primary state; state_id>=1 are instanced states.
 #[derive(Clone, Resource)]
 pub struct ScriptCache {
-    /// Cached module exports: path -> Lua registry key (execution results)
-    modules: Arc<Mutex<HashMap<String, Arc<LuaRegistryKey>>>>,
+    /// Cached module exports: (path, state_id) -> Lua registry key (execution results)
+    /// Using tuple key allows same module to have different cached results in different states
+    modules: Arc<Mutex<HashMap<(String, usize), Arc<LuaRegistryKey>>>>,
     /// Cached module source code: path -> source string
     /// This persists across cache clears to avoid re-reading unchanged files from disk
     source_cache: Arc<Mutex<HashMap<String, String>>>,
@@ -21,8 +25,10 @@ pub struct ScriptCache {
     async_dependencies: Arc<Mutex<HashMap<String, HashSet<String>>>>,
     /// Pending async callbacks: path -> list of callback registry keys
     pending_callbacks: Arc<Mutex<HashMap<String, Vec<Arc<LuaRegistryKey>>>>>,
-    /// Callbacks to re-trigger on hot reload: imported path -> list of (callback, parent_instance_id) tuples
-    hot_reload_callbacks: Arc<Mutex<HashMap<String, Vec<(Arc<LuaRegistryKey>, u64)>>>>,
+    /// Callbacks to re-trigger on hot reload: imported path -> list of (callback, parent_instance_id, should_invoke_callback, state_id) tuples
+    /// should_invoke_callback: if false, module is reloaded but callback is not invoked (for reload=false)
+    /// state_id: the __LUA_STATE_ID__ to restore during hot reload (for instanced module isolation)
+    hot_reload_callbacks: Arc<Mutex<HashMap<String, Vec<(Arc<LuaRegistryKey>, u64, bool, usize)>>>>,
     /// Module instance IDs: (path, parent_instance_id) -> module_instance_id (for entity cleanup)
     /// Allows same module to have different instances for different parents
     module_instances: Arc<Mutex<HashMap<(String, u64), u64>>>,
@@ -75,14 +81,15 @@ impl ScriptCache {
         }
     }
 
-    /// Get a cached module if it exists
-    pub fn get_module(&self, path: &str) -> Option<Arc<LuaRegistryKey>> {
-        self.modules.lock().unwrap().get(path).cloned()
+    /// Get a cached module if it exists for the given state
+    /// state_id=0 is the primary state, >=1 are instanced states
+    pub fn get_module(&self, path: &str, state_id: usize) -> Option<Arc<LuaRegistryKey>> {
+        self.modules.lock().unwrap().get(&(path.to_string(), state_id)).cloned()
     }
 
-    /// Cache a loaded module
-    pub fn cache_module(&self, path: String, registry_key: Arc<LuaRegistryKey>) {
-        self.modules.lock().unwrap().insert(path, registry_key);
+    /// Cache a loaded module for a specific state
+    pub fn cache_module(&self, path: String, state_id: usize, registry_key: Arc<LuaRegistryKey>) {
+        self.modules.lock().unwrap().insert((path, state_id), registry_key);
     }
 
     /// Track a dependency relationship
@@ -130,7 +137,8 @@ impl ScriptCache {
     /// Clear module cache for all dependencies of a given module path (recursively)
     /// This ensures that when the module re-executes, it sees fresh versions of its dependencies
     /// and their dependencies (transitive closure)
-    pub fn clear_dependency_caches(&self, module_path: &str) {
+    /// Returns the list of dependency paths that were cleared
+    pub fn clear_dependency_caches(&self, module_path: &str) -> Vec<String> {
         debug!("clear_dependency_caches called for '{}'", module_path);
 
         let mut to_clear = Vec::new();
@@ -154,10 +162,11 @@ impl ScriptCache {
         }
         drop(deps);
 
-        // Clear their caches
+        // Clear their caches (for ALL states - hot reload affects all)
         let mut modules = self.modules.lock().unwrap();
         for path in &to_clear {
-            modules.remove(path);
+            // Remove entries for all state_ids matching this path
+            modules.retain(|(p, _state_id), _| p != path);
         }
 
         if !to_clear.is_empty() {
@@ -170,6 +179,8 @@ impl ScriptCache {
         } else {
             debug!("No caches to clear for '{}'", module_path);
         }
+        
+        to_clear
     }
 
     /// Invalidate a module and all modules that depend on it (for hot reload)
@@ -183,8 +194,8 @@ impl ScriptCache {
                 continue; // Already processed
             }
 
-            // Remove from cache
-            self.modules.lock().unwrap().remove(&current);
+            // Remove from cache (all state_ids for this path)
+            self.modules.lock().unwrap().retain(|(p, _), _| p != &current);
             invalidated.push(current.clone());
 
             // Invalidate all scripts that imported this one AND want to reload
@@ -208,10 +219,8 @@ impl ScriptCache {
         for invalidated_path in &invalidated {
             if let Some(async_dependents) = async_deps.get(invalidated_path) {
                 for dependent in async_dependents {
-                    // Clear cache but don't add to invalidation list
-                    if let Some(removed) = modules_lock.remove(dependent) {
-                        drop(removed); // Explicitly drop the registry key
-                    }
+                    // Clear cache for all state_ids matching this dependent
+                    modules_lock.retain(|(p, _), _| p != dependent);
                 }
             }
         }
@@ -232,11 +241,15 @@ impl ScriptCache {
     }
 
     /// Register a callback to be re-triggered on hot reload with parent context
+    /// should_invoke_callback: if false, module will reload but callback won't be invoked
+    /// state_id: the __LUA_STATE_ID__ to restore during hot reload (for instanced isolation)
     pub fn register_hot_reload_callback(
         &self,
         path: String,
         callback: Arc<LuaRegistryKey>,
         parent_instance_id: u64,
+        should_invoke_callback: bool,
+        state_id: usize,
     ) {
         let normalized_path = normalize_path(&path);
         self.hot_reload_callbacks
@@ -244,11 +257,11 @@ impl ScriptCache {
             .unwrap()
             .entry(normalized_path)
             .or_insert_with(Vec::new)
-            .push((callback, parent_instance_id));
+            .push((callback, parent_instance_id, should_invoke_callback, state_id));
     }
 
-    /// Get hot reload callbacks for a path with their parent instance IDs
-    pub fn get_hot_reload_callbacks(&self, path: &str) -> Vec<(Arc<LuaRegistryKey>, u64)> {
+    /// Get hot reload callbacks for a path with their parent instance IDs, invoke flags, and state_ids
+    pub fn get_hot_reload_callbacks(&self, path: &str) -> Vec<(Arc<LuaRegistryKey>, u64, bool, usize)> {
         let normalized_path = normalize_path(path);
         let callbacks_map = self.hot_reload_callbacks.lock().unwrap();
         let result = callbacks_map
@@ -294,7 +307,7 @@ impl ScriptCache {
 
         // For each module path, filter out callbacks with matching parent_instance_id
         for (_path, callback_list) in callbacks.iter_mut() {
-            callback_list.retain(|(_, parent_id)| *parent_id != instance_id);
+            callback_list.retain(|(_, parent_id, _, _)| *parent_id != instance_id);
         }
 
         // Remove empty entries
@@ -469,6 +482,15 @@ impl ScriptCache {
             .lock()
             .unwrap()
             .insert(normalized_path, source);
+    }
+
+    /// Invalidate source cache for a specific module (forces fresh disk read on next load)
+    pub fn invalidate_source_cache(&self, relative_path: &str) {
+        let normalized_path = normalize_path(relative_path);
+        self.source_cache
+            .lock()
+            .unwrap()
+            .remove(&normalized_path);
     }
 
     /// Register a coroutine waiting for a download

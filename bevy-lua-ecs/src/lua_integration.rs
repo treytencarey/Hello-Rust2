@@ -4,11 +4,22 @@ use crate::spawn_queue::SpawnQueue;
 use bevy::prelude::*;
 use mlua::prelude::*;
 use std::collections::HashSet;
-use std::sync::Arc;
-/// Resource that holds the Lua context
+use std::sync::{Arc, Mutex};
+use std::sync::atomic::AtomicUsize;
+/// Resource that holds the Lua context(s)
+/// 
+/// In normal mode, there's a single Lua state (state_id = 0).
+/// When scripts use `require(path, {instanced = true})`, new isolated Lua states
+/// are created on-demand. All nested requires within an instanced module share
+/// that same state.
 #[derive(Resource, Clone)]
 pub struct LuaScriptContext {
+    /// Primary Lua state (state_id = 0)
     pub lua: Arc<Lua>,
+    /// Additional instanced Lua states (state_id = index + 1)
+    pub lua_states: Arc<Mutex<Vec<Arc<Lua>>>>,
+    /// Counter for generating unique state IDs
+    next_state_id: Arc<AtomicUsize>,
     pub script_cache: crate::script_cache::ScriptCache,
     pub script_instance: crate::script_entities::ScriptInstance,
 }
@@ -34,6 +45,10 @@ impl LuaScriptContext {
         let lua_clone = Arc::new(lua);
         let lua_for_closure = lua_clone.clone();
         let lua_for_resource = lua_clone.clone();
+
+        // Create state management Arcs early so they can be captured by require closure
+        let lua_states: Arc<Mutex<Vec<Arc<Lua>>>> = Arc::new(Mutex::new(Vec::new()));
+        let next_state_id: Arc<AtomicUsize> = Arc::new(AtomicUsize::new(1)); // 0 is primary, start at 1
 
         // Track entity ID counter for immediate return (will be synced in process_spawn_queue)
         let entity_counter = Arc::new(std::sync::atomic::AtomicU32::new(0));
@@ -132,11 +147,12 @@ impl LuaScriptContext {
         let system_reg = system_registry.clone();
         let register_system = lua_clone.create_function(
             move |lua_ctx, (_schedule, func): (String, LuaFunction)| {
-                // Get the current instance ID from globals
+                // Get the current instance ID and state_id from globals
                 let instance_id: u64 = lua_ctx.globals().get("__INSTANCE_ID__").unwrap_or(0);
+                let state_id: usize = lua_ctx.globals().get("__LUA_STATE_ID__").unwrap_or(0);
 
                 let registry_key = lua_ctx.create_registry_value(func)?;
-                system_reg.register_system(instance_id, Arc::new(registry_key));
+                system_reg.register_system(instance_id, Arc::new(registry_key), state_id);
                 Ok(())
             },
         )?;
@@ -233,7 +249,10 @@ impl LuaScriptContext {
         let cache_for_require = script_cache.clone();
 
         // Synchronous require() function
+        // Pass in lua_states and next_state_id for instanced mode support
         let lua_for_require = lua_clone.clone();
+        let lua_states_for_require = lua_states.clone();
+        let next_state_id_for_require = next_state_id.clone();
         let require = lua_clone.create_function(move |lua_ctx, (path, options): (String, Option<LuaTable>)| {
             // Get reload option - must check for Nil explicitly because Lua nil converts to false
             let should_reload = if let Some(ref opts) = options {
@@ -245,6 +264,44 @@ impl LuaScriptContext {
             } else {
                 true // No options table, use default
             };
+
+            // Get instanced option - creates isolated state (support both 'instanced' and 'instance' spellings)
+            let instanced = if let Some(ref opts) = options {
+                let instanced_val = opts.get::<LuaValue>("instanced");
+                let instance_val = opts.get::<LuaValue>("instance"); // Alias for typo tolerance
+                match (instanced_val, instance_val) {
+                    (Ok(LuaValue::Boolean(b)), _) => b,
+                    (_, Ok(LuaValue::Boolean(b))) => b,
+                    _ => false,
+                }
+            } else {
+                false
+            };
+
+            // Handle instanced mode: allocate new state_id and set __LUA_STATE_ID__
+            // This gives the module and its dependencies a separate cache namespace
+            let (current_state_id, prev_state_id) = if instanced {
+                // Allocate a new unique state_id
+                let new_state_id = next_state_id_for_require.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+                
+                // Save previous state_id so we can restore it after
+                let prev_state_id: usize = lua_ctx.globals().get::<usize>("__LUA_STATE_ID__").unwrap_or(0);
+                
+                // Set new state_id for this module and its nested requires
+                lua_ctx.globals().set("__LUA_STATE_ID__", new_state_id)?;
+                
+                debug!("📦 [REQUIRE] '{}': created instanced state_id={} (prev={})", path, new_state_id, prev_state_id);
+                
+                (new_state_id, Some(prev_state_id))
+            } else {
+                // Normal mode: use current state_id (or 0 if not set)
+                let state_id: usize = lua_ctx.globals().get::<usize>("__LUA_STATE_ID__").unwrap_or(0);
+                (state_id, None)
+            };
+            
+            // Store lua_states_for_require info for potential future use
+            // (currently state_id-based isolation doesn't need separate Lua VMs)
+            let _ = &lua_states_for_require;
 
             // Resolve path: try relative to current script first, then use as canonical
             // Paths are relative to assets/ (e.g., "scripts/example.lua" or "../modules/mod.lua")
@@ -282,9 +339,12 @@ impl LuaScriptContext {
             // Normalize path separators to forward slashes for consistent lookups
             let resolved_path = normalize_path_separators(&resolved_path);
 
-            // Check if module is already cached
-            if let Some(cached_key) = cache_for_require.get_module(&resolved_path) {
-                debug!("📦 [REQUIRE] '{}': returning cached module (Rust cache hit)", resolved_path);
+            // Get current state_id from Lua global (0 = primary, >=1 = instanced)
+            let state_id: usize = lua_ctx.globals().get::<usize>("__LUA_STATE_ID__").unwrap_or(0);
+
+            // Check if module is already cached for this state
+            if let Some(cached_key) = cache_for_require.get_module(&resolved_path, state_id) {
+                debug!("📦 [REQUIRE] '{}': returning cached module (Rust cache hit, state={})", resolved_path, state_id);
                 // Update dependency tracking even if cached
                 if let Ok(current_script) = lua_ctx.globals().get::<String>("__SCRIPT_NAME__") {
                     let current_script = normalize_path_separators(&current_script);
@@ -407,6 +467,12 @@ impl LuaScriptContext {
             source_table.set("source", source)?;
             source_table.set("path", resolved_path.clone())?;
             source_table.set("should_reload", should_reload)?;
+            source_table.set("state_id", current_state_id)?;
+            
+            // If instanced, include prev_state_id for restoration after module executes
+            if let Some(prev) = prev_state_id {
+                source_table.set("prev_state_id", prev)?;
+            }
             
             Ok(LuaValue::Table(source_table))
         })?;
@@ -416,16 +482,30 @@ impl LuaScriptContext {
         let cache_for_async = script_cache.clone();
         let script_instance_for_async = script_instance.clone();
         let script_registry_for_async = script_registry.clone();
+        let next_state_id_for_async = next_state_id.clone(); // Unified state_id allocation
         let require_async = lua_clone.create_function(move |lua_ctx, (path, callback, options): (String, LuaFunction, Option<LuaTable>)| {
             // Get reload option - must check for Nil explicitly because Lua nil converts to false
             let should_reload = if let Some(ref opts) = options {
                 match opts.get::<LuaValue>("reload") {
                     Ok(LuaValue::Boolean(b)) => b,
-                    Ok(LuaValue::Nil) => false, // Key doesn't exist, use default (false for async)
-                    _ => false, // Any error or other type, use default
+                    Ok(LuaValue::Nil) => true, // Key doesn't exist, use default (false for async)
+                    _ => true, // Any error or other type, use default
                 }
             } else {
-                false // No options table, use default
+                true // No options table, use default
+            };
+
+            // Get instanced option - creates isolated state (support both 'instanced' and 'instance' spellings)
+            let instanced = if let Some(ref opts) = options {
+                let instanced_val = opts.get::<LuaValue>("instanced");
+                let instance_val = opts.get::<LuaValue>("instance"); // Alias for typo tolerance
+                match (instanced_val, instance_val) {
+                    (Ok(LuaValue::Boolean(b)), _) => b,
+                    (_, Ok(LuaValue::Boolean(b))) => b,
+                    _ => false,
+                }
+            } else {
+                false
             };
 
             // Resolve path: try relative to current script first, then use as canonical
@@ -479,21 +559,20 @@ impl LuaScriptContext {
                 cache_for_async.set_module_parent(module_instance_id, current_parent_id);
             }
 
-            // If should_reload is true, register the callback for hot reload with parent context
-            if should_reload {
-                let callback_key = lua_for_async.create_registry_value(callback.clone())?;
-                cache_for_async.register_hot_reload_callback(resolved_path.clone(), Arc::new(callback_key), current_parent_id);
-            }
+            // NOTE: Hot reload callback registration moved to AFTER instanced state_id allocation
+            // (see after the "Handle instanced mode" block below)
+            // This ensures we store the correct state_id for instanced modules
+            let callback_key = lua_for_async.create_registry_value(callback.clone())?;
 
             // Check for network option - must check for Nil explicitly
             let network_enabled = if let Some(ref opts) = options {
                 match opts.get::<LuaValue>("network") {
                     Ok(LuaValue::Boolean(b)) => b,
-                    Ok(LuaValue::Nil) => false, // Key doesn't exist, use default
-                    _ => false, // Any error or other type, use default
+                    Ok(LuaValue::Nil) => true, // Key doesn't exist, use default
+                    _ => true, // Any error or other type, use default
                 }
             } else {
-                false
+                true
             };
 
             // Always execute module to run side effects, even if cached
@@ -546,7 +625,8 @@ impl LuaScriptContext {
                             // We use the hot_reload_callback mechanism which will re-execute the module
                             // and invoke all registered callbacks
                             let callback_key = lua_for_async.create_registry_value(callback.clone())?;
-                            cache_for_async.register_hot_reload_callback(resolved_path.clone(), Arc::new(callback_key), current_parent_id);
+                            let current_state_id: usize = lua_ctx.globals().get::<usize>("__LUA_STATE_ID__").unwrap_or(0);
+                            cache_for_async.register_hot_reload_callback(resolved_path.clone(), Arc::new(callback_key), current_parent_id, true, current_state_id);
                             
                             // Queue the download
                             cache_for_async.register_pending_download_coroutine(
@@ -577,22 +657,47 @@ impl LuaScriptContext {
             // Save current globals to restore later
             let previous_instance_id: Option<u64> = lua_ctx.globals().get("__INSTANCE_ID__").ok();
             let previous_script_name: Option<String> = lua_ctx.globals().get("__SCRIPT_NAME__").ok();
+            let previous_state_id: usize = lua_ctx.globals().get("__LUA_STATE_ID__").unwrap_or(0);
+            
+            // Handle instanced mode: allocate new state_id if requested
+            let (current_state_id, restore_state_id) = if instanced {
+                // Allocate a new unique state_id using the shared counter (unified with sync require)
+                let new_state_id = next_state_id_for_async.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+                lua_ctx.globals().set("__LUA_STATE_ID__", new_state_id)?;
+                debug!("📦 [REQUIRE_ASYNC] '{}': created instanced state_id={} (prev={})", resolved_path, new_state_id, previous_state_id);
+                (new_state_id, Some(previous_state_id))
+            } else {
+                (previous_state_id, None)
+            };
+            
+            // NOW register the hot reload callback with the CORRECT state_id
+            // This is moved here from earlier because instanced modules allocate their state_id above
+            cache_for_async.register_hot_reload_callback(
+                resolved_path.clone(), 
+                Arc::new(callback_key), 
+                current_parent_id, 
+                should_reload, 
+                current_state_id
+            );
             
             // Set module context BEFORE executing module
             // This ensures spawn() uses the correct instance_id and script name
             lua_ctx.globals().set("__INSTANCE_ID__", module_instance_id)?;
             lua_ctx.globals().set("__SCRIPT_NAME__", resolved_path.clone())?;
-            debug!("Executing module '{}' with __INSTANCE_ID__ = {}", resolved_path, module_instance_id);
+            debug!("Executing module '{}' with __INSTANCE_ID__ = {}, state_id = {}", resolved_path, module_instance_id, current_state_id);
             
             // Execute module
             let module_name = format!("@{}", resolved_path);
             let result = crate::script_cache::execute_module(&lua_for_async, &source, &module_name)?;
             debug!("Module '{}' executed successfully", resolved_path);
             
-            // Cache the result if not already cached
-            if cache_for_async.get_module(&resolved_path).is_none() {
+            // Get current state_id from Lua global (0 = primary, >=1 = instanced)
+            let state_id: usize = lua_ctx.globals().get::<usize>("__LUA_STATE_ID__").unwrap_or(0);
+            
+            // Cache the result if not already cached for this state
+            if cache_for_async.get_module(&resolved_path, state_id).is_none() {
                 let registry_key = lua_for_async.create_registry_value(result.clone())?;
-                cache_for_async.cache_module(resolved_path.clone(), Arc::new(registry_key));
+                cache_for_async.cache_module(resolved_path.clone(), state_id, Arc::new(registry_key));
             }
             
             // Track dependency (but don't reload script for async require, we use callback)
@@ -623,6 +728,11 @@ impl LuaScriptContext {
                 lua_ctx.globals().set("__SCRIPT_NAME__", LuaNil)?;
             }
             
+            // Restore previous __LUA_STATE_ID__ if we were in instanced mode
+            if let Some(prev_state) = restore_state_id {
+                lua_ctx.globals().set("__LUA_STATE_ID__", prev_state)?;
+            }
+            
             callback_result?;
             
             Ok(())
@@ -639,7 +749,28 @@ impl LuaScriptContext {
         // Use resolve_entity to handle both cases - it looks up temp_id->entity mapping
         // and falls back to from_bits() for real entity IDs
         let queue_for_despawn = queue.clone();
-        let despawn = lua_clone.create_function(move |_lua_ctx, entity_id: u64| {
+        let despawn = lua_clone.create_function(move |_lua_ctx, entity_value: LuaValue| {
+            // Handle both entity ID (u64) and LuaEntitySnapshot userdata
+            let entity_id: u64 = match entity_value {
+                LuaValue::Integer(i) => i as u64,
+                LuaValue::Number(n) => n as u64,
+                LuaValue::UserData(ud) => {
+                    // Try to borrow as LuaEntitySnapshot
+                    if let Ok(snapshot) = ud.borrow::<crate::lua_world_api::LuaEntitySnapshot>() {
+                        snapshot.entity.to_bits()
+                    } else {
+                        return Err(LuaError::RuntimeError(
+                            "despawn: expected entity ID (number) or entity snapshot userdata".to_string()
+                        ));
+                    }
+                }
+                _ => {
+                    return Err(LuaError::RuntimeError(
+                        format!("despawn: expected entity ID (number) or entity snapshot, got {:?}", entity_value)
+                    ));
+                }
+            };
+            
             // Resolve temp_id to real entity, or convert bits directly if it's a real ID
             let entity = queue_for_despawn.resolve_entity(entity_id);
             despawn_queue.queue_despawn(entity);
@@ -683,6 +814,8 @@ impl LuaScriptContext {
 
         Ok(Self {
             lua: lua_clone,
+            lua_states,
+            next_state_id,
             script_cache,
             script_instance,
         })
@@ -730,66 +863,199 @@ impl LuaScriptContext {
             local _orig_require_async = __RUST_REQUIRE_ASYNC__
             local _orig_load_asset = __RUST_LOAD_ASSET__
             
-            -- Fresh module cache for this execution (NOT persisted across reloads)
-            local _module_cache = {}
+            -- Global module cache (accessible for hot-reload invalidation)
+            -- Initialize only once to persist across script executions
+            if not __MODULE_CACHE__ then
+                __MODULE_CACHE__ = {}
+            end
+            local _module_cache = __MODULE_CACHE__
+            
+            -- Global proxy cache - proxies are NEVER cleared, they always look up latest module
+            -- This ensures all references to a module see the reloaded version
+            if not __MODULE_PROXIES__ then
+                __MODULE_PROXIES__ = {}
+            end
+            local _module_proxies = __MODULE_PROXIES__
+            
+            -- Track modules currently being loaded (for circular dependency detection)
+            if not __MODULE_LOADING__ then
+                __MODULE_LOADING__ = {}
+            end
+            local _module_loading = __MODULE_LOADING__
+            
+            -- Create a live proxy that ALWAYS looks up from _module_cache
+            -- This is the key to hot reload: when a module is reloaded, the cache is updated
+            -- and ALL proxies automatically see the new module via their __index lookups
+            local function create_live_proxy(cache_key)
+                local proxy = {}
+                local mt = {
+                    __index = function(_, key)
+                        local target = _module_cache[cache_key]
+                        if target == nil then
+                            error("Module not loaded: '" .. cache_key .. "' accessed before loaded. Key: " .. tostring(key))
+                        end
+                        return target[key]
+                    end,
+                    __newindex = function(_, key, value)
+                        local target = _module_cache[cache_key]
+                        if target == nil then
+                            error("Module not loaded: '" .. cache_key .. "' accessed before loaded")
+                        end
+                        target[key] = value
+                    end,
+                    __call = function(_, ...)
+                        local target = _module_cache[cache_key]
+                        if target == nil then
+                            error("Module not loaded: '" .. cache_key .. "' called before loaded")
+                        end
+                        return target(...)
+                    end,
+                    -- Mark this as a live proxy for debugging
+                    __tostring = function()
+                        return "[LiveProxy: " .. cache_key .. "]"
+                    end,
+                    -- Store the cache key for debugging
+                    __cache_key = cache_key
+                }
+                setmetatable(proxy, mt)
+                return proxy
+            end
+
+            
+            -- Function to invalidate specific cache entries (called from Rust during hot reload)
+            -- Now must clear ALL state_id variants since cache keys are path::state_id
+            function __invalidate_module_cache__(path)
+                -- Clear all state_id variants of this path
+                local prefix = path .. "::"
+                local keys_to_clear = {}
+                for k in pairs(_module_cache) do
+                    if k == path or k:sub(1, #prefix) == prefix then
+                        table.insert(keys_to_clear, k)
+                    end
+                end
+                for _, k in ipairs(keys_to_clear) do
+                    _module_cache[k] = nil
+                    _module_loading[k] = nil
+                end
+            end
             
             -- Override require function to handle pending downloads AND source execution
+            -- IMPORTANT: Always call Rust first to register dependencies, even if cached!
+            -- This ensures all callers get their dependency registered for hot-reload.
+            -- 
+            -- HOT RELOAD SUPPORT: This function returns LIVE PROXIES, not raw modules.
+            -- Proxies always look up from _module_cache, so when modules are reloaded,
+            -- ALL existing references automatically see the new code.
             require = function(path, opts)
-                -- print("[LUA REQUIRE] Called for: " .. tostring(path))
-                
-                -- Check module cache first
-                local cache_key = path
-                if _module_cache[cache_key] ~= nil then
-                    -- print("[LUA REQUIRE] Returning from Lua cache: " .. tostring(path))
-                    return _module_cache[cache_key]
+                opts = opts or {}
+                -- Normalize options with defaults
+                local reload = opts.reload ~= false  -- default true
+                local instanced = opts.instanced == true  -- default false
+
+                -- Initial state_id for pre-call cache check (non-instanced only)
+                local initial_state_id = __LUA_STATE_ID__ or 0
+                local initial_cache_key = path .. "::" .. tostring(initial_state_id)
+
+                -- For non-instanced requires, check Lua cache BEFORE calling Rust
+                -- This is an optimization to avoid Rust calls for already-loaded modules
+                -- Skip this check for instanced requires (they always need fresh execution)
+                if not instanced then
+                    -- Check for circular dependency
+                    if _module_loading[initial_cache_key] then
+                        if not _module_proxies[initial_cache_key] then
+                            _module_proxies[initial_cache_key] = create_live_proxy(initial_cache_key)
+                        end
+                        return _module_proxies[initial_cache_key]
+                    end
+
+                    -- If already cached, still call Rust to register dependency, then return proxy
+                    if _module_proxies[initial_cache_key] and _module_cache[initial_cache_key] ~= nil then
+                        _orig_require(path, opts)  -- Register dependency for hot reload
+                        return _module_proxies[initial_cache_key]
+                    end
                 end
-                
-                -- print("[LUA REQUIRE] No Lua cache, calling Rust require...")
+
+                -- Call Rust to get module source or cached value
+                -- For instanced=true, Rust allocates a NEW state_id
                 local result = _orig_require(path, opts)
-                -- print("[LUA REQUIRE] Rust returned type: " .. type(result))
-                
-                -- Check if the result is a pending download marker
+
+                -- Handle pending download (network assets)
                 if type(result) == "table" and result.__PENDING_DOWNLOAD__ then
-                    -- print("[LUA REQUIRE] Got __PENDING_DOWNLOAD__, yielding for: " .. tostring(result.path))
-                    -- Yield the coroutine with the path - Bevy will resume after download
                     local download_path = result.path
                     coroutine.yield(download_path)
-                    
-                    -- When resumed, try require again (file should now be available)
                     result = _orig_require(path, opts)
-                    
-                    -- If still pending, something is wrong
                     if type(result) == "table" and result.__PENDING_DOWNLOAD__ then
                         error("Download failed or file still not available: " .. tostring(download_path))
                     end
                 end
-                
-                -- Check if the result is source code to execute
-                if type(result) == "table" and result.__SOURCE__ then
-                    -- print("[LUA REQUIRE] Got __SOURCE__ for: " .. tostring(result.path) .. ", executing...")
-                    local source_code = result.source
-                    local module_path = result.path
-                    
-                    -- Execute the source code in Lua-land (where yields work!)
-                    local chunk, err = load(source_code, "@" .. module_path)
-                    if not chunk then
-                        error("Failed to load module '" .. module_path .. "': " .. tostring(err))
-                    end
-                    
-                    -- Execute the chunk directly (NOT with pcall!) so yields propagate
-                    -- pcall would catch the yield as an error, breaking coroutine-based downloads
-                    local module_result = chunk()
-                    
-                    -- print("[LUA REQUIRE] Successfully executed: " .. tostring(module_path))
-                    -- Cache the result
-                    _module_cache[cache_key] = module_result
-                    return module_result
+
+                -- Determine the ACTUAL state_id to use for caching
+                -- For instanced requires, Rust returns the NEW state_id in result.state_id
+                -- For non-instanced, use the initial state_id
+                local actual_state_id = initial_state_id
+                if type(result) == "table" and result.state_id then
+                    actual_state_id = result.state_id
                 end
-                
-                -- print("[LUA REQUIRE] Got cached value from Rust for: " .. tostring(path))
-                -- Already a cached value or other result
-                _module_cache[cache_key] = result
-                return result
+                local cache_key = path .. "::" .. tostring(actual_state_id)
+
+                -- If Rust returned cached value (not source), cache it and return proxy
+                if type(result) ~= "table" or not result.__SOURCE__ then
+                    _module_cache[cache_key] = result
+                    if not _module_proxies[cache_key] then
+                        _module_proxies[cache_key] = create_live_proxy(cache_key)
+                    end
+                    return _module_proxies[cache_key]
+                end
+
+                -- Got __SOURCE__ - check if we already have this in Lua cache
+                -- (handles race where Rust cache invalidated but Lua already executed)
+                if _module_cache[cache_key] ~= nil and not instanced then
+                    if not _module_proxies[cache_key] then
+                        _module_proxies[cache_key] = create_live_proxy(cache_key)
+                    end
+                    return _module_proxies[cache_key]
+                end
+
+                -- Execute the source code
+                local source_code = result.source
+                local module_path = result.path
+
+                local chunk, err = load(source_code, "@" .. module_path)
+                if not chunk then
+                    error("Failed to load module '" .. module_path .. "': " .. tostring(err))
+                end
+
+                -- Mark as loading for circular dependency detection
+                _module_loading[cache_key] = true
+
+                -- Create proxy BEFORE execution so circular deps can use it
+                if not _module_proxies[cache_key] then
+                    _module_proxies[cache_key] = create_live_proxy(cache_key)
+                end
+
+                -- Save context and set module context for nested requires
+                local prev_script_name = __SCRIPT_NAME__
+                local prev_state_id = __LUA_STATE_ID__
+                __SCRIPT_NAME__ = module_path
+
+                -- For instanced requires, update __LUA_STATE_ID__ to the new state_id
+                -- so nested requires also use the new isolated state
+                if instanced and result.state_id then
+                    __LUA_STATE_ID__ = result.state_id
+                end
+
+                -- Execute chunk (no pcall - yields must propagate)
+                local module_result = chunk()
+
+                -- Restore context
+                __SCRIPT_NAME__ = prev_script_name
+                __LUA_STATE_ID__ = prev_state_id
+
+                -- Clear loading flag and cache result
+                _module_loading[cache_key] = nil
+                _module_cache[cache_key] = module_result
+
+                return _module_proxies[cache_key]
             end
             
             -- Override require_async function to handle pending downloads
@@ -967,6 +1233,46 @@ impl LuaScriptContext {
         // Execute with tracking (creates new instance ID)
         self.execute_script_tracked(script_content, script_name, &script_instance)
     }
+
+    // ======================== Multi-State Support ========================
+
+    /// Get a Lua state by ID (0 = primary, 1+ = instanced)
+    pub fn get_lua_state(&self, state_id: usize) -> Arc<Lua> {
+        if state_id == 0 {
+            self.lua.clone()
+        } else {
+            let states = self.lua_states.lock().unwrap();
+            states.get(state_id - 1)
+                .cloned()
+                .unwrap_or_else(|| self.lua.clone()) // Fallback to primary
+        }
+    }
+
+    /// Allocate a new state ID (does not create the state yet)
+    pub fn allocate_state_id(&self) -> usize {
+        self.next_state_id.fetch_add(1, std::sync::atomic::Ordering::SeqCst)
+    }
+
+    /// Store a newly created Lua state at the given state_id
+    /// state_id must have been allocated via allocate_state_id()
+    pub fn store_lua_state(&self, state_id: usize, lua: Arc<Lua>) {
+        if state_id == 0 {
+            return; // Can't replace primary
+        }
+        let mut states = self.lua_states.lock().unwrap();
+        let idx = state_id - 1;
+        // Extend if needed
+        while states.len() <= idx {
+            states.push(self.lua.clone()); // Placeholder
+        }
+        states[idx] = lua;
+        debug!("Stored instanced Lua state at state_id={}", state_id);
+    }
+
+    /// Get the number of active Lua states (including primary)
+    pub fn state_count(&self) -> usize {
+        1 + self.lua_states.lock().unwrap().len()
+    }
 }
 
 /// Plugin that sets up Lua scripting with component-based spawn function
@@ -999,6 +1305,7 @@ impl Plugin for LuaSpawnPlugin {
         app.init_resource::<crate::lua_frame_budget::LuaFrameBudget>();
         app.init_resource::<crate::lua_frame_budget::LuaSystemProgress>();
         app.init_resource::<crate::event_accumulator::LuaEventAccumulator>();
+        app.init_resource::<crate::removed_components::RemovedComponentsTracker>();
 
         // Add file watcher plugin for auto-reload
         app.add_plugins(crate::lua_file_watcher::LuaFileWatcherPlugin);
@@ -1044,8 +1351,11 @@ impl Plugin for LuaSpawnPlugin {
                 // Finally apply component updates
                 crate::component_updater::process_component_updates
                     .after(crate::lua_observers::attach_lua_observers),
-                crate::lua_systems::run_lua_systems,
-                crate::component_updater::process_component_updates,
+                // Update removed components tracker before Lua systems run
+                crate::removed_components::update_removed_components_tracker
+                    .after(crate::component_updater::process_component_updates),
+                crate::lua_systems::run_lua_systems
+                    .after(crate::removed_components::update_removed_components_tracker),
             ),
         );
         app.add_systems(Update, (crate::resource_inserter::process_resource_queue,));
@@ -1197,6 +1507,26 @@ fn auto_reload_changed_scripts(
                 if !invalidated.is_empty() {
                     debug!("Invalidated module cache for: {:?}", invalidated);
 
+                    // Get the invalidate function once
+                    let invalidate_fn_result = lua_ctx.lua.globals().get::<LuaFunction>("__invalidate_module_cache__");
+                    
+                    // Invalidate source cache for ALL invalidated modules to force fresh disk read
+                    for invalidated_path in &invalidated {
+                        lua_ctx.script_cache.invalidate_source_cache(invalidated_path);
+                        
+                        // Also invalidate Lua-level module cache for the invalidated module itself
+                        if let Ok(ref invalidate_fn) = invalidate_fn_result {
+                            if let Err(e) = invalidate_fn.call::<()>(invalidated_path.clone()) {
+                                warn!("Failed to invalidate Lua module cache for '{}': {}", invalidated_path, e);
+                            }
+                        }
+                        
+                        // NOTE: We do NOT clear caches for dependencies (modules this one imports).
+                        // Dependencies only need to reload when THEY change, not when a module
+                        // that imports them changes. Clearing dependencies causes state loss
+                        // in modules like net_role.lua that hold session state.
+                    }
+
                     // Update source cache for the changed module
                     // This ensures hot reload uses the new source
                     if let Ok((new_source, _)) =
@@ -1238,11 +1568,8 @@ fn auto_reload_changed_scripts(
                             for (instance_id, _old_content) in instances {
                                 cleanup_script_instance(instance_id, world, true); // Recursive: main script reload
 
-                                // Clear the module cache for all dependencies of this script
-                                // This ensures nested require() calls see fresh versions
-                                lua_ctx
-                                    .script_cache
-                                    .clear_dependency_caches(invalidated_path);
+                                // NOTE: We do NOT clear caches for dependencies here.
+                                // Dependencies keep their cached state - they only reload when THEY change.
 
                                 match lua_ctx.execute_script_tracked(
                                     &script_content,
@@ -1272,18 +1599,23 @@ fn auto_reload_changed_scripts(
                     }
                 }
 
-                // Trigger hot reload callbacks
-                let callbacks = lua_ctx.script_cache.get_hot_reload_callbacks(&module_path);
-                if !callbacks.is_empty() {
+                // Trigger hot reload callbacks for ALL invalidated modules (not just the changed file)
+                // This handles transitive dependencies: if A requires B, changing B should trigger A's callbacks
+                for reload_module_path in &invalidated {
+                    let callbacks = lua_ctx.script_cache.get_hot_reload_callbacks(reload_module_path);
+                    if callbacks.is_empty() {
+                        continue;
+                    }
+                    
                     debug!(
                         "Triggering {} hot reload callbacks for '{}'",
                         callbacks.len(),
-                        module_path
+                        reload_module_path
                     );
 
                     // Get ALL instance IDs for this module (one per parent that required it)
                     let old_instance_ids =
-                        lua_ctx.script_cache.get_all_module_instances(&module_path);
+                        lua_ctx.script_cache.get_all_module_instances(reload_module_path);
 
                     // For each module instance, also get all its descendants (nested requires)
                     // This ensures we clean up entities spawned in nested callbacks
@@ -1299,33 +1631,33 @@ fn auto_reload_changed_scripts(
                     // Clean up entities from ALL previous module instances and their descendants
                     if !all_instances_to_cleanup.is_empty() {
                         debug!("Hot reload: Cleaning up {} total instance(s) for '{}' (including descendants): {:?}", 
-                            all_instances_to_cleanup.len(), module_path, all_instances_to_cleanup);
+                            all_instances_to_cleanup.len(), reload_module_path, all_instances_to_cleanup);
                         for old_id in &all_instances_to_cleanup {
                             debug!(
                                 "Hot reload: Cleaning up instance {} for '{}' or its descendants",
-                                old_id, module_path
+                                old_id, reload_module_path
                             );
                             cleanup_script_instance(*old_id, world, false); // Non-recursive: we collected all descendants
                         }
                     } else {
                         warn!(
                             "Hot reload: No module instances found for '{}'",
-                            module_path
+                            reload_module_path
                         );
                     }
 
                     // Clear all instance mappings for this module (they'll be recreated when we re-execute)
-                    lua_ctx.script_cache.clear_module_instances(&module_path);
+                    lua_ctx.script_cache.clear_module_instances(reload_module_path);
 
                     // Load the module source (uses cache if unchanged, disk if new)
-                    if let Ok((source, _)) = lua_ctx.script_cache.load_module_source(&module_path) {
+                    if let Ok((source, _)) = lua_ctx.script_cache.load_module_source(reload_module_path) {
                         // Note: source cache was already updated by load_module_source if it read from disk
-                        let module_name = format!("@{}", module_path);
+                        let module_name = format!("@{}", reload_module_path);
 
                         // Execute module and call callbacks - each with its parent's __INSTANCE_ID__ context
                         // We need to execute the module separately for each parent because module execution
                         // has side effects (nested require_async calls) that depend on __INSTANCE_ID__
-                        for (callback_key, parent_instance_id) in callbacks {
+                        for (callback_key, parent_instance_id, should_invoke_callback, state_id) in callbacks {
                             // Check if parent instance was cleaned up (it might be in all_instances_to_cleanup)
                             // If so, skip this callback to avoid creating instances with stale parents
                             if all_instances_to_cleanup.contains(&parent_instance_id) {
@@ -1339,15 +1671,29 @@ fn auto_reload_changed_scripts(
                             if let Ok(callback) =
                                 lua_ctx.lua.registry_value::<LuaFunction>(&*callback_key)
                             {
-                                // Save current __INSTANCE_ID__
+                                // Save current globals to restore after
                                 let previous_instance_id: Option<u64> =
                                     lua_ctx.lua.globals().get("__INSTANCE_ID__").ok();
+                                let previous_state_id: usize =
+                                    lua_ctx.lua.globals().get("__LUA_STATE_ID__").unwrap_or(0);
+
+                                // CRITICAL: Restore __LUA_STATE_ID__ to the original value from when
+                                // this callback was registered. This ensures module caches are looked
+                                // up with the correct state_id, preserving instanced isolation.
+                                if let Err(e) = lua_ctx.lua.globals().set("__LUA_STATE_ID__", state_id) {
+                                    error!("Failed to set __LUA_STATE_ID__ for hot reload: {}", e);
+                                    continue;
+                                }
+                                debug!(
+                                    "Hot reload: Restored __LUA_STATE_ID__={} for '{}'",
+                                    state_id, reload_module_path
+                                );
 
                                 // Create NEW module instance for this (module, parent) combination
                                 let new_module_instance_id =
-                                    script_instance.start(module_path.clone());
+                                    script_instance.start(reload_module_path.clone());
                                 lua_ctx.script_cache.set_module_instance(
-                                    module_path.clone(),
+                                    reload_module_path.clone(),
                                     parent_instance_id,
                                     new_module_instance_id,
                                 );
@@ -1356,7 +1702,7 @@ fn auto_reload_changed_scripts(
                                     .set_module_parent(new_module_instance_id, parent_instance_id);
                                 debug!(
                                     "Hot reload: Created new instance {} for '{}' with parent {}",
-                                    new_module_instance_id, module_path, parent_instance_id
+                                    new_module_instance_id, reload_module_path, parent_instance_id
                                 );
 
                                 // Set __INSTANCE_ID__ to the MODULE's instance before executing
@@ -1377,28 +1723,43 @@ fn auto_reload_changed_scripts(
                                     &module_name,
                                 ) {
                                     Ok(result) => {
+                                        // Get current state_id from Lua global (0 = primary, >=1 = instanced)
+                                        let state_id: usize = lua_ctx.lua.globals()
+                                            .get::<usize>("__LUA_STATE_ID__")
+                                            .unwrap_or(0);
+                                        
                                         // Cache the result (will overwrite previous, but they should be equivalent)
                                         if let Ok(registry_key) =
                                             lua_ctx.lua.create_registry_value(result.clone())
                                         {
                                             lua_ctx.script_cache.cache_module(
-                                                module_path.clone(),
+                                                reload_module_path.clone(),
+                                                state_id,
                                                 Arc::new(registry_key),
                                             );
                                         }
 
-                                        // Execute callback - entities spawned will be tagged with module's instance
-                                        if let Err(e) = callback.call::<()>(result) {
-                                            error!(
-                                                "Error in hot reload callback for '{}': {}",
-                                                module_path, e
+                                        // Only invoke callback if should_invoke_callback is true
+                                        // When reload=false, the module is reloaded but callback is not invoked
+                                        if should_invoke_callback {
+                                            // Execute callback - entities spawned will be tagged with module's instance
+                                            if let Err(e) = callback.call::<()>(result) {
+                                                error!(
+                                                    "Error in hot reload callback for '{}': {}",
+                                                    reload_module_path, e
+                                                );
+                                            }
+                                        } else {
+                                            debug!(
+                                                "Hot reload: Skipping callback invocation for '{}' (reload=false)",
+                                                reload_module_path
                                             );
                                         }
                                     }
                                     Err(e) => {
                                         error!(
                                             "Failed to execute module '{}' during hot reload: {}",
-                                            module_path, e
+                                            reload_module_path, e
                                         );
                                     }
                                 }
@@ -1409,6 +1770,9 @@ fn auto_reload_changed_scripts(
                                 } else {
                                     let _ = lua_ctx.lua.globals().set("__INSTANCE_ID__", mlua::Nil);
                                 }
+                                
+                                // Restore previous __LUA_STATE_ID__
+                                let _ = lua_ctx.lua.globals().set("__LUA_STATE_ID__", previous_state_id);
                             }
                         }
                     }
@@ -1454,11 +1818,8 @@ fn auto_reload_changed_scripts(
             // Cleanup the instance
             cleanup_script_instance(instance_id, world, true); // Recursive: main script reload
 
-            // Clear the module cache for all dependencies of this script
-            // Use normalized path for module cache operations
-            if let Some(module_path) = event_path_str.strip_prefix("assets/") {
-                lua_ctx.script_cache.clear_dependency_caches(module_path);
-            }
+            // NOTE: We do NOT clear caches for dependencies here.
+            // Dependencies keep their cached state - they only reload when THEY change.
 
             // Re-execute the script with the same instance tracking
             match lua_ctx.execute_script_tracked(&script_content, script_name, &script_instance) {

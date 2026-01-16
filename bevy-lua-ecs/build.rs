@@ -7722,31 +7722,52 @@ fn write_bindings_to_parent_crate(
             // Handle mutable vs immutable self
             let component_access = if m.takes_mut_self {
                 if returns_self {
-                    // For builder methods that return Self, write the result back to the component
+                    // For builder methods that return Self (like looking_to), use queue-aware access
+                    // Get merged component, call method, write result back to ECS
                     quote::quote! {
-                        if let Some(mut comp) = world.get_mut::<#type_path>(entity) {
-                            let result = #method_call;
-                            *comp = result;
+                        let update_queue = world.resource::<bevy_lua_ecs::ComponentUpdateQueue>();
+                        if let Some(mut comp) = bevy_lua_ecs::get_component_with_queue::<#type_path>(
+                            world, lua, entity, #type_name, update_queue, &app_type_registry
+                        )? {
+                            let result = comp.#method_ident(#(#param_names),*);
+                            // Write result back to ECS
+                            if let Some(mut ecs_comp) = world.get_mut::<#type_path>(entity) {
+                                *ecs_comp = result;
+                            }
                             Ok(mlua::Value::Nil)
                         } else {
                             Err(mlua::Error::RuntimeError(format!("Entity {:?} has no {} component", entity, #type_name)))
                         }
                     }
                 } else if returns_unit {
-                    // Method returns unit - just call it
+                    // Method returns unit - use queue-aware access
                     quote::quote! {
-                        if let Some(mut comp) = world.get_mut::<#type_path>(entity) {
-                            #method_call;
+                        let update_queue = world.resource::<bevy_lua_ecs::ComponentUpdateQueue>();
+                        if let Some(mut comp) = bevy_lua_ecs::get_component_with_queue::<#type_path>(
+                            world, lua, entity, #type_name, update_queue, &app_type_registry
+                        )? {
+                            comp.#method_ident(#(#param_names),*);
+                            // Write modified component back to ECS
+                            if let Some(mut ecs_comp) = world.get_mut::<#type_path>(entity) {
+                                *ecs_comp = comp;
+                            }
                             Ok(mlua::Value::Nil)
                         } else {
                             Err(mlua::Error::RuntimeError(format!("Entity {:?} has no {} component", entity, #type_name)))
                         }
                     }
                 } else {
-                    // Method returns a value - use reflection to convert to Lua
+                    // Method returns a value - use queue-aware access
                     quote::quote! {
-                        if let Some(mut comp) = world.get_mut::<#type_path>(entity) {
-                            let result = #method_call;
+                        let update_queue = world.resource::<bevy_lua_ecs::ComponentUpdateQueue>();
+                        if let Some(mut comp) = bevy_lua_ecs::get_component_with_queue::<#type_path>(
+                            world, lua, entity, #type_name, update_queue, &app_type_registry
+                        )? {
+                            let result = comp.#method_ident(#(#param_names),*);
+                            // Write modified component back to ECS
+                            if let Some(mut ecs_comp) = world.get_mut::<#type_path>(entity) {
+                                *ecs_comp = comp;
+                            }
                             bevy_lua_ecs::reflection::try_reflect_to_lua_value(lua, &result)
                         } else {
                             Err(mlua::Error::RuntimeError(format!("Entity {:?} has no {} component", entity, #type_name)))
@@ -7757,7 +7778,11 @@ fn write_bindings_to_parent_crate(
                 if returns_unit {
                     // Method returns unit - just call it
                     quote::quote! {
-                        if let Some(comp) = world.get::<#type_path>(entity) {
+                        // Get component with queue merging
+                        let update_queue = world.resource::<bevy_lua_ecs::ComponentUpdateQueue>();
+                        if let Some(comp) = bevy_lua_ecs::get_component_with_queue::<#type_path>(
+                            world, lua, entity, #type_name, update_queue, &app_type_registry
+                        )? {
                             #method_call;
                             Ok(mlua::Value::Nil)
                         } else {
@@ -7767,7 +7792,11 @@ fn write_bindings_to_parent_crate(
                 } else {
                     // Method returns a value - use reflection to convert to Lua
                     quote::quote! {
-                        if let Some(comp) = world.get::<#type_path>(entity) {
+                        // Get component with queue merging
+                        let update_queue = world.resource::<bevy_lua_ecs::ComponentUpdateQueue>();
+                        if let Some(comp) = bevy_lua_ecs::get_component_with_queue::<#type_path>(
+                            world, lua, entity, #type_name, update_queue, &app_type_registry
+                        )? {
                             let result = #method_call;
                             bevy_lua_ecs::reflection::try_reflect_to_lua_value(lua, &result)
                         } else {

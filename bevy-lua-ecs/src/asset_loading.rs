@@ -41,6 +41,12 @@ pub type NewtypeWrapperCreator =
 pub type TypedPathLoader =
     Box<dyn Fn(&str, &AssetServer) -> UntypedHandle + Send + Sync>;
 
+/// Type-erased handle extractor for serializing Handle<T> → path string
+/// Takes a reflected value and tries to downcast to Handle<T>, returning UntypedHandle if successful
+/// Key: std::any::TypeId of Handle<T>
+pub type HandleExtractor =
+    Box<dyn Fn(&dyn bevy::reflect::PartialReflect) -> Option<UntypedHandle> + Send + Sync>;
+
 /// Parse an enum value from a string variant name using reflection
 /// This is used by auto-generated constructor code to parse enum parameters from Lua strings
 ///
@@ -242,6 +248,10 @@ pub struct AssetRegistry {
     /// AssetServer for loading assets from paths at spawn time
     /// Used by set_field_from_lua when a handle is registered as a path
     pub asset_server: Option<AssetServer>,
+
+    /// Handle extractors for serializing Handle<T> → path (keyed by TypeId of Handle<T>)
+    /// Used by try_extract_handle_path to convert any Handle type to path string
+    pub handle_extractors: Arc<Mutex<HashMap<std::any::TypeId, HandleExtractor>>>,
 }
 
 impl Default for AssetRegistry {
@@ -266,6 +276,7 @@ impl Default for AssetRegistry {
             asset_cloners_by_typeid: Default::default(),
             typed_path_loaders: Default::default(),
             asset_server: None,
+            handle_extractors: Default::default(),
         }
     }
 }
@@ -336,6 +347,25 @@ macro_rules! register_typed_path_loaders {
                     });
                 $registry.lock().unwrap().insert(type_path.to_string(), loader);
                 bevy::log::debug!("[TYPED_PATH_LOADER] ✓ Registered loader for: {}", type_path);
+            )*
+        }
+    };
+}
+
+/// Macro to register handle extractors for asset types
+/// Usage: register_handle_extractors!(registry, Image, Mesh, Scene, ...)
+/// Registers extractors that can convert Handle<T> to UntypedHandle for path lookup
+#[macro_export]
+macro_rules! register_handle_extractors {
+    ($registry:expr, $($asset_type:ty),* $(,)?) => {
+        {
+            $(
+                let type_id = std::any::TypeId::of::<bevy::asset::Handle<$asset_type>>();
+                let extractor: $crate::asset_loading::HandleExtractor = Box::new(|value: &dyn bevy::reflect::PartialReflect| {
+                    value.try_downcast_ref::<bevy::asset::Handle<$asset_type>>()
+                        .map(|h| h.clone().untyped())
+                });
+                $registry.lock().unwrap().insert(type_id, extractor);
             )*
         }
     };
@@ -552,6 +582,7 @@ impl AssetRegistry {
             asset_cloners_by_typeid: Default::default(),
             typed_path_loaders: Default::default(),
             asset_server: None,
+            handle_extractors: Default::default(),
         }
     }
 
@@ -605,6 +636,23 @@ impl AssetRegistry {
             typed_path_loaders.lock().unwrap().len()
         );
 
+        // Register handle extractors for Handle→path serialization (network replication)
+        let handle_extractors: Arc<Mutex<HashMap<std::any::TypeId, HandleExtractor>>> = Default::default();
+        register_handle_extractors!(
+            handle_extractors,
+            Image,
+            Mesh,
+            StandardMaterial,
+            Scene,
+            AnimationClip,
+            AudioSource,
+            Font,
+        );
+        debug!(
+            "✓ Registered {} handle extractors for Handle→path serialization",
+            handle_extractors.lock().unwrap().len()
+        );
+
         Self {
             image_handles: Default::default(),
             asset_paths: Default::default(),
@@ -625,6 +673,7 @@ impl AssetRegistry {
             asset_cloners_by_typeid: Default::default(),
             typed_path_loaders,
             asset_server: None,
+            handle_extractors,
         }
     }
 
@@ -1292,10 +1341,67 @@ impl AssetRegistry {
         self.asset_paths.lock().unwrap().get(&id).cloned()
     }
 
+    /// Get asset path for an UntypedHandle by searching registered handles
+    /// Used for serialization to convert Handle<T> to path string for network replication
+    pub fn get_path_for_handle(&self, handle: &UntypedHandle) -> Option<String> {
+        // PRIMARY: Use AssetServer::get_path() - this is the most reliable way
+        // to get the path for any handle, regardless of how it was loaded
+        if let Some(ref asset_server) = self.asset_server {
+            if let Some(path) = asset_server.get_path(handle.id()) {
+                return Some(path.to_string());
+            }
+        }
+        
+        // FALLBACK: Search our registered handles (for handles loaded via load_asset)
+        let typed_handles = self.typed_handles.lock().unwrap();
+        for (id, stored_handle) in typed_handles.iter() {
+            if stored_handle.id() == handle.id() {
+                return self.get_path(*id);
+            }
+        }
+        
+        // Also check image_handles - convert stored Handle<Image> to untyped for comparison
+        let image_handles = self.image_handles.lock().unwrap();
+        for (id, stored_handle) in image_handles.iter() {
+            if stored_handle.id().untyped() == handle.id() {
+                return self.get_path(*id);
+            }
+        }
+        
+        None
+    }
+
     /// Set the AssetServer for use in typed path loading
     /// This is called during setup after AssetRegistry is created
     pub fn set_asset_server(&mut self, asset_server: AssetServer) {
         self.asset_server = Some(asset_server);
+    }
+
+    /// Register a handle extractor for a specific asset type
+    /// Call this at startup for each Handle<T> type you want to serialize
+    pub fn register_handle_extractor<T: Asset>(&self) {
+        let type_id = std::any::TypeId::of::<Handle<T>>();
+        let extractor: HandleExtractor = Box::new(|value: &dyn bevy::reflect::PartialReflect| {
+            value.try_downcast_ref::<Handle<T>>()
+                .map(|h| h.clone().untyped())
+        });
+        self.handle_extractors.lock().unwrap().insert(type_id, extractor);
+    }
+
+    /// Try to extract an asset path from a reflected Handle<T> value
+    /// Uses registered handle extractors to convert any Handle type to path string
+    /// Returns None if value is not a Handle or path couldn't be found
+    pub fn try_extract_handle_path(&self, value: &dyn bevy::reflect::PartialReflect) -> Option<String> {
+        // Try each registered extractor
+        let extractors = self.handle_extractors.lock().unwrap();
+        for extractor in extractors.values() {
+            if let Some(untyped_handle) = extractor(value) {
+                if let Some(path) = self.get_path_for_handle(&untyped_handle) {
+                    return Some(path);
+                }
+            }
+        }
+        None
     }
 
     /// Try to load an asset from a path with the correct typed Handle based on field_type_path
@@ -2694,10 +2800,13 @@ pub fn add_asset_loading_to_lua(
                 // Register callback for hot reload if reload=true
                 if should_reload {
                     let callback_key = lua_ctx.create_registry_value(callback.clone())?;
+                    let current_state_id: usize = lua_ctx.globals().get::<usize>("__LUA_STATE_ID__").unwrap_or(0);
                     script_cache_clone2.register_hot_reload_callback(
                         path.clone(),
                         std::sync::Arc::new(callback_key),
                         current_parent_id,
+                        true, // should_invoke_callback
+                        current_state_id,
                     );
                 }
 
@@ -2744,10 +2853,13 @@ pub fn add_asset_loading_to_lua(
 
                     // Store callback for when download completes
                     let callback_key = lua_ctx.create_registry_value(callback.clone())?;
+                    let current_state_id: usize = lua_ctx.globals().get::<usize>("__LUA_STATE_ID__").unwrap_or(0);
                     script_cache_clone2.register_hot_reload_callback(
                         path.clone(),
                         std::sync::Arc::new(callback_key),
                         current_parent_id,
+                        true, // should_invoke_callback
+                        current_state_id,
                     );
 
                     // Queue the download

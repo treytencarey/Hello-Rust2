@@ -166,7 +166,11 @@ impl LuaUserData for LuaEntitySnapshot {
                     let (component_name, patch_value) = pair?;
                     
                     // Get the current component value
-                    let current_value = if let Some(key) = this.lua_components.get(&component_name) {
+                    // FIRST: Check for pending updates in the queue (read-through cache)
+                    // This ensures patch() uses the most recent set/patch value, even if not yet applied
+                    let current_value = if let Some(pending_key) = this.update_queue.peek_pending(this.entity, &component_name) {
+                        lua.registry_value::<LuaValue>(&*pending_key)?
+                    } else if let Some(key) = this.lua_components.get(&component_name) {
                         // Lua component - get from registry
                         lua.registry_value::<LuaValue>(&**key)?
                     } else if let Some(data_str) = this.component_data.get(&component_name) {
@@ -229,6 +233,17 @@ impl LuaUserData for LuaEntitySnapshot {
 /// Convert a reflected value to Lua using Bevy's reflection API directly.
 /// This preserves struct field names that would be lost through serde serialization.
 pub fn reflection_to_lua(lua: &Lua, value: &dyn bevy::reflect::PartialReflect) -> LuaResult<LuaValue> {
+    reflection_to_lua_with_assets(lua, value, None)
+}
+
+/// Convert a reflected value to Lua with optional AssetRegistry for Handle→path serialization.
+/// When asset_registry is provided, Handle<T> types are serialized as their asset path strings
+/// for network replication.
+pub fn reflection_to_lua_with_assets(
+    lua: &Lua, 
+    value: &dyn bevy::reflect::PartialReflect,
+    asset_registry: Option<&crate::asset_loading::AssetRegistry>,
+) -> LuaResult<LuaValue> {
     use bevy::reflect::ReflectRef;
     
     match value.reflect_ref() {
@@ -240,7 +255,7 @@ pub fn reflection_to_lua(lua: &Lua, value: &dyn bevy::reflect::PartialReflect) -
                         Some(name) => name.to_string(),
                         None => format!("{}", i),
                     };
-                    table.set(field_name, reflection_to_lua(lua, field)?)?;
+                    table.set(field_name, reflection_to_lua_with_assets(lua, field, asset_registry)?)?;
                 }
             }
             Ok(LuaValue::Table(table))
@@ -250,9 +265,9 @@ pub fn reflection_to_lua(lua: &Lua, value: &dyn bevy::reflect::PartialReflect) -
             for i in 0..ts.field_len() {
                 if let Some(field) = ts.field(i) {
                     // Use _0, _1, etc. for tuple struct fields (like bevy-lua-ecs convention)
-                    table.set(format!("_{}", i), reflection_to_lua(lua, field)?)?;
+                    table.set(format!("_{}", i), reflection_to_lua_with_assets(lua, field, asset_registry)?)?;
                     // Also set numeric indices for array-style access
-                    table.set(i + 1, reflection_to_lua(lua, field)?)?;
+                    table.set(i + 1, reflection_to_lua_with_assets(lua, field, asset_registry)?)?;
                 }
             }
             Ok(LuaValue::Table(table))
@@ -261,7 +276,7 @@ pub fn reflection_to_lua(lua: &Lua, value: &dyn bevy::reflect::PartialReflect) -
             let table = lua.create_table()?;
             for i in 0..t.field_len() {
                 if let Some(field) = t.field(i) {
-                    table.set(i + 1, reflection_to_lua(lua, field)?)?;
+                    table.set(i + 1, reflection_to_lua_with_assets(lua, field, asset_registry)?)?;
                 }
             }
             Ok(LuaValue::Table(table))
@@ -270,7 +285,7 @@ pub fn reflection_to_lua(lua: &Lua, value: &dyn bevy::reflect::PartialReflect) -
             let table = lua.create_table()?;
             for i in 0..list.len() {
                 if let Some(item) = list.get(i) {
-                    table.set(i + 1, reflection_to_lua(lua, item)?)?;
+                    table.set(i + 1, reflection_to_lua_with_assets(lua, item, asset_registry)?)?;
                 }
             }
             Ok(LuaValue::Table(table))
@@ -279,7 +294,7 @@ pub fn reflection_to_lua(lua: &Lua, value: &dyn bevy::reflect::PartialReflect) -
             let table = lua.create_table()?;
             for i in 0..arr.len() {
                 if let Some(item) = arr.get(i) {
-                    table.set(i + 1, reflection_to_lua(lua, item)?)?;
+                    table.set(i + 1, reflection_to_lua_with_assets(lua, item, asset_registry)?)?;
                 }
             }
             Ok(LuaValue::Table(table))
@@ -289,12 +304,12 @@ pub fn reflection_to_lua(lua: &Lua, value: &dyn bevy::reflect::PartialReflect) -
             for (key, val) in map.iter() {
                 // Try to get a string key
                 if let Some(key_str) = key.try_downcast_ref::<String>() {
-                    table.set(key_str.clone(), reflection_to_lua(lua, val)?)?;
+                    table.set(key_str.clone(), reflection_to_lua_with_assets(lua, val, asset_registry)?)?;
                 } else if let Some(key_str) = key.try_downcast_ref::<&str>() {
-                    table.set(*key_str, reflection_to_lua(lua, val)?)?;
+                    table.set(*key_str, reflection_to_lua_with_assets(lua, val, asset_registry)?)?;
                 } else {
                     // Use debug format for non-string keys
-                    table.set(format!("{:?}", key), reflection_to_lua(lua, val)?)?;
+                    table.set(format!("{:?}", key), reflection_to_lua_with_assets(lua, val, asset_registry)?)?;
                 }
             }
             Ok(LuaValue::Table(table))
@@ -302,12 +317,30 @@ pub fn reflection_to_lua(lua: &Lua, value: &dyn bevy::reflect::PartialReflect) -
         ReflectRef::Set(set) => {
             let table = lua.create_table()?;
             for (i, item) in set.iter().enumerate() {
-                table.set(i + 1, reflection_to_lua(lua, item)?)?;
+                table.set(i + 1, reflection_to_lua_with_assets(lua, item, asset_registry)?)?;
             }
             Ok(LuaValue::Table(table))
         }
         ReflectRef::Enum(e) => {
-            // For enums, create a table with the variant name as key
+            // Get type info for Handle detection
+            let type_path = value.get_represented_type_info()
+                .map(|ti| ti.type_path().to_string())
+                .unwrap_or_else(|| "unknown".to_string());
+            
+            // Handle<T> is reflected as an Enum with Strong/Weak variants
+            // If this is a Handle type and we have an asset_registry, try to serialize as path
+            if type_path.contains("Handle<") {
+                if let Some(registry) = asset_registry {
+                    // Use generic handle extractor registry (no hardcoded types)
+                    if let Some(path) = registry.try_extract_handle_path(value) {
+                        debug!("[REFLECTION_TO_LUA] Handle {} serialized as path: '{}'", type_path, path);
+                        return Ok(LuaValue::String(lua.create_string(&path)?));
+                    }
+                    debug!("[REFLECTION_TO_LUA] Handle detected but no extractor found or path not available: {}", type_path);
+                }
+            }
+            
+            // For normal enums, create a table with the variant name as key
             let table = lua.create_table()?;
             let variant_name = e.variant_name();
             
@@ -317,7 +350,7 @@ pub fn reflection_to_lua(lua: &Lua, value: &dyn bevy::reflect::PartialReflect) -
             } else if e.field_len() == 1 {
                 // Newtype variant
                 if let Some(field) = e.field_at(0) {
-                    table.set(variant_name, reflection_to_lua(lua, field)?)?;
+                    table.set(variant_name, reflection_to_lua_with_assets(lua, field, asset_registry)?)?;
                 }
             } else {
                 // Tuple or struct variant
@@ -325,9 +358,9 @@ pub fn reflection_to_lua(lua: &Lua, value: &dyn bevy::reflect::PartialReflect) -
                 for i in 0..e.field_len() {
                     if let Some(field) = e.field_at(i) {
                         if let Some(name) = e.name_at(i) {
-                            inner.set(name.to_string(), reflection_to_lua(lua, field)?)?;
+                            inner.set(name.to_string(), reflection_to_lua_with_assets(lua, field, asset_registry)?)?;
                         } else {
-                            inner.set(i + 1, reflection_to_lua(lua, field)?)?;
+                            inner.set(i + 1, reflection_to_lua_with_assets(lua, field, asset_registry)?)?;
                         }
                     }
                 }
@@ -372,6 +405,26 @@ pub fn reflection_to_lua(lua: &Lua, value: &dyn bevy::reflect::PartialReflect) -
                 debug!("[REFLECTION_TO_LUA] Opaque: Successfully downcast to Entity: {:?}", entity);
                 return Ok(LuaValue::Integer(entity.to_bits() as i64));
             }
+            
+            // Handle<T> detection - serialize as path for network replication
+            if type_path.contains("Handle<") {
+                if let Some(registry) = asset_registry {
+                    // Try UntypedHandle first (rare but possible)
+                    if let Some(handle) = opaque.try_downcast_ref::<bevy::asset::UntypedHandle>() {
+                        if let Some(path) = registry.get_path_for_handle(handle) {
+                            debug!("[REFLECTION_TO_LUA] UntypedHandle serialized as path: '{}'", path);
+                            return Ok(LuaValue::String(lua.create_string(&path)?));
+                        }
+                    }
+                    // Use generic handle extractor registry (no hardcoded types)
+                    if let Some(path) = registry.try_extract_handle_path(value) {
+                        debug!("[REFLECTION_TO_LUA] Handle {} serialized as path: '{}'", type_path, path);
+                        return Ok(LuaValue::String(lua.create_string(&path)?));
+                    }
+                }
+                debug!("[REFLECTION_TO_LUA] Handle detected but no path found: {}", type_path);
+            }
+            
             // Fallback to debug string for unknown opaque types
             let debug_str = format!("{:?}", opaque);
             debug!("[REFLECTION_TO_LUA] Opaque fallback to debug: '{}'", debug_str);
@@ -458,6 +511,7 @@ pub fn execute_query(
     this_run: u32,
     query_cache: Option<&crate::query_cache::LuaQueryCache>,
     current_frame: u64,
+    asset_registry: Option<&crate::asset_loading::AssetRegistry>,
 ) -> LuaResult<Vec<LuaEntitySnapshot>> {
     let type_registry = component_registry.type_registry().read();
     
@@ -762,7 +816,7 @@ pub fn execute_query(
                         if let Some(component) = reflect_component.reflect(
                             Into::<bevy::ecs::world::FilteredEntityRef>::into(&entity_ref),
                         ) {
-                            match reflection_to_lua(lua, component) {
+                            match reflection_to_lua_with_assets(lua, component, asset_registry) {
                                 Ok(lua_value) => {
                                     if let Ok(registry_key) = lua.create_registry_value(lua_value) {
                                         lua_components.insert(name.clone(), Arc::new(registry_key));
