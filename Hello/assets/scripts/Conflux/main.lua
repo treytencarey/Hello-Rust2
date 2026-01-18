@@ -5,12 +5,7 @@
 
 local NetRole = require("modules/net_role.lua")
 local NetGame = require("modules/net_game.lua")
-local NetSync = require("modules/net_sync.lua")
 local WorldBuilder = require("modules/world_builder.lua")
-local InputManager = require("modules/input_manager.lua")
-local PlayerController = require("modules/player_controller.lua")
-local CameraController = require("modules/camera_controller.lua")
-local TransformInterpolation = require("modules/transform_interpolation.lua")
 
 print("[CONFLUX CLIENT] Initializing...")
 
@@ -43,143 +38,40 @@ WorldBuilder.create_light({
 print("[CONFLUX CLIENT] World geometry created")
 
 --------------------------------------------------------------------------------
--- Client State
+-- Connect to Server (deferred to first Update system)
 --------------------------------------------------------------------------------
 
-local my_entity_id = nil
-local my_controller = nil
-local connected = false
+local connection_initialized = false
 
---------------------------------------------------------------------------------
--- Connect to Server
---------------------------------------------------------------------------------
-
-NetGame.join({
-    server_addr = GAME_CONFIG.server_addr,
-    port = GAME_CONFIG.port,
-    on_connected = function()
-        connected = true
-        print("[CONFLUX CLIENT] Connected to server!")
-    end,
-    on_disconnected = function()
-        connected = false
-        my_entity_id = nil
-        my_controller = nil
-        print("[CONFLUX CLIENT] Disconnected from server")
+register_system("Startup", function(world)
+    if not connection_initialized then
+        NetGame.join(world, {
+            server_addr = GAME_CONFIG.server_addr,
+            port = GAME_CONFIG.port,
+            -- Game-specific modules (can be swapped for different games)
+            camera_script = "scripts/Conflux/modules/camera.lua",
+            controller_script = "scripts/Conflux/modules/controller.lua",
+            on_connected = function()
+                connected = true
+                print("[CONFLUX CLIENT] Connected to server!")
+            end,
+            on_disconnected = function()
+                connected = false
+                my_entity_id = nil
+                my_controller = nil
+                print("[CONFLUX CLIENT] Disconnected from server")
+            end
+        })
+        connection_initialized = true
     end
-})
-
---------------------------------------------------------------------------------
--- Camera Setup
---------------------------------------------------------------------------------
-
-CameraController.create_camera()
-
--- Default to third person, VR auto-switches to first person
-if NetRole.is_offline() then
-    CameraController.set_mode("third_person")
-end
+    return true  -- Run once
+end)
 
 --------------------------------------------------------------------------------
 -- Client Update Systems
 --------------------------------------------------------------------------------
 
--- Find our character when it spawns
-local debug_find_character = true  -- Enable to debug
+-- Main update - NetGame handles networking, player input, camera, and interpolation
 register_system("Update", function(world)
-    -- Wait for server to tell us which character is ours
-    local my_net_id = NetSync.get_my_net_id()
-    if not my_net_id then
-        if debug_find_character then
-            debug_find_character = false  -- Only print once
-            print("[CONFLUX CLIENT] Waiting for my_net_id...")
-        end
-        return
-    end
-    
-    -- Get our entity from the net_id
-    local entity_id = NetSync.get_my_entity()
-    if not entity_id then
-        print(string.format("[CONFLUX CLIENT] Have my_net_id=%s but entity not in known_entities yet", tostring(my_net_id)))
-        return
-    end
-    
-    -- Get entity wrapper
-    local entity = world:get_entity(entity_id)
-    if not entity then
-        print(string.format("[CONFLUX CLIENT] Have entity_id=%s but world:get_entity returned nil", tostring(entity_id)))
-        return
-    end
-    
-    local sync = entity:get("NetworkSync")
-    if not sync then
-        print("[CONFLUX CLIENT] Entity exists but no NetworkSync component")
-        return
-    end
-    
-    my_entity_id = entity_id
-    
-    -- Create client controller for prediction
-    my_controller = PlayerController.create_client_controller(entity, function(input_msg)
-        -- Send input to server via NetworkSync
-        entity:set({
-            PlayerInput = input_msg
-        })
-    end, CameraController.get_camera_entity)
-    
-    -- Attach camera
-    CameraController.attach(my_entity_id)
-    
-    print(string.format("[CONFLUX CLIENT] Found my character: entity=%d net_id=%d", 
-        my_entity_id, my_net_id))
-
-    return true -- Stop processing
+    NetGame.update(world)
 end)
-
--- Process input and apply prediction
-register_system("Update", function(world)
-    if not my_controller then return end
-    
-    local input = InputManager.get_movement_input(world)
-    local dt = world:delta_time()
-    
-    -- Process input with prediction (client-only mode)
-    my_controller.process_input(world, input, dt)
-    
-    CameraController.update(world, dt)
-end)
-
--- Outbound sync (send input updates to server)
-register_system("Update", NetGame.create_sync_outbound())
-
--- Inbound sync (receive entity updates from server)
-register_system("Update", NetGame.create_sync_inbound())
-
--- Smooth interpolation for remote entities
-register_system("Update", TransformInterpolation.create_system())
-
--- Handle server state updates for reconciliation
-register_system("Update", function(world)
-    if not my_controller or not my_entity_id then return end
-    
-    -- Skip reconciliation in "both" mode - server directly updates entity, no prediction needed
-    if NetRole.get_role() == "both" then return end
-    
-    -- Get server's authoritative state (stored when we receive Transform updates for own entity)
-    local server_state = NetSync.get_server_authoritative_state()
-    if not server_state or not server_state.position then return end
-    
-    local entity = world:get_entity(my_entity_id)
-    if not entity then return end
-    
-    local player_state = entity:get("PlayerState")
-    local velocity = player_state and player_state.velocity or {x = 0, y = 0, z = 0}
-    
-    -- Reconcile with server state
-    my_controller.on_server_state({
-        position = server_state.position,
-        velocity = velocity
-    })
-end)
-
-print("[CONFLUX CLIENT] Connecting to " .. GAME_CONFIG.server_addr .. ":" .. GAME_CONFIG.port)

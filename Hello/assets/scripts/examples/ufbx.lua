@@ -1,9 +1,6 @@
 -- UFbx FBX Loading Example
 -- Demonstrates loading an FBX file with bevy_ufbx + mouse drag rotation
 
-local FPS = require("modules/FPS.lua")
-FPS.setup()
-
 print("=== UFbx FBX Loading Example ===")
 
 -- Marker component for the draggable FBX scene

@@ -740,6 +740,69 @@ function VrHands:update(world)
 end
 
 --------------------------------------------------------------------------------
+-- Public: Get Pose (for network replication)
+-- Returns all data needed to replicate this hand to another client
+--------------------------------------------------------------------------------
+
+function VrHands:get_pose(world)
+    if not self.root_entity then return nil end
+    
+    local root = world:get_entity(self.root_entity)
+    if not root then return nil end
+    
+    local transform = root:get("Transform")
+    if not transform then return nil end
+    
+    -- Collect bone rotations
+    local bone_rotations = {}
+    for bone_name, bone_entity_id in pairs(self.mesh_bones) do
+        local bone = world:get_entity(bone_entity_id)
+        if bone then
+            local bone_transform = bone:get("Transform")
+            if bone_transform and bone_transform.rotation then
+                bone_rotations[bone_name] = bone_transform.rotation
+            end
+        end
+    end
+    
+    return {
+        hand = self.hand,
+        transform = transform,
+        bones = bone_rotations
+    }
+end
+
+--------------------------------------------------------------------------------
+-- Public: Set Pose (for receiving remote hand data)
+-- Applies pose received from network
+--------------------------------------------------------------------------------
+
+function VrHands:set_pose(world, pose)
+    if not self.root_entity or not pose then return end
+    
+    local root = world:get_entity(self.root_entity)
+    if not root then return end
+    
+    -- Apply root transform
+    if pose.transform then
+        root:set({ Transform = pose.transform })
+    end
+    
+    -- Apply bone rotations
+    if pose.bones then
+        for bone_name, rotation in pairs(pose.bones) do
+            local bone_entity_id = self.mesh_bones[bone_name]
+            if bone_entity_id then
+                local bone = world:get_entity(bone_entity_id)
+                if bone then
+                    bone:set({ Transform = { rotation = rotation } })
+                end
+            end
+        end
+    end
+end
+
+--------------------------------------------------------------------------------
 -- Public: Cleanup
 --------------------------------------------------------------------------------
 

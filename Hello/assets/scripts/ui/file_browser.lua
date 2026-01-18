@@ -441,6 +441,7 @@ function FileBrowser:load_folder(path, offset)
     
     -- Request directory listing from server
     local request_id = list_server_directory(path, offset, PAGE_SIZE)
+    print("Requesting directory listing for " .. path .. " (offset " .. offset .. ")")
     
     -- Store request for response matching
     folder.request_id = request_id
@@ -874,6 +875,9 @@ function FileBrowser:update(world)
     -- Process directory listing events
     local events = world:read_events("hello::asset_events::AssetDirectoryListingEvent")
     for _, e in ipairs(events) do
+        for k,v in pairs(e) do
+            print(k,v)
+        end
         self:on_directory_listing(e)
     end
     

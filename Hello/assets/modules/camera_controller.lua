@@ -1,8 +1,12 @@
 -- Camera Controller Module
--- First/third person camera with VR detection
+-- Handles camera input, cursor lock, and delegates positioning to movement modules
 --
 -- Usage:
 --   local CameraController = require("modules/camera_controller.lua")
+--   CameraController.init({
+--       mode = "third_person",
+--       movement_module = "modules/cameras/third_person.lua"  -- or first_person.lua
+--   })
 --   CameraController.attach(player_entity_id)
 --   register_system("Update", function(world)
 --       CameraController.update(world, world:delta_time())
@@ -12,6 +16,8 @@ local NetRole = require("modules/net_role.lua")
 
 local CameraController = {}
 
+CameraController.MARKER = "CameraController"
+
 --------------------------------------------------------------------------------
 -- Configuration
 --------------------------------------------------------------------------------
@@ -19,21 +25,24 @@ local CameraController = {}
 CameraController.config = {
     mode = "third_person",          -- "first_person" or "third_person"
     
-    -- Third person settings
+    -- Movement module paths (loaded via require_async)
+    movement_modules = {
+        first_person = "modules/cameras/first_person.lua",
+        third_person = "modules/cameras/third_person.lua",
+    },
+    
+    -- Settings passed to movement modules
     third_person_distance = 5.0,
     third_person_height = 2.0,
     third_person_offset = {x = 0, y = 0, z = 0},
-    
-    -- First person settings
     first_person_height = 1.7,
     
     -- Input settings
     sensitivity = 1.0,
     invert_y = false,
     
-    -- Collision for third person
-    collision_enabled = true,
-    collision_offset = 0.3,
+    -- Smoothing
+    smoothing_factor = 100.0,  -- Higher = snappier, lower = smoother
 }
 
 --------------------------------------------------------------------------------
@@ -52,7 +61,27 @@ local cursor_configured = false
 
 -- Smoothing state
 local current_camera_pos = nil  -- Smoothed camera position
-local smoothing_factor = 100.0   -- Higher = snappier (10 = quite responsive), lower = smoother (e.g. for mobile)
+
+-- Movement modules (loaded on-demand)
+local movement_modules = {}      -- mode -> module
+local movement_loading = {}      -- mode -> true if loading
+
+--------------------------------------------------------------------------------
+-- Initialization
+--------------------------------------------------------------------------------
+
+--- Initialize with config
+--- @param cfg table|nil Configuration overrides
+function CameraController.init(cfg)
+    if cfg then
+        for key, value in pairs(cfg) do
+            if CameraController.config[key] ~= nil then
+                CameraController.config[key] = value
+            end
+        end
+    end
+    print(string.format("[CAMERA_CONTROLLER] Initialized with mode=%s", CameraController.config.mode))
+end
 
 --------------------------------------------------------------------------------
 -- VR Detection
@@ -143,6 +172,7 @@ function CameraController.create_camera()
     end
     
     local spawn_data = {
+        [CameraController.MARKER] = {},
         Camera3d = {},
         Transform = {
             translation = {x = 0, y = 5, z = 10},
@@ -158,13 +188,16 @@ end
 
 --- Attach camera to follow a target entity
 --- @param player_entity_id number
-function CameraController.attach(player_entity_id)
+function CameraController.attach(world, player_entity_id)
     target_entity_id = player_entity_id
     
-    -- Create camera if not exists
-    if not camera_entity_id then
-        CameraController.create_camera()
+    -- Remove existing camera
+    local entities = world:query({CameraController.MARKER})
+    for _, entity in ipairs(entities) do
+        despawn(entity:id())
     end
+    
+    CameraController.create_camera()
     
     print(string.format("[CAMERA_CONTROLLER] Attached to entity %d", player_entity_id))
 end
@@ -263,6 +296,54 @@ end
 -- Camera Update
 --------------------------------------------------------------------------------
 
+--- Load movement module for current mode (via require_async)
+local function ensure_movement_module_loaded(mode)
+    -- Already loaded?
+    if movement_modules[mode] then
+        return movement_modules[mode]
+    end
+    
+    -- Already loading?
+    if movement_loading[mode] then
+        return nil
+    end
+    
+    -- Get module path
+    local module_path = CameraController.config.movement_modules[mode]
+    if not module_path then
+        print(string.format("[CAMERA_CONTROLLER] No movement module configured for mode: %s", mode))
+        return nil
+    end
+    
+    -- Start async load
+    movement_loading[mode] = true
+    require_async(module_path, function(module)
+        movement_loading[mode] = false
+        if module then
+            -- Initialize with relevant config
+            local cfg = {}
+            if mode == "third_person" then
+                cfg.distance = CameraController.config.third_person_distance
+                cfg.height = CameraController.config.third_person_height
+                cfg.offset = CameraController.config.third_person_offset
+            elseif mode == "first_person" then
+                cfg.height = CameraController.config.first_person_height
+            end
+            
+            if module.init then
+                module.init(cfg)
+            end
+            
+            movement_modules[mode] = module
+            print(string.format("[CAMERA_CONTROLLER] Loaded movement module: %s", module_path))
+        else
+            print(string.format("[CAMERA_CONTROLLER] ERROR: Failed to load movement module: %s", module_path))
+        end
+    end)
+    
+    return nil
+end
+
 --- Update camera position and rotation
 --- @param world userdata
 --- @param dt number delta time
@@ -301,40 +382,30 @@ function CameraController.update(world, dt)
     local camera = world:get_entity(camera_entity_id)
     if not camera then return end
     
-    -- Calculate DESIRED camera position based on mode
-    local desired_pos
-    local look_target
+    -- Ensure movement module is loaded
+    local mode = CameraController.config.mode
+    local movement_module = ensure_movement_module_loaded(mode)
     
-    if CameraController.config.mode == "first_person" then
-        -- First person: camera at player head
-        desired_pos = {
-            x = target_pos.x,
-            y = target_pos.y + CameraController.config.first_person_height,
-            z = target_pos.z
-        }
-        -- Look in the direction the player is facing
-        look_target = {
-            x = desired_pos.x - math.sin(yaw),
-            y = desired_pos.y + math.sin(pitch),
-            z = desired_pos.z - math.cos(yaw)
-        }
+    -- Calculate camera position via movement module (or fallback)
+    local desired_pos, look_target
+    
+    if movement_module and movement_module.calculate_position then
+        local result = movement_module.calculate_position(target_pos, yaw, pitch)
+        desired_pos = result.camera_pos
+        look_target = result.look_target
     else
-        -- Third person: camera behind and above player
-        local config = CameraController.config
-        local dist = config.third_person_distance
-        local height = config.third_person_height
+        -- Fallback: basic third person
+        local dist = CameraController.config.third_person_distance
+        local height = CameraController.config.third_person_height
         
-        -- Calculate camera position based on yaw/pitch
         desired_pos = {
             x = target_pos.x + math.sin(yaw) * dist * math.cos(pitch),
             y = target_pos.y + height + math.sin(pitch) * dist,
             z = target_pos.z + math.cos(yaw) * dist * math.cos(pitch)
         }
-        
-        -- Look at player
         look_target = {
             x = target_pos.x,
-            y = target_pos.y + 1.0,  -- Look at chest height
+            y = target_pos.y + 1.0,
             z = target_pos.z
         }
     end
@@ -345,16 +416,15 @@ function CameraController.update(world, dt)
     end
     
     -- Smoothly interpolate camera position (lerp)
-    local t = math.min(1.0, smoothing_factor * dt)
+    local smoothing = CameraController.config.smoothing_factor
+    local t = math.min(1.0, smoothing * dt)
     current_camera_pos = {
-        x = current_camera_pos.x + (desired_pos.x - current_camera_pos.x),
-        y = current_camera_pos.y + (desired_pos.y - current_camera_pos.y),
-        z = current_camera_pos.z + (desired_pos.z - current_camera_pos.z)
+        x = current_camera_pos.x + (desired_pos.x - current_camera_pos.x) * t,
+        y = current_camera_pos.y + (desired_pos.y - current_camera_pos.y) * t,
+        z = current_camera_pos.z + (desired_pos.z - current_camera_pos.z) * t
     }
     
     -- Compute look direction from current_camera_pos to look_target
-    -- Using looking_to(direction) instead of looking_at(target) avoids
-    -- dependency on the Transform's stale translation
     local look_dir = {
         x = look_target.x - current_camera_pos.x,
         y = look_target.y - current_camera_pos.y,

@@ -264,8 +264,9 @@ function PlayerController.create_client_controller(entity, send_fn, get_camera_e
         
         -- Transform input to world-space using camera if available
         local move_dir = nil
-        local camera_entity_id = controller.get_camera_entity and controller.get_camera_entity()
+        local camera_entity_id = controller.get_camera_entity and controller.get_camera_entity(world)
         
+        print(camera_entity_id)
         if camera_entity_id then
             move_dir = PlayerController.transform_input_by_camera(input, world, camera_entity_id)
         end
@@ -284,6 +285,7 @@ function PlayerController.create_client_controller(entity, send_fn, get_camera_e
         local new_rotation = current_rotation
         local rotation_mode = PlayerController.config.rotation_mode
         
+        print(rotation_mode, move_dir)
         if rotation_mode == "face_movement" and move_dir then
             -- Only rotate when actually moving (not just holding backward)
             local target_rot = PlayerController.rotation_from_movement(move_dir, world)
@@ -495,6 +497,145 @@ function PlayerController.process_server_input(entity)
         sequence = input_component.sequence or 0,
         last_acked_seq = input_component.sequence or 0
     }
+end
+
+--------------------------------------------------------------------------------
+-- Client System Factory
+--------------------------------------------------------------------------------
+
+--- Create client-side update system that handles finding entity, prediction, and reconciliation
+--- Hot-reload friendly: require_async callbacks recreate state when modules update
+--- @param config table { get_camera_entity = function(world) -> entity_id, on_player_found = function(world, entity_id) }
+--- @return function System function to be called each frame
+function PlayerController.create_client_system(config)
+    -- State table that require_async callbacks can write to
+    local state = {
+        NetRole = nil,
+        NetSync = nil,
+        InputManager = nil,
+        my_controller = nil,
+        my_entity_id = nil,
+        setup_complete = false,
+    }
+    
+    -- Track first load vs hot-reload
+    local modules_loaded = {
+        NetRole = false,
+        NetSync = false,
+        InputManager = false,
+    }
+    
+    -- Reset controller state (called when modules hot-reload)
+    local function reset_state()
+        state.my_controller = nil
+        state.my_entity_id = nil
+        state.setup_complete = false
+        print("[PLAYER_CONTROLLER] State reset for hot-reload")
+    end
+    
+    return function(world)
+        -- Load modules via require_async (callbacks fire on load AND hot-reload)
+        require_async("modules/net_role.lua", function(module)
+            if state.NetRole ~= module then
+                local is_hot_reload = modules_loaded.NetRole
+                state.NetRole = module
+                modules_loaded.NetRole = true
+                if is_hot_reload then
+                    reset_state()
+                end
+            end
+        end)
+        
+        require_async("modules/net_sync.lua", function(module)
+            if state.NetSync ~= module then
+                local is_hot_reload = modules_loaded.NetSync
+                state.NetSync = module
+                modules_loaded.NetSync = true
+                if is_hot_reload then
+                    reset_state()
+                end
+            end
+        end)
+        
+        require_async("modules/input_manager.lua", function(module)
+            if state.InputManager ~= module then
+                local is_hot_reload = modules_loaded.InputManager
+                state.InputManager = module
+                modules_loaded.InputManager = true
+                if is_hot_reload then
+                    reset_state()
+                end
+            end
+        end)
+        
+        -- Wait for all modules to load
+        if not state.NetRole or not state.NetSync or not state.InputManager then
+            return
+        end
+        
+        local dt = world:delta_time()
+        
+        -- Step 1: Find our character entity if not found yet
+        if not state.setup_complete then
+            local my_net_id = state.NetSync.get_my_net_id()
+            if not my_net_id then
+                return  -- Wait for server assignment
+            end
+            
+            local entity_id = state.NetSync.get_my_entity()
+            if not entity_id then
+                return  -- Wait for entity to spawn
+            end
+            
+            local entity = world:get_entity(entity_id)
+            if not entity or not entity:get("NetworkSync") then
+                return  -- Wait for entity to be valid
+            end
+            
+            state.my_entity_id = entity_id
+            
+            -- Create controller with input sender
+            state.my_controller = PlayerController.create_client_controller(
+                entity,
+                function(input_msg)
+                    entity:set({ PlayerInput = input_msg })
+                end,
+                config and config.get_camera_entity
+            )
+            
+            -- Notify that player was found
+            if config and config.on_player_found then
+                config.on_player_found(world, entity_id)
+            end
+            
+            state.setup_complete = true
+            print(string.format("[PLAYER_CONTROLLER] Client controller ready for entity %d (net_id %d)", 
+                entity_id, my_net_id))
+        end
+        
+        -- Step 2: Process input and prediction
+        if state.my_controller then
+            local input = state.InputManager.get_movement_input(world)
+            state.my_controller.process_input(world, input, dt)
+        end
+        
+        -- Step 3: Reconciliation with server state (skip in "both" mode)
+        if state.my_controller and state.my_entity_id and state.NetRole.get_role() ~= "both" then
+            local server_state = state.NetSync.get_server_authoritative_state()
+            if server_state and server_state.position then
+                local entity = world:get_entity(state.my_entity_id)
+                if entity then
+                    local player_state = entity:get("PlayerState")
+                    local velocity = player_state and player_state.velocity or {x = 0, y = 0, z = 0}
+                    
+                    state.my_controller.on_server_state({
+                        position = server_state.position,
+                        velocity = velocity
+                    })
+                end
+            end
+        end
+    end
 end
 
 print("[PLAYER_CONTROLLER] Module loaded")

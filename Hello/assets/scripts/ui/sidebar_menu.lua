@@ -194,7 +194,7 @@ function SidebarMenu:update(world)
     -- Handle escape key
     local key_events = world:read_events("bevy_input::keyboard::KeyboardInput")
     for _, e in ipairs(key_events) do
-        if e.key_code and e.key_code.Escape and e.state and e.state.Pressed then
+        if e.key_code == "Escape" and e.state == "Pressed" then
             -- Check debounce (prevent double-toggling if event persists across frames)
             local now = os.clock()
             if self.last_action_time and (now - self.last_action_time < 0.2) then

@@ -15,12 +15,17 @@ local NetRole = require("modules/net_role.lua")
 local SpawnSystem = {}
 
 --------------------------------------------------------------------------------
+-- Marker Component
+--------------------------------------------------------------------------------
+
+SpawnSystem.MARKER = "PlayerSpawnMarker"  -- Component to mark spawned entities
+
+--------------------------------------------------------------------------------
 -- State
 --------------------------------------------------------------------------------
 
 local spawn_locations = {}  -- index -> { position = {x,y,z}, occupied_by = client_id or nil }
 local client_to_spawn = {}  -- client_id -> spawn_index
-local initialized = false
 local debug_markers = {}    -- spawn_index -> entity_id (if show_debug)
 
 --------------------------------------------------------------------------------
@@ -28,24 +33,44 @@ local debug_markers = {}    -- spawn_index -> entity_id (if show_debug)
 --------------------------------------------------------------------------------
 
 --- Initialize spawn system with locations
+--- @param world userdata The ECS world
 --- @param config table { locations = {{x,y,z}, ...}, show_debug = false }
-function SpawnSystem.init(config)
-    if initialized then
-        print("[SPAWN_SYSTEM] Already initialized, skipping")
-        return
-    end
-    
+function SpawnSystem.init(world, config)
     local locations = config.locations or {}
     local show_debug = config.show_debug or false
-    
+
+    -- Initialize spawn_locations from config.locations
+    spawn_locations = {}
     for i, pos in ipairs(locations) do
         spawn_locations[i] = {
-            position = pos,
+            position = { x = pos.x, y = pos.y, z = pos.z },
             occupied_by = nil
         }
+    end
         
-        -- Spawn debug markers if enabled (client-only visuals)
-        if show_debug and (NetRole.is_client() or NetRole.is_offline()) then
+    -- Query for existing claimed spawns (hot-reload persistence)
+    local existing_spawns = world:query({SpawnSystem.MARKER})
+    if existing_spawns and #existing_spawns > 0 then
+        print(string.format("[SPAWN_SYSTEM] Found %d existing spawn claims, restoring state", #existing_spawns))
+        for _, entity in ipairs(existing_spawns) do
+            local marker = entity:get(SpawnSystem.MARKER)
+            local spawn_index = marker.spawn_index
+            local client_id = marker.client_id
+            
+            -- Re-claim the spawn
+            if spawn_index and spawn_index <= #spawn_locations then
+                spawn_locations[spawn_index].occupied_by = client_id
+                client_to_spawn[client_id] = spawn_index
+                print(string.format("[SPAWN_SYSTEM] Restored claim: client %s -> spawn %d", client_id, spawn_index))
+            end
+        end
+    end
+    
+    -- Spawn debug markers if enabled (after state restoration)
+    if show_debug and (NetRole.is_client() or NetRole.is_offline()) then
+        for i, loc in ipairs(spawn_locations) do
+            local pos = loc.position
+        
             local marker_mesh = create_asset("bevy_mesh::mesh::Mesh", {
                 primitive = { Cylinder = { radius = 0.5, half_height = 0.1 } }
             })
@@ -79,12 +104,21 @@ end
 --- @param client_id number
 --- @return table|nil position {x,y,z} or nil if all occupied
 function SpawnSystem.claim_spawn(client_id)
+    if client_id == nil then
+        return nil
+    end
     -- Check if client already has a spawn
     if client_to_spawn[client_id] then
         local idx = client_to_spawn[client_id]
         local loc = spawn_locations[idx]
         if loc then
-            return loc.position
+            return {
+                position = loc.position,
+                marker = {
+                    spawn_index = idx,
+                    client_id = client_id
+                }
+            }
         end
     end
     
@@ -93,13 +127,18 @@ function SpawnSystem.claim_spawn(client_id)
         if not loc.occupied_by then
             loc.occupied_by = client_id
             client_to_spawn[client_id] = i
-            print(string.format("[SPAWN_SYSTEM] Client %d claimed spawn %d at (%.1f, %.1f, %.1f)",
+            print(string.format("[SPAWN_SYSTEM] Client %s claimed spawn %d at (%.1f, %.1f, %.1f)",
                 client_id, i, loc.position.x, loc.position.y, loc.position.z))
-            return loc.position
+            return {
+                position = loc.position,
+                marker = {
+                    spawn_index = i,
+                    client_id = client_id
+                }
+            }
         end
     end
-    
-    print(string.format("[SPAWN_SYSTEM] No available spawns for client %d", client_id))
+    print(string.format("[SPAWN_SYSTEM] No available spawns for client %s", client_id))
     return nil
 end
 
@@ -109,7 +148,7 @@ function SpawnSystem.release_spawn(client_id)
     local idx = client_to_spawn[client_id]
     if idx and spawn_locations[idx] then
         spawn_locations[idx].occupied_by = nil
-        print(string.format("[SPAWN_SYSTEM] Client %d released spawn %d", client_id, idx))
+        print(string.format("[SPAWN_SYSTEM] Client %s released spawn %d", client_id, idx))
     end
     client_to_spawn[client_id] = nil
 end

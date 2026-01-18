@@ -6,7 +6,6 @@
 local NetRole = require("modules/net_role.lua")
 local NetGame = require("modules/net_game.lua")
 local NetSync = require("modules/net_sync.lua")
-local NetServer = require("modules/net_server.lua")
 local WorldBuilder = require("modules/world_builder.lua")
 local SpawnSystem = require("modules/spawn_system.lua")
 local PlayerController = require("modules/player_controller.lua")
@@ -79,6 +78,9 @@ local function spawn_player(client_id)
     player_entities[client_id] = { entity_id = entity_id, net_id = net_id }
     NetSync.register_entity(net_id, entity_id)
     
+    -- Mark this client as the owner - prevents NetSync from echoing spawn/updates back to them
+    NetSync.set_net_id_owner(net_id, client_id)
+    
     -- Send "your_character" message to THIS client so they know which entity is theirs
     register_system("PostUpdate", function(world)
         local json = require("modules/dkjson.lua")
@@ -105,7 +107,7 @@ local function despawn_player(client_id)
         local json = require("modules/dkjson.lua")
         local despawn_msg = json.encode({ type = "despawn", net_id = net_id })
         
-        -- Use a one-shot system to broadcast (world not available in callback)
+        -- Use a one-shot system to broadcast (woprld not available in callback)
         register_system("PostUpdate", function(world)
             print(string.format("[CONFLUX SERVER] Broadcasting despawn message: %s", despawn_msg))
             local clients = world:call_resource_method("RenetServer", "clients_id")
@@ -128,28 +130,39 @@ local function despawn_player(client_id)
 end
 
 --------------------------------------------------------------------------------
--- Host Game
+-- Host Game (deferred to first Update system)
 --------------------------------------------------------------------------------
 
-NetGame.host({
-    port = GAME_CONFIG.port,
-    max_players = GAME_CONFIG.max_players,
-    on_player_join = function(client_id)
-        spawn_player(client_id)
-    end,
-    on_player_leave = function(client_id)
-        despawn_player(client_id)
+local server_initialized = false
+
+register_system("Startup", function(world)
+    if not server_initialized then
+        NetGame.host(world, {
+            port = GAME_CONFIG.port,
+            max_players = GAME_CONFIG.max_players,
+            -- Game-specific network module (can be swapped for different games)
+            network_script = "scripts/server/Conflux/modules/networking.lua",
+            on_player_join = function(client_id)
+                spawn_player(client_id)
+            end,
+            on_player_leave = function(client_id)
+                despawn_player(client_id)
+            end
+        })
+        server_initialized = true
     end
-})
+    return true  -- Run once
+end)
 
 --------------------------------------------------------------------------------
 -- Server Update Systems
 --------------------------------------------------------------------------------
 
--- Process player inputs and update authoritative state
+-- Main networking and game logic update
 register_system("Update", function(world)
-    -- Update server networking
-    NetServer.update(world)
+    -- Update networking (NetGame routes to NetServer/NetClient based on role)
+    -- Spatial filtering handled automatically by loaded network module
+    NetGame.update(world)
     
     -- Process PlayerInput changes from clients
     local players = world:query({"NetworkSync", "PlayerInput", "Transform", "PlayerState"}, {"PlayerInput"})
@@ -160,9 +173,15 @@ register_system("Update", function(world)
         if sync and sync.net_id == NetSync.get_my_net_id() then
             goto continue
         end
-        
+
         local result = PlayerController.process_server_input(entity)
         if result then
+            -- Debug: log physics result
+            local result_pos = result.transform.translation
+            print(string.format("[SERVER PHYSICS] net_id=%d BEFORE=(%.2f,%.2f,%.2f) AFTER=(%.2f,%.2f,%.2f)",
+                sync.net_id, pre_pos.x, pre_pos.y, pre_pos.z,
+                result_pos.x, result_pos.y, result_pos.z))
+
             -- Use patch() to preserve model_path and other existing fields
             entity:patch({
                 Transform = result.transform,
@@ -172,15 +191,12 @@ register_system("Update", function(world)
                 }
             })
         end
-        
+
         ::continue::
     end
 end)
 
 -- Update animation states
 register_system("Update", CharacterSync.create_animation_system())
-
--- Outbound sync (send entity updates to clients)
-register_system("Update", NetGame.create_sync_outbound())
 
 print("[CONFLUX SERVER] Ready on port " .. GAME_CONFIG.port)

@@ -26,6 +26,7 @@ local is_vr_available = nil  -- Cached VR availability check
 local pending_spawn_hand = nil  -- "left" or "right" - which hand triggered the pending spawn
 local active_pointer_hand = "right"  -- Which hand is currently the pointer (opposite of spawn hand)
 
+
 -- Configuration
 local BASE_DISTANCE = 0.6  -- Base distance from HMD in meters
 local Z_INDEX_SCALE = 0.0003  -- How much closer per z-index point
@@ -431,6 +432,7 @@ register_system("Update", function(world)
 end)
 
 -- VR Pointer system (First schedule for PointerInput processing)
+local hands_registered = false  -- Track if hands are registered for network sync
 register_system("First", function(world)
     -- Skip if VR not available
     if not is_vr_available then

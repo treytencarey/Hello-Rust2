@@ -13,10 +13,12 @@
 -- -- VR UI support (auto-detects and wraps UI nodes as VR panels)
 -- require("modules/vr_ui.lua")
 
-require("scripts/Conflux/main.lua")
+-- require("scripts/examples/ufbx.lua")
 
-local FPS = require("modules/fps.lua")
-FPS.setup()
+require("scripts/Conflux2/main.lua")
+
+-- local FPS = require("modules/fps.lua")
+-- FPS.setup()
 
 -- require("scripts/examples/sidebar_example.lua")
 

@@ -72,6 +72,8 @@ function WorldBuilder.create_floor(config)
     local color = config.color or {r = 0.3, g = 0.8, b = 0.3, a = 1.0}
     
     local spawn_data = {
+        Mesh3d = { _0 = create_cuboid_mesh(size) },
+        ["MeshMaterial3d<StandardMaterial>"] = { _0 = create_material(color) },
         Transform = {
             translation = position,
             rotation = {x = 0, y = 0, z = 0, w = 1},
@@ -81,19 +83,10 @@ function WorldBuilder.create_floor(config)
         Collider = WorldBuilder.ColliderCuboid(size.x / 2, size.y / 2, size.z / 2)
     }
     
-    -- Add visuals only if we're a client (or offline for testing)
-    if NetRole.is_client() or NetRole.is_offline() then
-        local mesh = create_cuboid_mesh(size)
-        local material = create_material(color)
-        spawn_data.Mesh3d = { _0 = mesh }
-        spawn_data["MeshMaterial3d<StandardMaterial>"] = { _0 = material }
-    end
-    
     local entity_id = spawn(spawn_data)
-    print(string.format("[WORLD_BUILDER] Created floor at (%.1f, %.1f, %.1f) size (%.1f, %.1f, %.1f) visuals=%s",
+    print(string.format("[WORLD_BUILDER] Created floor at (%.1f, %.1f, %.1f) size (%.1f, %.1f, %.1f)",
         position.x, position.y, position.z,
-        size.x, size.y, size.z,
-        tostring(NetRole.is_client() or NetRole.is_offline())))
+        size.x, size.y, size.z))
     
     return entity_id
 end
@@ -112,6 +105,8 @@ function WorldBuilder.create_wall(config)
     local color = config.color or {r = 0.5, g = 0.5, b = 0.5, a = 1.0}
     
     local spawn_data = {
+        Mesh3d = { _0 = create_cuboid_mesh(size) },
+        ["MeshMaterial3d<StandardMaterial>"] = { _0 = create_material(color) },
         Transform = {
             translation = position,
             rotation = rotation,
@@ -120,14 +115,6 @@ function WorldBuilder.create_wall(config)
         RigidBody = "Fixed",
         Collider = WorldBuilder.ColliderCuboid(size.x / 2, size.y / 2, size.z / 2)
     }
-    
-    -- Add visuals only if we're a client (or offline for testing)
-    if NetRole.is_client() or NetRole.is_offline() then
-        local mesh = create_cuboid_mesh(size)
-        local material = create_material(color)
-        spawn_data.Mesh3d = { _0 = mesh }
-        spawn_data["MeshMaterial3d<StandardMaterial>"] = { _0 = material }
-    end
     
     local entity_id = spawn(spawn_data)
     print(string.format("[WORLD_BUILDER] Created wall at (%.1f, %.1f, %.1f)",

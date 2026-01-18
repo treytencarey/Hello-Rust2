@@ -37,11 +37,8 @@ end)
 register_system("First", function(world)
     if not main_panel.is_visible then return end
     
-    -- Get all visible panel surfaces for raycasting
-    local surfaces = VrPanel.get_all_surfaces()
-    
-    -- Update pointer with raycasting
-    VrPointer.update(world, surfaces)
+    -- Update VR pointer (auto-detects panels via VrPanelMarker)
+    VrPointer.update(world)
 end)
 
 print("=== VR UI Panel script loaded ===")

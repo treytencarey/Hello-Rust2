@@ -4,7 +4,7 @@
 
 print("=== Server Mode Started ===")
 
-require("scripts/server/Conflux/main.lua")
+require("scripts/server/Conflux2/main.lua")
 
 -- -- Load server networking module
 -- local NetServer = require("modules/net_server.lua")
