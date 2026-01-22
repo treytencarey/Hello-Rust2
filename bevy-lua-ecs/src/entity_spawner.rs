@@ -165,9 +165,12 @@ pub fn process_spawn_queue(
             entity.insert(lua_custom_components);
         }
 
-        // Tag entity with script ownership using the captured instance_id
+        // Tag entity with script ownership using the captured instance_id and spawn_phase
         if let Some(instance_id) = request.instance_id {
-            entity.insert(crate::script_entities::ScriptOwned { instance_id });
+            entity.insert(crate::script_entities::ScriptOwned { 
+                instance_id,
+                spawn_phase: request.spawn_phase.clone(),
+            });
         }
 
         // Set parent after all components are added

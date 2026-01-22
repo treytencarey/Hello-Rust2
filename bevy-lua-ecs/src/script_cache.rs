@@ -243,6 +243,7 @@ impl ScriptCache {
     /// Register a callback to be re-triggered on hot reload with parent context
     /// should_invoke_callback: if false, module will reload but callback won't be invoked
     /// state_id: the __LUA_STATE_ID__ to restore during hot reload (for instanced isolation)
+    /// NOTE: This REPLACES any existing callback for the same (path, parent_instance_id) to prevent accumulation
     pub fn register_hot_reload_callback(
         &self,
         path: String,
@@ -252,12 +253,16 @@ impl ScriptCache {
         state_id: usize,
     ) {
         let normalized_path = normalize_path(&path);
-        self.hot_reload_callbacks
-            .lock()
-            .unwrap()
-            .entry(normalized_path)
-            .or_insert_with(Vec::new)
-            .push((callback, parent_instance_id, should_invoke_callback, state_id));
+        let mut callbacks_map = self.hot_reload_callbacks.lock().unwrap();
+        
+        let callback_list = callbacks_map.entry(normalized_path).or_insert_with(Vec::new);
+        
+        // Remove any existing callback with the same parent_instance_id to prevent accumulation
+        // This is critical when scripts are hot-reloaded with reused instance_ids
+        callback_list.retain(|(_, existing_parent_id, _, _)| *existing_parent_id != parent_instance_id);
+        
+        // Now add the new callback
+        callback_list.push((callback, parent_instance_id, should_invoke_callback, state_id));
     }
 
     /// Get hot reload callbacks for a path with their parent instance IDs, invoke flags, and state_ids

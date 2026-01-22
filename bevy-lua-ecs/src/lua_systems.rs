@@ -196,7 +196,17 @@ pub fn run_lua_systems(world: &mut World) {
         if let Err(e) = lua_state.globals().set("__LUA_STATE_ID__", entry.state_id) {
             error!("Failed to set __LUA_STATE_ID__ for system: {}", e);
         }
+
+        // Set __INSTANCE_ID__ so spawn() can tag entities with ScriptOwned
+        if let Err(e) = lua_state.globals().set("__INSTANCE_ID__", entry.instance_id) {
+            error!("Failed to set __INSTANCE_ID__ for system: {}", e);
+        }
         
+        // Set __SPAWN_PHASE__ to "runtime" so entities spawned by systems persist across hot-reload
+        if let Err(e) = lua_state.globals().set("__SPAWN_PHASE__", "runtime") {
+            error!("Failed to set __SPAWN_PHASE__ for system: {}", e);
+        }
+
         // Time this system
         let timer = crate::lua_frame_budget::SystemTimer::start();
         

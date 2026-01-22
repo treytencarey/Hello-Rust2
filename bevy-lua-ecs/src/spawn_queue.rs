@@ -3,6 +3,8 @@ use mlua::prelude::*;
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 
+use crate::script_entities::SpawnPhase;
+
 /// Spawn request with component data and generic Lua components
 pub struct SpawnRequest {
     pub components: Vec<(String, LuaRegistryKey)>,
@@ -10,6 +12,8 @@ pub struct SpawnRequest {
     /// Parent temp_id (will be resolved to Entity during spawn processing)
     pub parent_temp_id: Option<u64>,
     pub instance_id: Option<u64>,
+    /// When the entity should be spawned relative to script lifecycle
+    pub spawn_phase: SpawnPhase,
     /// Temporary ID returned to Lua before actual entity is spawned
     pub temp_id: u64,
 }
@@ -65,6 +69,7 @@ impl SpawnQueue {
         components: Vec<(String, LuaRegistryKey)>,
         lua_components: Vec<(String, LuaRegistryKey)>,
         instance_id: Option<u64>,
+        spawn_phase: SpawnPhase,
         temp_id: u64,
     ) {
         let request = SpawnRequest {
@@ -72,6 +77,7 @@ impl SpawnQueue {
             lua_components,
             parent_temp_id: None,
             instance_id,
+            spawn_phase,
             temp_id,
         };
         self.queue.lock().unwrap().push(request);
@@ -84,6 +90,7 @@ impl SpawnQueue {
         components: Vec<(String, LuaRegistryKey)>,
         lua_components: Vec<(String, LuaRegistryKey)>,
         instance_id: Option<u64>,
+        spawn_phase: SpawnPhase,
         temp_id: u64,
     ) {
         let request = SpawnRequest {
@@ -91,6 +98,7 @@ impl SpawnQueue {
             lua_components,
             parent_temp_id: Some(parent_temp_id),
             instance_id,
+            spawn_phase,
             temp_id,
         };
         self.queue.lock().unwrap().push(request);

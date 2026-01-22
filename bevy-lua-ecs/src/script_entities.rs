@@ -4,10 +4,21 @@ use std::sync::{Arc, Mutex};
 
 static NEXT_INSTANCE_ID: AtomicU64 = AtomicU64::new(1);
 
+/// When the entity was spawned relative to script lifecycle
+/// Used to determine cleanup behavior during hot-reload
+#[derive(Clone, Debug, Default, PartialEq, Eq, Reflect)]
+pub enum SpawnPhase {
+    #[default]
+    Script,   // Spawned during script/module execution → respawn on reload
+    Runtime,  // Spawned by system/callback at runtime → preserve on reload
+}
+
 /// Component that tracks which script instance spawned an entity
-#[derive(Component, Clone, Debug)]
+#[derive(Component, Clone, Debug, bevy::prelude::Reflect)]
+#[reflect(Component)]
 pub struct ScriptOwned {
     pub instance_id: u64,
+    pub spawn_phase: SpawnPhase,
 }
 
 /// Resource that tracks the currently executing script instance
@@ -41,13 +52,17 @@ impl ScriptInstance {
 }
 
 /// Helper function to despawn all entities owned by a specific script instance
+/// Only despawns entities with SpawnPhase::Script (spawned during script execution)
+/// Entities with SpawnPhase::Runtime (spawned by systems at runtime) are preserved
 /// Returns the list of entities that will be despawned
 pub fn despawn_instance_entities(world: &mut World, instance_id: u64) -> Vec<Entity> {
     let mut entities_to_despawn = Vec::new();
 
     // Query for all entities with ScriptOwned component matching this instance
+    // Only despawn Script phase entities - Runtime phase entities persist across hot-reload
     for (entity, script_owned) in world.query::<(Entity, &ScriptOwned)>().iter(world) {
-        if script_owned.instance_id == instance_id {
+        if script_owned.instance_id == instance_id 
+           && script_owned.spawn_phase == SpawnPhase::Script {
             entities_to_despawn.push(entity);
         }
     }
@@ -61,13 +76,13 @@ pub fn despawn_instance_entities(world: &mut World, instance_id: u64) -> Vec<Ent
     for entity in &entities_to_despawn {
         despawn_queue.queue_despawn(*entity);
         debug!(
-            "Queued despawn for entity {:?} owned by instance {}",
+            "Queued despawn for entity {:?} owned by instance {} (Script phase)",
             entity, instance_id
         );
     }
 
     debug!(
-        "Queued {} entities from instance {} for despawn",
+        "Queued {} Script-phase entities from instance {} for despawn (Runtime entities preserved)",
         count, instance_id
     );
 

@@ -28,24 +28,34 @@ impl Default for ScriptRegistry {
 
 impl ScriptRegistry {
     /// Register a new script instance
+    /// If an instance with the same ID already exists for this path, it is updated.
     pub fn register_script(&self, path: PathBuf, instance_id: u64, content: String) {
         let mut scripts = self.scripts.lock().unwrap();
 
-        let info = ScriptInstanceInfo {
-            instance_id,
-            script_content: content,
-            stopped: false,
-        };
+        let list = scripts.entry(path.clone()).or_insert_with(Vec::new);
 
-        scripts
-            .entry(path.clone())
-            .or_insert_with(Vec::new)
-            .push(info);
-
-        debug!(
-            "Registered script instance {} for path {:?}",
-            instance_id, path
-        );
+        // Check for existing instance with same ID
+        if let Some(existing) = list.iter_mut().find(|info| info.instance_id == instance_id) {
+            // Update existing
+            existing.script_content = content;
+            existing.stopped = false;
+            debug!(
+                "Updated script instance {} for path {:?}",
+                instance_id, path
+            );
+        } else {
+            // Add new
+            let info = ScriptInstanceInfo {
+                instance_id,
+                script_content: content,
+                stopped: false,
+            };
+            list.push(info);
+            debug!(
+                "Registered script instance {} for path {:?}",
+                instance_id, path
+            );
+        }
     }
 
     /// Get all active (non-stopped) instance IDs for a given script path
