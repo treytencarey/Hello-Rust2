@@ -15,12 +15,15 @@
 
 -- require("scripts/examples/ufbx.lua")
 
-require("scripts/Conflux2/main.lua")
+-- require("scripts/Conflux2/main.lua")
 
 -- local FPS = require("modules/fps.lua")
 -- FPS.setup()
 
 -- require("scripts/examples/sidebar_example.lua")
+
+-- Test Net3 - Conflux3
+require("scripts/Conflux3/main.lua")
 
 -- -- Disable VSync for higher FPS
 -- local VSync = require("modules/VSync.lua")

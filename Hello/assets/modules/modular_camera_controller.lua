@@ -18,7 +18,7 @@
 
 local InputManager = require("modules/input_manager.lua")
 local NetRole = require("modules/net_role.lua")
-local NetSync = require("modules/net_sync.lua")
+local NetSync2 = require("modules/net_sync2.lua")
 
 local CameraController = {}
 
@@ -70,9 +70,31 @@ local last_sent_input = nil    -- Last PlayerInput values sent to network
 -- Reconciliation config
 local SNAP_THRESHOLD = 2.0     -- Snap to server if error exceeds this (increased to reduce snapping)
 local BLEND_FACTOR = 0.1       -- How fast to blend toward server position (reduced for smoother correction)
+local last_processed_ack_seq = nil  -- Track last reconciled ack_seq to avoid re-processing
 
 -- Server: cached movement modules per entity
 local movement_modules = {}    -- entity_id -> loaded module
+
+--------------------------------------------------------------------------------
+-- Debug Helpers
+--------------------------------------------------------------------------------
+
+-- Debug helper: count table entries
+local function count_table_entries(t)
+    local count = 0
+    for _ in pairs(t) do count = count + 1 end
+    return count
+end
+
+-- Debug helper: get prediction keys as sorted list
+local function get_prediction_keys()
+    local keys = {}
+    for k in pairs(predictions) do table.insert(keys, k) end
+    table.sort(keys)
+    local result = {}
+    for _, k in ipairs(keys) do table.insert(result, tostring(k)) end
+    return table.concat(result, ",")
+end
 
 --------------------------------------------------------------------------------
 -- Initialization
@@ -191,10 +213,6 @@ end
 --------------------------------------------------------------------------------
 
 function CameraController.create_camera()
-    if not (NetRole.is_client() or NetRole.is_offline()) then
-        return nil
-    end
-    
     local spawn_data = {
         [CameraController.MARKER] = {},
         Camera3d = {},
@@ -306,23 +324,22 @@ function CameraController.attach(world, player_entity_id)
     -- Create or use existing camera
     local entities = world:query({CameraController.MARKER})
     if #entities == 0 then
-        CameraController.create_camera()
+        camera_entity_id = CameraController.create_camera()
     else
         camera_entity_id = entities[1]:id()
     end
     
     -- Call camera module's on_attach if it has one
     local camera_module = CameraController.config.camera
-    if camera_module and camera_module.on_attach then
+    if camera_module and camera_module.on_attach and camera_entity_id then
         local new_state = camera_module.on_attach(world, camera_entity_id, target_entity_id)
         if new_state then
             if new_state.yaw then yaw = new_state.yaw end
             if new_state.pitch then pitch = new_state.pitch end
-            print(string.format("[MODULAR_CAMERA] Updated state from module: yaw=%.2f, pitch=%.2f", yaw, pitch))
         end
+        return true
     end
-    
-    print(string.format("[MODULAR_CAMERA] Attached to entity %d", player_entity_id))
+    return false
 end
 
 function CameraController.detach()
@@ -389,10 +406,6 @@ local function process_server_players(world, dt)
             goto continue_player
         end
 
-        -- Debug: log server processing
-        print(string.format("[SERVER] Processing player entity_id=%s pos=(%.2f,%.2f,%.2f)",
-            tostring(entity:id()), new_pos.x, new_pos.y, new_pos.z))
-
         -- Apply authoritatively using :set() to trigger ECS change detection
         local transform = entity:get("Transform")
         entity:set({
@@ -412,25 +425,47 @@ local function process_server_players(world, dt)
             }
         })
 
-        -- Debug: verify set applied
-        local verify_transform = entity:get("Transform")
-        print(string.format("[SERVER] After set: pos=(%.2f,%.2f,%.2f)",
-            verify_transform.translation.x, verify_transform.translation.y, verify_transform.translation.z))
-
         ::continue_player::
     end
 end
 
 --- Handle reconciliation with server authoritative state using sequence-based prediction
 local function reconcile(world, entity, movement_module, move_config)
-    local server_state = NetSync.get_server_authoritative_state()
-    if not server_state or not server_state.position then return end
+    -- Get PredictionState from component (NetSync2 component-based approach)
+    local pred = entity:get(NetSync2.PREDICTION)
+    if not pred or not pred.server_state then
+        -- No server state to reconcile (normal when no updates received)
+        return
+    end
 
-    -- Get the acknowledged sequence from server
+    local server_state = pred.server_state
+    if not server_state.position then
+        print(string.format("[DEBUG:MCC] Entity %d has server_state but no position", entity:id()))
+        return
+    end
+
     local entity_id = entity:id()
-    local ack_seq = NetSync.get_last_acked_sequence(entity_id)
+    local ack_seq = pred.last_acked_sequence
+    local transform = entity:get("Transform")
+    local current_pos = transform and transform.translation or {x=0, y=0, z=0}
+
+    -- DEBUG: Show reconciliation state
+    print(string.format("[DEBUG:MCC] Entity %d ack_seq=%s preds=%d current=(%.2f,%.2f,%.2f) server=(%.2f,%.2f,%.2f)",
+        entity_id, tostring(ack_seq), count_table_entries(predictions),
+        current_pos.x, current_pos.y, current_pos.z,
+        server_state.position.x, server_state.position.y, server_state.position.z))
+
     if not ack_seq then
-        NetSync.clear_server_authoritative_state()
+        -- No ack_seq means server didn't acknowledge any sequence yet
+        print(string.format("[DEBUG:MCC] Entity %d NO ack_seq - server bug? Clearing server_state", entity_id))
+        entity:patch({ [NetSync2.PREDICTION] = { server_state = nil } })
+        return
+    end
+
+    -- Skip if we've already reconciled this ack_seq (server sends same ack_seq with each position update)
+    if last_processed_ack_seq and ack_seq <= last_processed_ack_seq then
+        -- Server hasn't processed new input yet, just clear the server_state
+        entity:patch({ [NetSync2.PREDICTION] = { server_state = nil } })
         return
     end
 
@@ -438,7 +473,8 @@ local function reconcile(world, entity, movement_module, move_config)
     local acked_prediction = predictions[ack_seq]
     if not acked_prediction then
         -- No matching prediction (too old), just clear
-        NetSync.clear_server_authoritative_state()
+        print(string.format("[DEBUG:MCC] Entity %d ack_seq=%d not found in local predictions", entity_id, ack_seq))
+        entity:patch({ [NetSync2.PREDICTION] = { server_state = nil } })
         return
     end
 
@@ -449,6 +485,10 @@ local function reconcile(world, entity, movement_module, move_config)
     local dy = pp.y - sp.y
     local dz = pp.z - sp.z
     local error_dist = math.sqrt(dx*dx + dy*dy + dz*dz)
+
+    -- DEBUG: Show prediction comparison
+    print(string.format("[DEBUG:MCC:COMPARE] seq=%d server=(%.2f,%.2f,%.2f) predicted=(%.2f,%.2f,%.2f) error=%.2f",
+        ack_seq, sp.x, sp.y, sp.z, pp.x, pp.y, pp.z, error_dist))
 
     if error_dist > SNAP_THRESHOLD then
         -- Significant misprediction: correct and replay
@@ -467,20 +507,28 @@ local function reconcile(world, entity, movement_module, move_config)
         end
         table.sort(sequences_to_replay)
 
+        print(string.format("[DEBUG:MCC:REPLAY] Starting replay from server pos (%.2f,%.2f,%.2f), replaying %d frames",
+            corrected_pos.x, corrected_pos.y, corrected_pos.z, #sequences_to_replay))
+
         for _, seq in ipairs(sequences_to_replay) do
-            local pred = predictions[seq]
-            if pred and movement_module and movement_module.calculate_physics then
-                local dt = world:delta_time()  -- Approximate dt for replay
+            local pred_data = predictions[seq]
+            if pred_data and movement_module and movement_module.calculate_physics then
+                -- Use stored dt from prediction, fallback to current dt
+                local replay_dt = pred_data.dt or world:delta_time()
+                local prev_pos = corrected_pos
                 corrected_pos, corrected_vel = movement_module.calculate_physics(
                     corrected_pos, corrected_vel,
-                    pred.move_dir, pred.input, dt,
-                    pred.is_grounded, move_config
+                    pred_data.move_dir, pred_data.input, replay_dt,
+                    pred_data.is_grounded, move_config
                 )
                 -- Update the prediction with corrected values
-                pred.position = corrected_pos
-                pred.velocity = corrected_vel
+                pred_data.position = corrected_pos
+                pred_data.velocity = corrected_vel
             end
         end
+
+        print(string.format("[DEBUG:MCC:REPLAY] After replay: pos (%.2f,%.2f,%.2f)",
+            corrected_pos.x, corrected_pos.y, corrected_pos.z))
 
         -- Apply corrected position
         local transform = entity:get("Transform")
@@ -506,8 +554,12 @@ local function reconcile(world, entity, movement_module, move_config)
         end
     end
 
-    -- Clear after processing
-    NetSync.clear_server_authoritative_state()
+    -- Mark this ack_seq as processed so we don't reconcile it again
+    last_processed_ack_seq = ack_seq
+    print(string.format("[DEBUG:MCC] Reconciled ack_seq=%d, now tracking as last_processed", ack_seq))
+
+    -- Clear server state after processing via component patch
+    entity:patch({ [NetSync2.PREDICTION] = { server_state = nil } })
 end
 
 --- Update camera position, player movement (prediction), and server processing
@@ -529,11 +581,15 @@ function CameraController.update(world)
     
     -- SERVER: Process all player inputs
     if NetRole.is_server() then
+        -- DEBUG: Track server frame rate
+        print(string.format("[DEBUG:DT:SERVER] dt=%.4f fps=%.1f", dt, 1.0/dt))
         process_server_players(world, dt)
     end
-    
+
     -- CLIENT/OFFLINE: Camera positioning and player prediction
     if (NetRole.is_client() or NetRole.is_offline()) and target_entity_id and camera_entity_id then
+        -- DEBUG: Track client frame rate (only log occasionally to reduce spam)
+        -- print(string.format("[DEBUG:DT:CLIENT] dt=%.4f fps=%.1f", dt, 1.0/dt))
         -- Check for VR
         is_vr = detect_vr(world)
         if is_vr then return end
@@ -640,10 +696,16 @@ function CameraController.update(world)
         -- Only update Transform/PlayerState and store predictions when actually moving
         local is_moving = math.abs(move_dir.x) > 0.001 or math.abs(move_dir.z) > 0.001 or input.jump
         if is_moving then
-            -- Get sequence number from NetSync (will be incremented when sending)
-            local seq = NetSync.get_current_sequence(target_entity_id) + 1
+            -- Get sequence number from PredictionState component
+            local pred_state = target:get(NetSync2.PREDICTION)
+            local seq = (pred_state and pred_state.current_sequence or 0) + 1
 
-            -- Store prediction with all data needed for replay
+            -- Update the sequence in the component
+            if pred_state then
+                target:patch({ [NetSync2.PREDICTION] = { current_sequence = seq } })
+            end
+
+            -- Store prediction with all data needed for replay (including dt!)
             predictions[seq] = {
                 position = new_pos,
                 velocity = new_velocity,
@@ -654,8 +716,13 @@ function CameraController.update(world)
                     forward = input.forward,
                     right = input.right
                 },
-                is_grounded = is_grounded
+                is_grounded = is_grounded,
+                dt = dt  -- Store the delta time used for this prediction
             }
+
+            -- DEBUG: Track prediction storage
+            print(string.format("[DEBUG:CLIENT:SEQ] Entity %d seq=%d pos=(%.2f,%.2f,%.2f) dt=%.4f",
+                target:id(), seq, new_pos.x, new_pos.y, new_pos.z, dt))
 
             -- Apply Transform immediately using call_component_method (same frame as camera)
             world:call_component_method(
