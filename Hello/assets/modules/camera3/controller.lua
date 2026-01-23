@@ -14,55 +14,43 @@ local CameraController = {}
 -- State (using resources for hot-reload safety)
 --------------------------------------------------------------------------------
 
-local function get_state()
-    return define_resource("CameraControllerState", {
-        camera_entity_id = nil,
-        target_entity_id = nil,
-        mode = "third_person",  -- "third_person" | "first_person"
-        input_mode = "game",  -- "game" | "ui"
-        
-        -- Camera angles
-        yaw = 0,
-        pitch = 0,
-        
-        -- Distance (third person)
-        distance = 4.0,
-        target_distance = 4.0,
-        min_distance = 2.0,
-        max_distance = 50.0,
-        
-        -- Sensitivity
-        mouse_sensitivity = 0.003,
-        zoom_speed = 2.0,
-        
-        -- Smoothing
-        position_lerp = 100.0,
-        rotation_lerp = 100.0,
-        zoom_lerp = 20.0,
-        
-        -- Offset from target
-        offset = { x = 1.0, y = 1.2, z = 0 },
-        
-        -- Input prediction
-        predictions = {},
-        current_sequence = 0,
-        last_sent_input = nil,
-        
-        -- Flags
-        enabled = true,
-        attached = false,
-    })
-end
-
---- Get prediction state resource
-local function get_prediction_state()
-    return define_resource("CameraPredictionState", {
-        predictions = {},      -- sequence -> { input, position, rotation }
-        current_sequence = 0,
-        last_acked_sequence = nil,
-        server_state = nil,
-    })
-end
+local state = define_resource("CameraControllerState", {
+    camera_entity_id = nil,
+    target_entity_id = nil,
+    mode = "third_person",  -- "third_person" | "first_person"
+    input_mode = "game",  -- "game" | "ui"
+    
+    -- Camera angles
+    yaw = 0,
+    pitch = 0,
+    
+    -- Distance (third person)
+    distance = 4.0,
+    target_distance = 4.0,
+    min_distance = 2.0,
+    max_distance = 50.0,
+    
+    -- Sensitivity
+    mouse_sensitivity = 0.003,
+    zoom_speed = 2.0,
+    
+    -- Smoothing
+    position_lerp = 100.0,
+    rotation_lerp = 100.0,
+    zoom_lerp = 20.0,
+    
+    -- Offset from target
+    offset = { x = 1.0, y = 1.2, z = 0 },
+    
+    -- Input prediction
+    predictions = {},
+    current_sequence = 0,
+    last_sent_input = nil,
+    
+    -- Flags
+    enabled = true,
+    attached = false,
+})
 
 --------------------------------------------------------------------------------
 -- Initialization
@@ -72,7 +60,6 @@ end
 --- @param world userdata
 --- @return number The camera entity ID
 function CameraController.ensure_camera(world)
-    local state = get_state()
     
     if state.camera_entity_id then
         local entity = world:get_entity(state.camera_entity_id)
@@ -101,8 +88,6 @@ end
 --- @param world userdata
 --- @param target_entity_id number
 function CameraController.attach(world, target_entity_id)
-    local state = get_state()
-    
     local camera_id = CameraController.ensure_camera(world)
     state.target_entity_id = target_entity_id
     state.attached = true
@@ -147,7 +132,6 @@ end
 
 --- Detach camera from target
 function CameraController.detach()
-    local state = get_state()
     state.target_entity_id = nil
     state.attached = false
     
@@ -162,7 +146,6 @@ end
 --- @param world userdata
 --- @param mode string "game" | "ui"
 function CameraController.set_input_mode(world, mode)
-    local state = get_state()
     if not state.enabled then return end
     
     state.input_mode = mode
@@ -191,13 +174,12 @@ end
 --- Handle mouse movement for camera rotation
 --- @param world userdata
 function CameraController.handle_mouse_move(world)
-    local state = get_state()
     if not state.enabled then return end
     
     local motion_events = world:read_events("MouseMotion")
     for _, event in ipairs(motion_events) do
         if event.delta then
-            local dx, dy = event.delta[1], event.delta[2]
+            local dx, dy = event.delta.x, event.delta.y
             state.yaw = state.yaw - dx * state.mouse_sensitivity
             state.pitch = math.max(-1.4, math.min(1.4, state.pitch + dy * state.mouse_sensitivity))
         end
@@ -207,7 +189,6 @@ end
 --- Handle scroll for zoom
 --- @param world userdata
 function CameraController.handle_scroll(world)
-    local state = get_state()
     if not state.enabled or state.mode ~= "third_person" then return end
     
     local wheel_events = world:read_events("MouseWheel")
@@ -223,10 +204,10 @@ end
 -- Update System
 --------------------------------------------------------------------------------
 
+
 --- Camera update system - handles positioning and smooth following
 --- @param world userdata
 function CameraController.update_system(world)
-    local state = get_state()
     local dt = world:delta_time()
 
     if not state.attached or not state.target_entity_id then
@@ -318,19 +299,19 @@ print("[CAMERA3] System registered")
 -- Accessors
 --------------------------------------------------------------------------------
 
-function CameraController.get_yaw() return get_state().yaw end
-function CameraController.get_pitch() return get_state().pitch end
-function CameraController.get_distance() return get_state().distance end
-function CameraController.get_camera_id() return get_state().camera_entity_id end
-function CameraController.get_target_id() return get_state().target_entity_id end
-function CameraController.is_attached() return get_state().attached end
+function CameraController.get_yaw() return state.yaw end
+function CameraController.get_pitch() return state.pitch end
+function CameraController.get_distance() return state.distance end
+function CameraController.get_camera_id() return state.camera_entity_id end
+function CameraController.get_target_id() return state.target_entity_id end
+function CameraController.is_attached() return state.attached end
 
 function CameraController.set_enabled(enabled)
-    get_state().enabled = enabled
+    state.enabled = enabled
 end
 
 function CameraController.set_mode(mode)
-    get_state().mode = mode
+    state.mode = mode
 end
 
 return CameraController

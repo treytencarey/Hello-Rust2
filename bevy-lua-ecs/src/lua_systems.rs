@@ -17,6 +17,7 @@ pub struct LuaSystemEntry {
     pub instance_id: u64,
     pub system_key: Arc<LuaRegistryKey>,
     pub last_run: u32,  // Per-system tick for change detection
+    pub last_run_real_time: std::time::Instant, // Real time for delta_time calculation
     pub state_id: usize,  // Which Lua state this system belongs to (0=primary, >=1=instanced)
 }
 
@@ -46,6 +47,7 @@ impl LuaSystemRegistry {
             instance_id,
             system_key,
             last_run: 0,
+            last_run_real_time: std::time::Instant::now(),
             state_id,
         });
     }
@@ -174,8 +176,8 @@ pub fn run_lua_systems(world: &mut World) {
     // Track how many systems we've run this frame
     let mut systems_run = 0;
     
-    // Track which system indices need their ticks updated (index -> new_tick)
-    let mut systems_to_update: Vec<(usize, u32)> = Vec::new();
+    // Track which system indices need their ticks updated (index -> new_tick, new_real_time)
+    let mut systems_to_update: Vec<(usize, u32, std::time::Instant)> = Vec::new();
     
     // Track systems that should be removed (one-shot systems that returned true)
     let mut systems_to_remove: Vec<usize> = Vec::new();
@@ -185,26 +187,34 @@ pub fn run_lua_systems(world: &mut World) {
         let actual_index = (start_index + i) % total_systems;
         let entry = &systems[actual_index];
         
-        // Get this system's own last_run tick (per-system, not per-instance!)
+        // Get this system's own last_run tracking
         let last_run_for_system = entry.last_run;
+        let last_run_real_time = entry.last_run_real_time;
         
         // Get the correct Lua state for this system (instanced systems use different states)
         let lua_state = lua_ctx.get_lua_state(entry.state_id);
         
-        // Set __LUA_STATE_ID__ global so system code sees the correct state_id
-        // This is critical for instanced systems to maintain isolation
-        if let Err(e) = lua_state.globals().set("__LUA_STATE_ID__", entry.state_id) {
-            error!("Failed to set __LUA_STATE_ID__ for system: {}", e);
+        // Set __LUA_STATE_ID__ global only if it changed
+        // This reduces overhead for multiple systems in the same state
+        let current_state_id: Option<usize> = lua_state.globals().get("__LUA_STATE_ID__").ok();
+        if current_state_id != Some(entry.state_id) {
+            if let Err(e) = lua_state.globals().set("__LUA_STATE_ID__", entry.state_id) {
+                error!("Failed to set __LUA_STATE_ID__: {}", e);
+            }
         }
 
-        // Set __INSTANCE_ID__ so spawn() can tag entities with ScriptOwned
-        if let Err(e) = lua_state.globals().set("__INSTANCE_ID__", entry.instance_id) {
-            error!("Failed to set __INSTANCE_ID__ for system: {}", e);
+        let current_instance_id: Option<u64> = lua_state.globals().get("__INSTANCE_ID__").ok();
+        if current_instance_id != Some(entry.instance_id) {
+            if let Err(e) = lua_state.globals().set("__INSTANCE_ID__", entry.instance_id) {
+                error!("Failed to set __INSTANCE_ID__: {}", e);
+            }
         }
         
-        // Set __SPAWN_PHASE__ to "runtime" so entities spawned by systems persist across hot-reload
-        if let Err(e) = lua_state.globals().set("__SPAWN_PHASE__", "runtime") {
-            error!("Failed to set __SPAWN_PHASE__ for system: {}", e);
+        let current_phase: Option<String> = lua_state.globals().get("__SPAWN_PHASE__").ok();
+        if current_phase != Some("runtime".to_string()) {
+            if let Err(e) = lua_state.globals().set("__SPAWN_PHASE__", "runtime") {
+                error!("Failed to set __SPAWN_PHASE__: {}", e);
+            }
         }
 
         // Time this system
@@ -223,6 +233,7 @@ pub fn run_lua_systems(world: &mut World) {
             &despawn_queue,
             &pending_messages,
             last_run_for_system,
+            last_run_real_time,
             this_run,
             query_cache.as_ref(),
             current_frame,
@@ -238,20 +249,20 @@ pub fn run_lua_systems(world: &mut World) {
             }
         }
         
-        // Mark this system for tick update (updated immediately after it runs)
-        systems_to_update.push((actual_index, this_run));
+        // Mark this system for update (updated immediately after it runs)
+        systems_to_update.push((actual_index, this_run, std::time::Instant::now()));
         
         // Record elapsed time and check budget
         let elapsed = timer.elapsed();
         
-        // Log slow systems (>1ms)
-        if elapsed.as_millis() >= 1 {
+        // Log slow systems (>2ms) at INFO level for user visibility
+        if elapsed.as_millis() >= 2 {
             let script_path = script_registry
                 .get_instance_path(entry.instance_id)
                 .map(|p| p.display().to_string())
                 .unwrap_or_else(|| "unknown".to_string());
             debug!(
-                "[LUA_SYSTEM] instance={} script={} took {:?}",
+                "[LUA_PERF] 🐢 slow system: instance={} script={} took {:?}",
                 entry.instance_id, script_path, elapsed
             );
         }
@@ -265,11 +276,21 @@ pub fn run_lua_systems(world: &mut World) {
         if !progress.record_time(elapsed, &frame_budget) {
             // Budget exceeded - remaining systems deferred to next frame
             debug!(
-                "[LUA_BUDGET] Budget exceeded after {} of {} systems ({:?} total)",
-                systems_run, total_systems, progress.time_this_frame()
+                "[LUA_PERF] 🚥 Budget exceeded ({:?}ms): ran {} of {} systems. Deferred {} systems.",
+                frame_budget.max_seconds * 1000.0,
+                systems_run, total_systems, total_systems - systems_run
             );
             break;
         }
+    }
+    
+    // Log total execution time if significant (>4ms)
+    let total_time = progress.time_this_frame();
+    if total_time.as_millis() >= 4 {
+        debug!(
+            "[LUA_PERF] 📊 Total Lua frame time: {:?} (systems run: {})",
+            total_time, systems_run
+        );
     }
     
     // Update ticks for systems that ran (per-SYSTEM, not per-instance!)
@@ -278,10 +299,11 @@ pub fn run_lua_systems(world: &mut World) {
     {
         let mut systems_lock = registry.update_systems.lock().unwrap();
         
-        // First, update ticks
-        for (idx, new_tick) in &systems_to_update {
+        // First, update state
+        for (idx, new_tick, new_real_time) in &systems_to_update {
             if *idx < systems_lock.len() {
                 systems_lock[*idx].last_run = *new_tick;
+                systems_lock[*idx].last_run_real_time = *new_real_time;
             }
         }
         
@@ -1254,6 +1276,7 @@ pub fn run_single_lua_system_fast<'w>(
     despawn_queue: &crate::despawn_queue::DespawnQueue,
     pending_messages: &crate::event_sender::PendingLuaMessages,
     last_run: u32,
+    last_run_real_time: std::time::Instant,
     this_run: u32,
     query_cache: Option<&crate::query_cache::LuaQueryCache>,
     current_frame: u64,
@@ -1286,6 +1309,7 @@ pub fn run_single_lua_system_fast<'w>(
             despawn_queue.clone(),
             pending_messages.clone(),
             last_run,
+            last_run_real_time,
             this_run,
             query_cache.cloned(),
             current_frame,

@@ -16,28 +16,25 @@ local NetGame3 = {}
 -- State (using resources for hot-reload safety)
 --------------------------------------------------------------------------------
 
-local function get_state()
-    return define_resource("NetGame3State", {
-        mode = nil,         -- "server" | "client" | nil
-        server_port = nil,
-        client_ip = nil,
-        client_port = nil,
-        on_game_ready = nil,
-        on_connected = nil,
-        on_player_joined = nil,
-        on_player_left = nil,
-        initialized = false,
-        connected = false,           -- Client: connected to server
-        connected_clients = {},      -- client_id -> true (tracked for connection diff)
-    })
-end
+local state = define_resource("NetGame3State", {
+    mode = nil,         -- "server" | "client" | nil
+    server_port = nil,
+    client_ip = nil,
+    client_port = nil,
+    on_game_ready = nil,
+    on_connected = nil,
+    on_player_joined = nil,
+    on_player_left = nil,
+    initialized = false,
+    connected = false,           -- Client: connected to server
+    connected_clients = {},      -- client_id -> true (tracked for connection diff)
+})
 
 --------------------------------------------------------------------------------
 -- Connection Handlers (internal)
 --------------------------------------------------------------------------------
 
 local function on_client_connected(client_id, world)
-    local state = get_state()
     NetSync3.on_client_connected(client_id, world)
     if state.on_player_joined then
         state.on_player_joined(client_id, world)
@@ -45,7 +42,6 @@ local function on_client_connected(client_id, world)
 end
 
 local function on_client_disconnected(client_id, world, get_clients)
-    local state = get_state()
     NetSync3.on_client_disconnected(client_id, world, get_clients)
     if state.on_player_left then
         state.on_player_left(client_id, world)
@@ -61,7 +57,6 @@ end
 --- @param callbacks table { on_game_ready, on_player_joined, on_player_left }
 function NetGame3.host(port, callbacks)
     callbacks = callbacks or {}
-    local state = get_state()
     
     if state.initialized then
         print("[NET_GAME3] Already initialized")
@@ -115,7 +110,6 @@ end
 --- @param callbacks table { on_connected, on_disconnected }
 function NetGame3.join(ip, port, callbacks)
     callbacks = callbacks or {}
-    local state = get_state()
     
     if state.initialized then
         print("[NET_GAME3] Already initialized")
@@ -153,25 +147,25 @@ end
 --- Check if hosting
 --- @return boolean
 function NetGame3.is_hosting()
-    return get_state().mode == "server"
+    return state.mode == "server"
 end
 
 --- Check if connected as client
 --- @return boolean
 function NetGame3.is_client()
-    return get_state().mode == "client"
+    return state.mode == "client"
 end
 
 --- Get current mode
 --- @return string|nil "server" | "client" | nil
 function NetGame3.get_mode()
-    return get_state().mode
+    return state.mode
 end
 
 --- Check if fully initialized
 --- @return boolean
 function NetGame3.is_initialized()
-    return get_state().initialized
+    return state.initialized
 end
 
 --- Get my client ID
@@ -186,7 +180,6 @@ end
 
 -- Server: Connection monitoring system
 register_system("Update", function(world)
-    local state = get_state()
     if state.mode ~= "server" then return end
     
     -- Guard: ensure RenetServer resource exists
@@ -219,7 +212,6 @@ end)
 
 -- Client: Connection detection system
 register_system("Update", function(world)
-    local state = get_state()
     if state.mode ~= "client" then return end
     if state.connected then return end
     

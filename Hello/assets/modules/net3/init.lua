@@ -18,6 +18,8 @@ local Client = require("modules/net3/client.lua", { instanced = true })
 
 local NetSync3 = {}
 
+local state = State.get()
+
 --------------------------------------------------------------------------------
 -- Exports
 --------------------------------------------------------------------------------
@@ -94,8 +96,6 @@ NetSync3.handle_client_id = Inbound.handle_client_id
 --- @param get_clients function Returns list of connected client IDs
 --- @param filter_clients function|nil Optional filter for target clients
 function NetSync3.init_server(get_clients, filter_clients)
-    local state = State.get()
-    
     if state.initialized then
         print("[NET3] Already initialized")
         return
@@ -117,8 +117,6 @@ end
 
 --- Initialize NetSync3 in client mode (sets state, systems auto-register)
 function NetSync3.init_client()
-    local state = State.get()
-    
     if state.initialized then
         print("[NET3] Already initialized")
         return
@@ -165,7 +163,6 @@ end
 
 -- Outbound system: detect changes, spawn NetSyncOutbound entities
 register_system("Update", function(world)
-    local state = State.get()
     if not state.initialized then return end
     
     local context = {
@@ -178,7 +175,6 @@ end)
 
 -- Server receive system: get messages from clients
 register_system("Update", function(world)
-    local state = State.get()
     if state.mode ~= "server" then return end
     
     Server.receive_system(world, state.get_clients)
@@ -186,7 +182,6 @@ end)
 
 -- Client receive system: get messages from server
 register_system("Update", function(world)
-    local state = State.get()
     if state.mode ~= "client" then return end
     
     Client.receive_system(world)
@@ -194,7 +189,6 @@ end)
 
 -- Inbound system: process NetSyncInbound entities
 register_system("Update", function(world)
-    local state = State.get()
     if not state.initialized then return end
     
     Inbound.system(world)
@@ -202,7 +196,6 @@ end)
 
 -- Client prediction system: reconcile own entity with server state
 register_system("Update", function(world)
-    local state = State.get()
     if state.mode ~= "client" then return end
     
     Prediction.system(world)
@@ -210,7 +203,6 @@ end)
 
 -- Client interpolation system: smooth movement for remote entities
 register_system("Update", function(world)
-    local state = State.get()
     if state.mode ~= "client" then return end
     
     Interpolation.system(world)
@@ -218,7 +210,6 @@ end)
 
 -- Server send system: process NetSyncOutbound, send to clients
 register_system("Update", function(world)
-    local state = State.get()
     if state.mode ~= "server" then return end
     
     Server.send_system(world)
@@ -226,7 +217,6 @@ end)
 
 -- Client send system: process NetSyncOutbound, send to server
 register_system("Update", function(world)
-    local state = State.get()
     if state.mode ~= "client" then return end
     
     Client.send_system(world)

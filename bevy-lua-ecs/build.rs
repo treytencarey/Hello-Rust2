@@ -786,11 +786,13 @@ impl SourceScanner {
             .unwrap_or_default();
         
         if cargo_home.is_empty() {
+            println!("cargo:warning=[SCAN_CARGO] ⚠ Cannot find CARGO_HOME");
             return results;
         }
         
         let registry_src = PathBuf::from(&cargo_home).join("registry").join("src");
         if !registry_src.exists() {
+            println!("cargo:warning=[SCAN_CARGO] ⚠ Registry source not found at {:?}", registry_src);
             return results;
         }
         
@@ -805,22 +807,33 @@ impl SourceScanner {
                 if !crate_dir.is_dir() { continue; }
                 
                 let crate_name = crate_dir.file_name().and_then(|n| n.to_str()).unwrap_or("");
-                if !crate_name.starts_with(crate_prefix) { continue; }
                 
+                // Match crate name with version suffix (e.g., "bevy_window-0.15.0")
+                if !crate_name.starts_with(crate_prefix) || !crate_name[crate_prefix.len()..].starts_with('-') {
+                    continue;
+                }
+
                 // Scan specified files
                 for file_name in files {
                     let source_file = crate_dir.join("src").join(file_name);
-                    if !source_file.exists() { continue; }
-                    
-                    if let Ok(source) = fs::read_to_string(&source_file) {
-                        results.extend(self.parse_source_for_derives(
-                            &source, 
-                            derive_name, 
-                            crate_prefix, 
-                            file_name.trim_end_matches(".rs"),
-                            true, // is_bevy_crate
-                        ));
+                    if source_file.exists() {
+                        if let Ok(source) = fs::read_to_string(&source_file) {
+                            let module_name = file_name.trim_end_matches(".rs");
+                            let file_results = self.parse_source_for_derives(
+                                &source, 
+                                derive_name, 
+                                crate_prefix, 
+                                module_name, 
+                                true, // is_bevy_crate
+                            );
+                            results.extend(file_results);
+                        }
                     }
+                }
+                
+                // Found the crate, stop searching (avoid duplicates from multiple versions)
+                if !results.is_empty() {
+                    return results;
                 }
             }
         }
@@ -5461,36 +5474,24 @@ fn discover_bevy_messages(parent_src_dir: Option<&Path>, parent_crate_name: Opti
 
 /// Discover Bevy Event types by scanning bevy_window and bevy_input crates
 fn discover_bevy_events() -> Vec<BevyEventSpec> {
-    let mut events = Vec::new();
-
-    // Find cargo home
-    let cargo_home = env::var("CARGO_HOME")
-        .or_else(|_| env::var("HOME").map(|h| format!("{}/.cargo", h)))
-        .or_else(|_| env::var("USERPROFILE").map(|h| format!("{}/.cargo", h)))
-        .unwrap_or_else(|_| String::new());
-
-    if cargo_home.is_empty() {
-        println!("cargo:warning=  ⚠ Cannot find CARGO_HOME for event discovery");
-        return events;
-    }
-
-    let registry_src = PathBuf::from(&cargo_home).join("registry").join("src");
-
-    if !registry_src.exists() {
-        println!("cargo:warning=  ⚠ Registry source not found for event discovery");
-        return events;
-    }
-
-    // Crates to scan for Event derives
-    let crates_to_scan = [
-        ("bevy_window", vec!["event.rs", "cursor.rs"]),
-        ("bevy_input", vec!["keyboard.rs", "mouse.rs"]),
-        ("bevy_picking", vec!["pointer.rs"]), // For PointerInput
-    ];
-
-    for (crate_prefix, files) in &crates_to_scan {
-        events.extend(scan_crate_for_events(&registry_src, crate_prefix, files));
-    }
+    let mut scanner = SourceScanner::new();
+    
+    // Add Bevy crates that contain Event types
+    scanner.add_cargo_crate("bevy_window", vec!["event.rs", "cursor.rs", "window.rs"]);
+    scanner.add_cargo_crate("bevy_input", vec!["keyboard.rs", "mouse.rs", "touch.rs", "gamepad.rs"]);
+    scanner.add_cargo_crate("bevy_picking", vec!["pointer.rs"]);
+    
+    // Scan for types with #[derive(Message)] - Bevy 0.17+ unified Events and Messages
+    let discovered = scanner.scan_for_derives("Message");
+    
+    // Convert to BevyEventSpec
+    let events: Vec<BevyEventSpec> = discovered.into_iter().map(|d| {
+        BevyEventSpec {
+            type_name: d.type_name,
+            full_path: d.full_path,
+            crate_name: d.crate_name,
+        }
+    }).collect();
 
     println!(
         "cargo:warning=  ✓ Discovered {} Bevy Event types for Lua read_events()",
@@ -5690,125 +5691,6 @@ fn extract_short_name(type_str: &str) -> String {
     }
 }
 
-/// Scan a specific crate for Event types (types with #[derive(Event)])
-fn scan_crate_for_events(
-    registry_src: &Path,
-    crate_prefix: &str,
-    files: &[&str],
-) -> Vec<BevyEventSpec> {
-    let mut events = Vec::new();
-
-    // Iterate through registry index directories
-    'outer: for index_entry in fs::read_dir(registry_src).into_iter().flatten().flatten() {
-        let index_dir = index_entry.path();
-        if !index_dir.is_dir() {
-            continue;
-        }
-
-        for crate_entry in fs::read_dir(&index_dir).into_iter().flatten().flatten() {
-            let crate_dir = crate_entry.path();
-            let dir_name = crate_dir.file_name().and_then(|n| n.to_str()).unwrap_or("");
-
-            // Match crate name with version suffix (e.g., "bevy_window-0.15.0")
-            if !dir_name.starts_with(&format!("{}-", crate_prefix)) {
-                continue;
-            }
-
-            // Found the crate, scan specified files
-            let src_dir = crate_dir.join("src");
-            for file_name in files {
-                let file_path = src_dir.join(file_name);
-                if file_path.exists() {
-                    if let Ok(source) = fs::read_to_string(&file_path) {
-                        let file_events =
-                            parse_events_from_source(&source, crate_prefix, file_name);
-                        events.extend(file_events);
-                    }
-                }
-            }
-
-            // Found the crate, stop searching (avoid duplicates from multiple versions)
-            if !events.is_empty() {
-                break 'outer;
-            }
-        }
-    }
-
-    events
-}
-
-/// Parse a source file for structs/enums with #[derive(Event)]
-fn parse_events_from_source(source: &str, crate_name: &str, file_name: &str) -> Vec<BevyEventSpec> {
-    let mut events = Vec::new();
-
-    let Ok(file) = syn::parse_file(source) else {
-        return events;
-    };
-
-    // Derive the module path from file name (e.g., "event.rs" -> "event", "cursor.rs" -> "cursor")
-    let module_name = file_name.trim_end_matches(".rs");
-
-    for item in file.items {
-        // Check structs
-        if let syn::Item::Struct(item_struct) = &item {
-            // Check if public
-            if !matches!(item_struct.vis, syn::Visibility::Public(_)) {
-                continue;
-            }
-
-            let struct_name = item_struct.ident.to_string();
-
-            // Check if it has #[derive(...Event...)]
-            let has_event_derive = item_struct.attrs.iter().any(|attr| {
-                if attr.path().is_ident("derive") {
-                    if let Ok(meta) = attr.parse_args::<proc_macro2::TokenStream>() {
-                        // Check for Event in derives (handles Event, bevy_ecs::event::Event, etc.)
-                        return meta.to_string().contains("Event");
-                    }
-                }
-                false
-            });
-
-            if has_event_derive {
-                events.push(BevyEventSpec {
-                    type_name: struct_name.clone(),
-                    full_path: format!("{}::{}::{}", crate_name, module_name, struct_name),
-                    crate_name: crate_name.to_string(),
-                });
-            }
-        }
-        
-        // Check enums (for events like FileDragAndDrop which are enums)
-        if let syn::Item::Enum(item_enum) = &item {
-            // Check if public
-            if !matches!(item_enum.vis, syn::Visibility::Public(_)) {
-                continue;
-            }
-
-            let enum_name = item_enum.ident.to_string();
-
-            // Check if it has #[derive(...Event...)]
-            let has_event_derive = item_enum.attrs.iter().any(|attr| {
-                if attr.path().is_ident("derive") {
-                    if let Ok(meta) = attr.parse_args::<proc_macro2::TokenStream>() {
-                        return meta.to_string().contains("Event");
-                    }
-                }
-                false
-            });
-
-            if has_event_derive {
-                events.push(BevyEventSpec {
-                    type_name: enum_name.clone(),
-                    full_path: format!("{}::{}::{}", crate_name, module_name, enum_name),
-                    crate_name: crate_name.to_string(),
-                });
-            }
-        }
-    }
-
-    events
-}
 
 /// Discover all observable events by scanning crate sources
 /// This scans bevy_picking for Pointer events and other crates for EntityEvent types
@@ -6979,16 +6861,19 @@ fn write_bindings_to_parent_crate(
         let short_name = &event.type_name;
         let full_internal_path = &event.full_path;
         
-        // Generate accumulator arm - runs every frame to capture events before Bevy clears them
         event_accumulator_arms.push(quote::quote! {
             {
                 // Read events for this type and push to all active script instances
-                let mut system_state = bevy::ecs::system::SystemState::<bevy::prelude::EventReader<#type_path>>::new(world);
-                let mut event_reader = system_state.get_mut(world);
+                let mut system_state = bevy::ecs::system::SystemState::<(
+                    bevy::prelude::EventReader<#type_path>,
+                    bevy::prelude::Res<bevy::prelude::AppTypeRegistry>,
+                )>::new(world);
+                let (mut event_reader, type_registry) = system_state.get_mut(world);
                 
                 for event in event_reader.read() {
-                    // Convert event to JSON for storage in accumulator (avoids lifetime issues)
-                    if let Ok(event_json) = serde_json::to_value(event) {
+                    // Convert event to JSON using reflection - this works for all reflected types 
+                    // even if they don't implement serde::Serialize (like some Bevy 0.17 events)
+                    if let Some(event_json) = bevy_lua_ecs::reflect_to_json(event, &type_registry.read()) {
                         accumulator.push_to_instances(&active_instances, #short_name, event_json);
                     }
                 }

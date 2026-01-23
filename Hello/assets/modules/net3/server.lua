@@ -8,6 +8,8 @@ local json = require("modules/dkjson.lua")
 
 local Server = {}
 
+local state = State.get()
+
 --------------------------------------------------------------------------------
 -- Send System - Process NetSyncOutbound entities
 --------------------------------------------------------------------------------
@@ -109,7 +111,6 @@ function Server.on_client_connected(client_id, world)
     
     -- Send all existing entities to new client
     local count = 0
-    local state = State.get()
     for net_id, entity_id in pairs(state.known_entities) do
         local entity = world:get_entity(entity_id)
         if entity then
@@ -137,7 +138,6 @@ function Server.on_client_disconnected(client_id, world, get_clients)
     print(string.format("[NET3_SERVER] Client %s disconnected", client_id))
     
     -- Find and despawn entities owned by this client
-    local state = State.get()
     for net_id, owner in pairs(state.net_id_owners) do
         if owner == client_id then
             local despawn_msg = Messages.build_despawn(owner, net_id)

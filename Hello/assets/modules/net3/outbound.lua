@@ -8,27 +8,14 @@ local json = require("modules/dkjson.lua")
 
 local Outbound = {}
 
+local state = State.get()
+
 -- Configuration
 local DEFAULT_RATE_LIMIT = 0.05  -- 50ms between updates per component
 
 --------------------------------------------------------------------------------
--- Hash-based change detection
+-- Rate limiting tracking
 --------------------------------------------------------------------------------
-
-local function compute_hash(data)
-    return json.encode(data)
-end
-
-local function has_changed(entity_id, comp_name, comp_data, config)
-    local new_hash = compute_hash(comp_data)
-    local old_hash = config.last_sync_hashes[comp_name]
-    
-    if new_hash ~= old_hash then
-        config.last_sync_hashes[comp_name] = new_hash
-        return true
-    end
-    return false
-end
 
 local function check_rate_limit(comp_name, config, rate_limit)
     local now = os.clock()
@@ -56,6 +43,20 @@ function Outbound.system(world, context)
     local get_clients = context.get_clients
     local filter_clients = context.filter_clients
     
+    -- 1. Gather all frame-local changes for all active sync types
+    local sync_types = State.get_sync_types()
+    local frame_changes = {} -- component_name -> { entity_id -> true }
+    
+    for comp_name, _ in pairs(sync_types) do
+        frame_changes[comp_name] = {}
+        -- Query entities where this component changed
+        -- Note: We include marker to only detect changes on networked entities
+        local changed_entities = world:query({ Components.MARKER, "ScriptOwned", comp_name }, { comp_name })
+        for _, changed_entity in ipairs(changed_entities) do
+            frame_changes[comp_name][changed_entity:id()] = true
+        end
+    end
+
     -- Query all entities with NetworkSync marker (not remote)
     local entities = world:query({ Components.MARKER, "ScriptOwned" })
     
@@ -112,6 +113,13 @@ function Outbound.system(world, context)
             goto continue_entity
         end
         
+        -- 2. Update persistent dirty flags for this entity
+        for comp_name, _ in pairs(config.sync_components) do
+            if frame_changes[comp_name] and frame_changes[comp_name][entity_id] then
+                config.dirty[comp_name] = true
+            end
+        end
+
         -- Collect changed components
         local changed = {}
         local has_changes = false
@@ -119,11 +127,21 @@ function Outbound.system(world, context)
         for comp_name, comp_config in pairs(config.sync_components) do
             local rate_limit = comp_config.rate_limit
             
-            if check_rate_limit(comp_name, config, rate_limit) then
+            -- Send if dirty and rate limit allows
+            if config.dirty[comp_name] and check_rate_limit(comp_name, config, rate_limit) then
                 local comp_data = entity:get(comp_name)
-                if comp_data and has_changed(entity_id, comp_name, comp_data, config) then
+                if comp_data then
                     changed[comp_name] = comp_data
                     has_changes = true
+                    
+                    -- Clear dirty flag since we're including it in an update
+                    config.dirty[comp_name] = nil
+                    
+                    if is_server then
+                        -- print(string.format("[NET3_OUTBOUND] [SERVER] Entity %s changed: %s", net_id, comp_name))
+                    else
+                        -- print(string.format("[NET3_OUTBOUND] [CLIENT] Entity %s changed: %s", net_id, comp_name))
+                    end
                 end
             end
         end
@@ -143,7 +161,7 @@ function Outbound.system(world, context)
             
             -- For server, include last acked sequence
             if is_server then
-                ack_seq = State.get().client_input_seq[entity_id]
+                ack_seq = state.client_input_seq[entity_id]
             end
             
             local update_msg = Messages.build_update(
@@ -180,7 +198,7 @@ function Outbound.system(world, context)
     for _, entity_bits in ipairs(removed) do
         local net_id = State.get_net_id(entity_bits)
         if net_id then
-            local config = State.get().entity_sync_config[entity_bits]
+            local config = state.entity_sync_config[entity_bits]
             
             -- Only send despawn if we created this entity locally
             if config and config.created_locally then

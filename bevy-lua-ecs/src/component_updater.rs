@@ -4,7 +4,6 @@ use crate::lua_integration::LuaScriptContext;
 use bevy::prelude::*;
 use bevy::reflect::ReflectFromPtr;
 use mlua::prelude::*;
-use std::sync::Arc;
 
 /// System that processes the component update queue
 /// Uses reflection for updating ANY Bevy component (Text2d, Transform, etc.)

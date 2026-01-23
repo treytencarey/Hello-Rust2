@@ -39,7 +39,16 @@ function Interpolation.system(world)
                 }
             })
         elseif dist > 0.001 then
-            -- Lerp position
+            -- Lerp position and slerp rotation
+            local current_rot = transform.rotation
+            local target_rot = target.rotation or current_rot
+            
+            local new_rot = world:call_static_method("Quat", "slerp",
+                current_rot,
+                target_rot,
+                t
+            )
+            
             entity:set({
                 Transform = {
                     translation = {
@@ -47,7 +56,7 @@ function Interpolation.system(world)
                         y = transform.translation.y + dy * t,
                         z = transform.translation.z + dz * t,
                     },
-                    rotation = transform.rotation,  -- TODO: slerp rotation
+                    rotation = new_rot,
                     scale = target.scale or transform.scale,
                 }
             })

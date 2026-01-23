@@ -2,8 +2,9 @@
 -- Entry point for server-side game using net3 modules
 -- Just requiring modules registers their systems automatically
 
-local NetGame3 = require("modules/net_game3.lua", { instanced = true })
 local NetSync3 = require("modules/net3/init.lua")
+local NetGame3 = require("modules/net_game3.lua", { instanced = true })
+require("modules/net3/server_movement.lua")
 
 print("[CONFLUX3_SERVER] Starting...")
 
@@ -56,6 +57,7 @@ local function spawn_player_for_client(client_id, world)
                 SceneRoot = { rate_hz = 1.0 }, -- 1Hz
                 Transform = { rate_limit = 0.033 },  -- 30Hz
                 PlayerState = { rate_limit = 0.5 },   -- 2Hz
+                PlayerInput = { rate_limit = 0.016 }, -- 60Hz (as fast as possible)
             },
         },
     }):id()

@@ -151,6 +151,157 @@ pub fn reflection_to_lua(
     }
 }
 
+/// Convert a reflected value to a JSON Value manually to provide a flat structure
+/// This avoids the type-path nesting introduced by Bevy's default ReflectSerializer.
+pub fn reflect_to_json(
+    value: &dyn bevy::reflect::PartialReflect,
+    registry: &bevy::reflect::TypeRegistry,
+) -> Option<serde_json::Value> {
+    use bevy::reflect::ReflectRef;
+    use serde_json::{Map, Value};
+
+    match value.reflect_ref() {
+        ReflectRef::Struct(s) => {
+            let mut map = Map::new();
+            for i in 0..s.field_len() {
+                let name = s.name_at(i).unwrap();
+                let field = s.field_at(i).unwrap();
+                if let Some(json_val) = reflect_to_json(field, registry) {
+                    map.insert(name.to_string(), json_val);
+                }
+            }
+            Some(Value::Object(map))
+        }
+        ReflectRef::TupleStruct(ts) => {
+            let mut arr = Vec::new();
+            for i in 0..ts.field_len() {
+                let field = ts.field(i).unwrap();
+                if let Some(json_val) = reflect_to_json(field, registry) {
+                    arr.push(json_val);
+                }
+            }
+            Some(Value::Array(arr))
+        }
+        ReflectRef::Tuple(t) => {
+            let mut arr = Vec::new();
+            for i in 0..t.field_len() {
+                let field = t.field(i).unwrap();
+                if let Some(json_val) = reflect_to_json(field, registry) {
+                    arr.push(json_val);
+                }
+            }
+            Some(Value::Array(arr))
+        }
+        ReflectRef::List(l) => {
+            let mut arr = Vec::new();
+            for i in 0..l.len() {
+                let item = l.get(i).unwrap();
+                if let Some(json_val) = reflect_to_json(item, registry) {
+                    arr.push(json_val);
+                }
+            }
+            Some(Value::Array(arr))
+        }
+        ReflectRef::Array(a) => {
+            let mut arr = Vec::new();
+            for i in 0..a.len() {
+                let item = a.get(i).unwrap();
+                if let Some(json_val) = reflect_to_json(item, registry) {
+                    arr.push(json_val);
+                }
+            }
+            Some(Value::Array(arr))
+        }
+        ReflectRef::Map(m) => {
+            let mut map = Map::new();
+            for (key, value) in m.iter() {
+                // Keys must be strings for JSON objects
+                let key_str = format!("{:?}", key);
+                if let Some(json_val) = reflect_to_json(value, registry) {
+                    map.insert(key_str, json_val);
+                }
+            }
+            Some(Value::Object(map))
+        }
+        ReflectRef::Enum(e) => {
+            let variant_name = e.variant_name();
+            match e.variant_type() {
+                bevy::reflect::VariantType::Unit => Some(Value::String(variant_name.to_string())),
+                bevy::reflect::VariantType::Tuple => {
+                    let mut arr = Vec::new();
+                    for i in 0..e.field_len() {
+                        if let Some(json_val) = reflect_to_json(e.field_at(i).unwrap(), registry) {
+                            arr.push(json_val);
+                        }
+                    }
+                    let mut map = Map::new();
+                    map.insert(variant_name.to_string(), Value::Array(arr));
+                    Some(Value::Object(map))
+                }
+                bevy::reflect::VariantType::Struct => {
+                    let mut fields = Map::new();
+                    for i in 0..e.field_len() {
+                        let name = e.name_at(i).unwrap();
+                        if let Some(json_val) = reflect_to_json(e.field_at(i).unwrap(), registry) {
+                            fields.insert(name.to_string(), json_val);
+                        }
+                    }
+                    let mut map = Map::new();
+                    map.insert(variant_name.to_string(), Value::Object(fields));
+                    Some(Value::Object(map))
+                }
+            }
+        }
+        ReflectRef::Opaque(v) => {
+            // Primitives & Opaque
+            if let Some(b) = v.try_downcast_ref::<bool>() {
+                return Some(Value::Bool(*b));
+            }
+            if let Some(n) = v.try_downcast_ref::<f32>() {
+                return serde_json::Number::from_f64(*n as f64).map(Value::Number);
+            }
+            if let Some(n) = v.try_downcast_ref::<f64>() {
+                return serde_json::Number::from_f64(*n).map(Value::Number);
+            }
+            if let Some(n) = v.try_downcast_ref::<i32>() {
+                return Some(Value::Number((*n).into()));
+            }
+            if let Some(n) = v.try_downcast_ref::<i64>() {
+                return Some(Value::Number((*n).into()));
+            }
+            if let Some(n) = v.try_downcast_ref::<u32>() {
+                return Some(Value::Number((*n).into()));
+            }
+            if let Some(n) = v.try_downcast_ref::<u64>() {
+                return Some(Value::Number((*n).into()));
+            }
+            if let Some(n) = v.try_downcast_ref::<usize>() {
+                return Some(Value::Number((*n as u64).into()));
+            }
+            if let Some(s) = v.try_downcast_ref::<String>() {
+                return Some(Value::String(s.clone()));
+            }
+            if let Some(id) = v.try_downcast_ref::<bevy::asset::UntypedAssetId>() {
+                return Some(Value::String(format!("{:?}", id)));
+            }
+            
+            // Fallback for types that might implement Serialize but aren't primitive
+            // We can't easily check for Serialize at runtime without boatloads of traits
+            // so we just return the debug string as a fallback string for now.
+            Some(Value::String(format!("{:?}", v)))
+        }
+        ReflectRef::Set(s) => {
+            let mut arr = Vec::new();
+            for item in s.iter() {
+                if let Some(json_val) = reflect_to_json(item, registry) {
+                    arr.push(json_val);
+                }
+            }
+            Some(Value::Array(arr))
+        }
+    }
+}
+
 /// Build a DynamicStruct from a Lua table using type info from the registry
 /// This properly inserts fields into the DynamicStruct for FromReflect conversion
 ///

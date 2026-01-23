@@ -7,6 +7,8 @@ local json = require("modules/dkjson.lua")
 
 local Inbound = {}
 
+local state = State.get()
+
 -- Configuration
 local PENDING_CHILD_TIMEOUT = 10.0  -- Seconds before orphaned children are discarded
 
@@ -156,6 +158,12 @@ function Inbound.handle_update(world, msg, owner_client)
     
     -- Check if this is for our own entity (prediction reconciliation)
     local is_own_entity = (owner_client == State.my_client_id())
+    local is_server = (state.mode == "server")
+    
+    -- On server, track the last processed sequence number from the client
+    if is_server and payload.seq then
+        state.client_input_seq[entity_id] = payload.seq
+    end
     
     for comp_name, comp_data in pairs(payload.components or {}) do
         -- Handle Transform specially for interpolation/prediction
@@ -206,7 +214,7 @@ function Inbound.handle_update(world, msg, owner_client)
         entity:set({ [comp_name] = comp_data })
         
         -- Update hash cache
-        local config = State.get().entity_sync_config[entity_id]
+        local config = state.entity_sync_config[entity_id]
         if config and config.last_sync_hashes then
             config.last_sync_hashes[comp_name] = json.encode(comp_data)
         end
@@ -224,7 +232,7 @@ local function handle_despawn(world, msg, owner_client)
         print(string.format("[NET3] Despawning entity %d (net_id %d)", entity_id, net_id))
         despawn(entity_id)
         
-        local config = State.get().entity_sync_config[entity_id]
+        local config = state.entity_sync_config[entity_id]
         if config then
             State.remove_sync_types(config.sync_components)
         end

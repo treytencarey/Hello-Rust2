@@ -41,23 +41,11 @@ pub const DISCOVERED_ENTITY_WRAPPERS: &[&str] = &[
     "CascadesVisibleEntities",
     "ViewTransmissionTexture",
     "DeferredLightingIdDepthTexture",
-    "DepthOfField",
-    "DepthOfFieldUniform",
-    "DepthOfFieldPipelines",
-    "AuxiliaryDepthOfFieldTexture",
-    "ViewDepthOfFieldBindGroupLayouts",
     "ViewDepthPyramid",
     "ViewDownsampleDepthBindGroup",
-    "MotionBlur",
-    "MotionBlurUniform",
-    "MotionBlurPipelineId",
-    "MsaaWritebackBlitPipeline",
     "OrderIndependentTransparencySettings",
     "OrderIndependentTransparencySettingsOffset",
     "OitResolvePipelineId",
-    "ChromaticAberration",
-    "PostProcessingPipelineId",
-    "PostProcessingUniformBufferOffsets",
     "DepthPrepass",
     "NormalPrepass",
     "MotionVectorPrepass",
@@ -152,6 +140,18 @@ pub const DISCOVERED_ENTITY_WRAPPERS: &[&str] = &[
     "PointerInteraction",
     "PointerPress",
     "PointerLocation",
+    "DepthOfField",
+    "DepthOfFieldUniform",
+    "DepthOfFieldPipelines",
+    "AuxiliaryDepthOfFieldTexture",
+    "ViewDepthOfFieldBindGroupLayouts",
+    "ChromaticAberration",
+    "PostProcessingPipelineId",
+    "PostProcessingUniformBufferOffsets",
+    "MotionBlur",
+    "MotionBlurUniform",
+    "MotionBlurPipelineId",
+    "MsaaWritebackBlitPipeline",
     "SimulationToRenderTime",
     "DefaultRapierContext",
     "RapierContextEntityLink",
@@ -159,14 +159,20 @@ pub const DISCOVERED_ENTITY_WRAPPERS: &[&str] = &[
     "RapierContextJoints",
     "RapierRigidBodySet",
     "NoAutomaticBatching",
+    "CameraRenderGraph",
+    "ExtractedCamera",
+    "TemporalJitter",
+    "MipBias",
     "OcclusionCulling",
     "OcclusionCullingSubview",
     "OcclusionCullingSubviewEntities",
     "Readback",
     "SyncToRenderWorld",
+    "RenderEntity",
     "MainEntity",
     "TemporaryRenderEntity",
     "Msaa",
+    "Hdr",
     "ExtractedView",
     "ColorGrading",
     "ViewUniformOffset",
@@ -177,12 +183,6 @@ pub const DISCOVERED_ENTITY_WRAPPERS: &[&str] = &[
     "Screenshot",
     "Capturing",
     "Captured",
-    "CameraRenderGraph",
-    "ExtractedCamera",
-    "TemporalJitter",
-    "MipBias",
-    "RenderEntity",
-    "Hdr",
     "InteractionDisabled",
     "Pressed",
     "Checkable",
@@ -807,11 +807,11 @@ pub const DISCOVERED_ASSET_TYPES: &[&str] = &[
     "TiledWorldAsset",
     "StandardTilemapMaterial",
     "GizmoAsset",
-    "GltfMesh",
-    "Gltf",
+    "GltfPrimitive",
     "GltfNode",
     "GltfSkin",
-    "GltfPrimitive",
+    "GltfMesh",
+    "Gltf",
     "Image",
     "TextureAtlasLayout",
     "Mesh",
@@ -885,9 +885,9 @@ pub const DISCOVERED_NEWTYPE_WRAPPERS: &[(&str, &str)] = &[
     ("SpotLightTexture", "Image"),
     ("Mesh2d", "Mesh"),
     ("Mesh3d", "Mesh"),
+    ("Bluenoise", "Image"),
     ("MeshletMesh3d", "MeshletMesh"),
     ("Mesh3dWireframe", "WireframeMaterial"),
-    ("Bluenoise", "Image"),
     ("SimplifiedMesh", "Mesh"),
     (
         "ManualTextureViews",
@@ -922,14 +922,11 @@ pub fn register_auto_newtype_wrappers(
 pub const DISCOVERED_SYSTEMPARAMS: &[(&str, &str)] = &[
     ("Diagnostics", "bevy::diagnostic::Diagnostics"),
     ("ComponentIdFor", "bevy::ecs::ComponentIdFor"),
-    ("EventMutator", "bevy::ecs::EventMutator"),
-    ("EventReader", "bevy::ecs::EventReader"),
-    ("EventWriter", "bevy::ecs::EventWriter"),
     ("RemovedComponents", "bevy::ecs::RemovedComponents"),
-    ("ParallelCommands", "bevy::ecs::ParallelCommands"),
     ("MessageMutator", "bevy::ecs::MessageMutator"),
     ("MessageReader", "bevy::ecs::MessageReader"),
     ("MessageWriter", "bevy::ecs::MessageWriter"),
+    ("ParallelCommands", "bevy::ecs::ParallelCommands"),
     (
         "DirectionalNavigation",
         "bevy::input_focus::DirectionalNavigation",
@@ -961,65 +958,6 @@ pub const DISCOVERED_SYSTEMPARAMS: &[(&str, &str)] = &[
 #[doc = r" Auto-discovered SystemParam methods that use Reflect-compatible parameters"]
 #[doc = r" Format: (param_type, method_name, return_type, returns_iterator)"]
 pub const DISCOVERED_SYSTEMPARAM_METHODS: &[(&str, &str, &str, bool)] = &[
-    ("ComponentIdFor", "get", "ComponentId", false),
-    ("EventMutator", "read", "EventMutIterator<'_,E>", false),
-    (
-        "EventMutator",
-        "read_with_id",
-        "EventMutIteratorWithId<'_,E>",
-        false,
-    ),
-    ("EventMutator", "par_read", "EventMutParIter<'_,E>", true),
-    ("EventMutator", "len", "usize", false),
-    ("EventMutator", "is_empty", "bool", false),
-    ("EventMutator", "clear", "()", false),
-    ("EventReader", "read", "EventIterator<'_,E>", false),
-    (
-        "EventReader",
-        "read_with_id",
-        "EventIteratorWithId<'_,E>",
-        false,
-    ),
-    ("EventReader", "par_read", "EventParIter<'_,E>", true),
-    ("EventReader", "len", "usize", false),
-    ("EventReader", "is_empty", "bool", false),
-    ("EventReader", "clear", "()", false),
-    ("EventWriter", "write_default", "EventId<E>", false),
-    ("EventWriter", "send_default", "EventId<E>", false),
-    (
-        "RemovedComponents",
-        "reader",
-        "&EventCursor<RemovedComponentEntity>",
-        false,
-    ),
-    (
-        "RemovedComponents",
-        "reader_mut",
-        "&mutEventCursor<RemovedComponentEntity>",
-        false,
-    ),
-    (
-        "RemovedComponents",
-        "events",
-        "Option<&Events<RemovedComponentEntity>>",
-        false,
-    ),
-    (
-        "RemovedComponents",
-        "reader_mut_with_events",
-        "Option<(&mutRemovedComponentReader<T>,&Events<RemovedComponentEntity>,)>",
-        false,
-    ),
-    ("RemovedComponents", "read", "RemovedIter<'_>", true),
-    (
-        "RemovedComponents",
-        "read_with_id",
-        "RemovedIterWithId<'_>",
-        false,
-    ),
-    ("RemovedComponents", "len", "usize", false),
-    ("RemovedComponents", "is_empty", "bool", false),
-    ("RemovedComponents", "clear", "()", false),
     ("ComponentIdFor", "get", "ComponentId", false),
     (
         "RemovedComponents",
@@ -13882,12 +13820,344 @@ pub fn dispatch_read_events(
         .resource::<bevy::ecs::reflect::AppTypeRegistry>()
         .clone();
     match event_type {
-        "WindowResized" | "bevy_window::event::WindowResized" | "bevy::window::WindowResized" => {
+        "AppLifecycle" | "bevy_window::event::AppLifecycle" | "bevy::window::AppLifecycle" => {
             let instance_id: u64 = lua.globals().get("__INSTANCE_ID__").unwrap_or(0);
             let accumulator = world
                 .resource::<bevy_lua_ecs::LuaEventAccumulator>()
                 .clone();
-            let events = accumulator.drain(instance_id, "WindowResized");
+            let events = accumulator.drain(instance_id, "AppLifecycle");
+            let results = lua.create_table()?;
+            let mut index = 1;
+            for event_json in events {
+                if let Ok(lua_value) = bevy_lua_ecs::json_to_lua_value(lua, &event_json) {
+                    results.set(index, lua_value)?;
+                    index += 1;
+                }
+            }
+            Ok(mlua::Value::Table(results))
+        }
+        "CursorEntered" | "bevy_window::event::CursorEntered" | "bevy::window::CursorEntered" => {
+            let instance_id: u64 = lua.globals().get("__INSTANCE_ID__").unwrap_or(0);
+            let accumulator = world
+                .resource::<bevy_lua_ecs::LuaEventAccumulator>()
+                .clone();
+            let events = accumulator.drain(instance_id, "CursorEntered");
+            let results = lua.create_table()?;
+            let mut index = 1;
+            for event_json in events {
+                if let Ok(lua_value) = bevy_lua_ecs::json_to_lua_value(lua, &event_json) {
+                    results.set(index, lua_value)?;
+                    index += 1;
+                }
+            }
+            Ok(mlua::Value::Table(results))
+        }
+        "CursorLeft" | "bevy_window::event::CursorLeft" | "bevy::window::CursorLeft" => {
+            let instance_id: u64 = lua.globals().get("__INSTANCE_ID__").unwrap_or(0);
+            let accumulator = world
+                .resource::<bevy_lua_ecs::LuaEventAccumulator>()
+                .clone();
+            let events = accumulator.drain(instance_id, "CursorLeft");
+            let results = lua.create_table()?;
+            let mut index = 1;
+            for event_json in events {
+                if let Ok(lua_value) = bevy_lua_ecs::json_to_lua_value(lua, &event_json) {
+                    results.set(index, lua_value)?;
+                    index += 1;
+                }
+            }
+            Ok(mlua::Value::Table(results))
+        }
+        "CursorMoved" | "bevy_window::event::CursorMoved" | "bevy::window::CursorMoved" => {
+            let instance_id: u64 = lua.globals().get("__INSTANCE_ID__").unwrap_or(0);
+            let accumulator = world
+                .resource::<bevy_lua_ecs::LuaEventAccumulator>()
+                .clone();
+            let events = accumulator.drain(instance_id, "CursorMoved");
+            let results = lua.create_table()?;
+            let mut index = 1;
+            for event_json in events {
+                if let Ok(lua_value) = bevy_lua_ecs::json_to_lua_value(lua, &event_json) {
+                    results.set(index, lua_value)?;
+                    index += 1;
+                }
+            }
+            Ok(mlua::Value::Table(results))
+        }
+        "FileDragAndDrop"
+        | "bevy_window::event::FileDragAndDrop"
+        | "bevy::window::FileDragAndDrop" => {
+            let instance_id: u64 = lua.globals().get("__INSTANCE_ID__").unwrap_or(0);
+            let accumulator = world
+                .resource::<bevy_lua_ecs::LuaEventAccumulator>()
+                .clone();
+            let events = accumulator.drain(instance_id, "FileDragAndDrop");
+            let results = lua.create_table()?;
+            let mut index = 1;
+            for event_json in events {
+                if let Ok(lua_value) = bevy_lua_ecs::json_to_lua_value(lua, &event_json) {
+                    results.set(index, lua_value)?;
+                    index += 1;
+                }
+            }
+            Ok(mlua::Value::Table(results))
+        }
+        "GamepadAxisChangedEvent"
+        | "bevy_input::gamepad::GamepadAxisChangedEvent"
+        | "bevy::input::gamepad::GamepadAxisChangedEvent" => {
+            let instance_id: u64 = lua.globals().get("__INSTANCE_ID__").unwrap_or(0);
+            let accumulator = world
+                .resource::<bevy_lua_ecs::LuaEventAccumulator>()
+                .clone();
+            let events = accumulator.drain(instance_id, "GamepadAxisChangedEvent");
+            let results = lua.create_table()?;
+            let mut index = 1;
+            for event_json in events {
+                if let Ok(lua_value) = bevy_lua_ecs::json_to_lua_value(lua, &event_json) {
+                    results.set(index, lua_value)?;
+                    index += 1;
+                }
+            }
+            Ok(mlua::Value::Table(results))
+        }
+        "GamepadButtonChangedEvent"
+        | "bevy_input::gamepad::GamepadButtonChangedEvent"
+        | "bevy::input::gamepad::GamepadButtonChangedEvent" => {
+            let instance_id: u64 = lua.globals().get("__INSTANCE_ID__").unwrap_or(0);
+            let accumulator = world
+                .resource::<bevy_lua_ecs::LuaEventAccumulator>()
+                .clone();
+            let events = accumulator.drain(instance_id, "GamepadButtonChangedEvent");
+            let results = lua.create_table()?;
+            let mut index = 1;
+            for event_json in events {
+                if let Ok(lua_value) = bevy_lua_ecs::json_to_lua_value(lua, &event_json) {
+                    results.set(index, lua_value)?;
+                    index += 1;
+                }
+            }
+            Ok(mlua::Value::Table(results))
+        }
+        "GamepadButtonStateChangedEvent"
+        | "bevy_input::gamepad::GamepadButtonStateChangedEvent"
+        | "bevy::input::gamepad::GamepadButtonStateChangedEvent" => {
+            let instance_id: u64 = lua.globals().get("__INSTANCE_ID__").unwrap_or(0);
+            let accumulator = world
+                .resource::<bevy_lua_ecs::LuaEventAccumulator>()
+                .clone();
+            let events = accumulator.drain(instance_id, "GamepadButtonStateChangedEvent");
+            let results = lua.create_table()?;
+            let mut index = 1;
+            for event_json in events {
+                if let Ok(lua_value) = bevy_lua_ecs::json_to_lua_value(lua, &event_json) {
+                    results.set(index, lua_value)?;
+                    index += 1;
+                }
+            }
+            Ok(mlua::Value::Table(results))
+        }
+        "GamepadConnectionEvent"
+        | "bevy_input::gamepad::GamepadConnectionEvent"
+        | "bevy::input::gamepad::GamepadConnectionEvent" => {
+            let instance_id: u64 = lua.globals().get("__INSTANCE_ID__").unwrap_or(0);
+            let accumulator = world
+                .resource::<bevy_lua_ecs::LuaEventAccumulator>()
+                .clone();
+            let events = accumulator.drain(instance_id, "GamepadConnectionEvent");
+            let results = lua.create_table()?;
+            let mut index = 1;
+            for event_json in events {
+                if let Ok(lua_value) = bevy_lua_ecs::json_to_lua_value(lua, &event_json) {
+                    results.set(index, lua_value)?;
+                    index += 1;
+                }
+            }
+            Ok(mlua::Value::Table(results))
+        }
+        "GamepadEvent"
+        | "bevy_input::gamepad::GamepadEvent"
+        | "bevy::input::gamepad::GamepadEvent" => {
+            let instance_id: u64 = lua.globals().get("__INSTANCE_ID__").unwrap_or(0);
+            let accumulator = world
+                .resource::<bevy_lua_ecs::LuaEventAccumulator>()
+                .clone();
+            let events = accumulator.drain(instance_id, "GamepadEvent");
+            let results = lua.create_table()?;
+            let mut index = 1;
+            for event_json in events {
+                if let Ok(lua_value) = bevy_lua_ecs::json_to_lua_value(lua, &event_json) {
+                    results.set(index, lua_value)?;
+                    index += 1;
+                }
+            }
+            Ok(mlua::Value::Table(results))
+        }
+        "GamepadRumbleRequest"
+        | "bevy_input::gamepad::GamepadRumbleRequest"
+        | "bevy::input::gamepad::GamepadRumbleRequest" => {
+            let instance_id: u64 = lua.globals().get("__INSTANCE_ID__").unwrap_or(0);
+            let accumulator = world
+                .resource::<bevy_lua_ecs::LuaEventAccumulator>()
+                .clone();
+            let events = accumulator.drain(instance_id, "GamepadRumbleRequest");
+            let results = lua.create_table()?;
+            let mut index = 1;
+            for event_json in events {
+                if let Ok(lua_value) = bevy_lua_ecs::json_to_lua_value(lua, &event_json) {
+                    results.set(index, lua_value)?;
+                    index += 1;
+                }
+            }
+            Ok(mlua::Value::Table(results))
+        }
+        "KeyboardFocusLost"
+        | "bevy_input::keyboard::KeyboardFocusLost"
+        | "bevy::input::keyboard::KeyboardFocusLost" => {
+            let instance_id: u64 = lua.globals().get("__INSTANCE_ID__").unwrap_or(0);
+            let accumulator = world
+                .resource::<bevy_lua_ecs::LuaEventAccumulator>()
+                .clone();
+            let events = accumulator.drain(instance_id, "KeyboardFocusLost");
+            let results = lua.create_table()?;
+            let mut index = 1;
+            for event_json in events {
+                if let Ok(lua_value) = bevy_lua_ecs::json_to_lua_value(lua, &event_json) {
+                    results.set(index, lua_value)?;
+                    index += 1;
+                }
+            }
+            Ok(mlua::Value::Table(results))
+        }
+        "KeyboardInput"
+        | "bevy_input::keyboard::KeyboardInput"
+        | "bevy::input::keyboard::KeyboardInput" => {
+            let instance_id: u64 = lua.globals().get("__INSTANCE_ID__").unwrap_or(0);
+            let accumulator = world
+                .resource::<bevy_lua_ecs::LuaEventAccumulator>()
+                .clone();
+            let events = accumulator.drain(instance_id, "KeyboardInput");
+            let results = lua.create_table()?;
+            let mut index = 1;
+            for event_json in events {
+                if let Ok(lua_value) = bevy_lua_ecs::json_to_lua_value(lua, &event_json) {
+                    results.set(index, lua_value)?;
+                    index += 1;
+                }
+            }
+            Ok(mlua::Value::Table(results))
+        }
+        "MouseButtonInput"
+        | "bevy_input::mouse::MouseButtonInput"
+        | "bevy::input::mouse::MouseButtonInput" => {
+            let instance_id: u64 = lua.globals().get("__INSTANCE_ID__").unwrap_or(0);
+            let accumulator = world
+                .resource::<bevy_lua_ecs::LuaEventAccumulator>()
+                .clone();
+            let events = accumulator.drain(instance_id, "MouseButtonInput");
+            let results = lua.create_table()?;
+            let mut index = 1;
+            for event_json in events {
+                if let Ok(lua_value) = bevy_lua_ecs::json_to_lua_value(lua, &event_json) {
+                    results.set(index, lua_value)?;
+                    index += 1;
+                }
+            }
+            Ok(mlua::Value::Table(results))
+        }
+        "MouseMotion" | "bevy_input::mouse::MouseMotion" | "bevy::input::mouse::MouseMotion" => {
+            let instance_id: u64 = lua.globals().get("__INSTANCE_ID__").unwrap_or(0);
+            let accumulator = world
+                .resource::<bevy_lua_ecs::LuaEventAccumulator>()
+                .clone();
+            let events = accumulator.drain(instance_id, "MouseMotion");
+            let results = lua.create_table()?;
+            let mut index = 1;
+            for event_json in events {
+                if let Ok(lua_value) = bevy_lua_ecs::json_to_lua_value(lua, &event_json) {
+                    results.set(index, lua_value)?;
+                    index += 1;
+                }
+            }
+            Ok(mlua::Value::Table(results))
+        }
+        "MouseWheel" | "bevy_input::mouse::MouseWheel" | "bevy::input::mouse::MouseWheel" => {
+            let instance_id: u64 = lua.globals().get("__INSTANCE_ID__").unwrap_or(0);
+            let accumulator = world
+                .resource::<bevy_lua_ecs::LuaEventAccumulator>()
+                .clone();
+            let events = accumulator.drain(instance_id, "MouseWheel");
+            let results = lua.create_table()?;
+            let mut index = 1;
+            for event_json in events {
+                if let Ok(lua_value) = bevy_lua_ecs::json_to_lua_value(lua, &event_json) {
+                    results.set(index, lua_value)?;
+                    index += 1;
+                }
+            }
+            Ok(mlua::Value::Table(results))
+        }
+        "PointerInput"
+        | "bevy_picking::pointer::PointerInput"
+        | "bevy::picking::pointer::PointerInput" => {
+            let instance_id: u64 = lua.globals().get("__INSTANCE_ID__").unwrap_or(0);
+            let accumulator = world
+                .resource::<bevy_lua_ecs::LuaEventAccumulator>()
+                .clone();
+            let events = accumulator.drain(instance_id, "PointerInput");
+            let results = lua.create_table()?;
+            let mut index = 1;
+            for event_json in events {
+                if let Ok(lua_value) = bevy_lua_ecs::json_to_lua_value(lua, &event_json) {
+                    results.set(index, lua_value)?;
+                    index += 1;
+                }
+            }
+            Ok(mlua::Value::Table(results))
+        }
+        "RawGamepadAxisChangedEvent"
+        | "bevy_input::gamepad::RawGamepadAxisChangedEvent"
+        | "bevy::input::gamepad::RawGamepadAxisChangedEvent" => {
+            let instance_id: u64 = lua.globals().get("__INSTANCE_ID__").unwrap_or(0);
+            let accumulator = world
+                .resource::<bevy_lua_ecs::LuaEventAccumulator>()
+                .clone();
+            let events = accumulator.drain(instance_id, "RawGamepadAxisChangedEvent");
+            let results = lua.create_table()?;
+            let mut index = 1;
+            for event_json in events {
+                if let Ok(lua_value) = bevy_lua_ecs::json_to_lua_value(lua, &event_json) {
+                    results.set(index, lua_value)?;
+                    index += 1;
+                }
+            }
+            Ok(mlua::Value::Table(results))
+        }
+        "RawGamepadButtonChangedEvent"
+        | "bevy_input::gamepad::RawGamepadButtonChangedEvent"
+        | "bevy::input::gamepad::RawGamepadButtonChangedEvent" => {
+            let instance_id: u64 = lua.globals().get("__INSTANCE_ID__").unwrap_or(0);
+            let accumulator = world
+                .resource::<bevy_lua_ecs::LuaEventAccumulator>()
+                .clone();
+            let events = accumulator.drain(instance_id, "RawGamepadButtonChangedEvent");
+            let results = lua.create_table()?;
+            let mut index = 1;
+            for event_json in events {
+                if let Ok(lua_value) = bevy_lua_ecs::json_to_lua_value(lua, &event_json) {
+                    results.set(index, lua_value)?;
+                    index += 1;
+                }
+            }
+            Ok(mlua::Value::Table(results))
+        }
+        "RawGamepadEvent"
+        | "bevy_input::gamepad::RawGamepadEvent"
+        | "bevy::input::gamepad::RawGamepadEvent" => {
+            let instance_id: u64 = lua.globals().get("__INSTANCE_ID__").unwrap_or(0);
+            let accumulator = world
+                .resource::<bevy_lua_ecs::LuaEventAccumulator>()
+                .clone();
+            let events = accumulator.drain(instance_id, "RawGamepadEvent");
             let results = lua.create_table()?;
             let mut index = 1;
             for event_json in events {
@@ -13914,12 +14184,30 @@ pub fn dispatch_read_events(
             }
             Ok(mlua::Value::Table(results))
         }
-        "WindowCreated" | "bevy_window::event::WindowCreated" | "bevy::window::WindowCreated" => {
+        "TouchInput" | "bevy_input::touch::TouchInput" | "bevy::input::touch::TouchInput" => {
             let instance_id: u64 = lua.globals().get("__INSTANCE_ID__").unwrap_or(0);
             let accumulator = world
                 .resource::<bevy_lua_ecs::LuaEventAccumulator>()
                 .clone();
-            let events = accumulator.drain(instance_id, "WindowCreated");
+            let events = accumulator.drain(instance_id, "TouchInput");
+            let results = lua.create_table()?;
+            let mut index = 1;
+            for event_json in events {
+                if let Ok(lua_value) = bevy_lua_ecs::json_to_lua_value(lua, &event_json) {
+                    results.set(index, lua_value)?;
+                    index += 1;
+                }
+            }
+            Ok(mlua::Value::Table(results))
+        }
+        "WindowBackendScaleFactorChanged"
+        | "bevy_window::event::WindowBackendScaleFactorChanged"
+        | "bevy::window::WindowBackendScaleFactorChanged" => {
+            let instance_id: u64 = lua.globals().get("__INSTANCE_ID__").unwrap_or(0);
+            let accumulator = world
+                .resource::<bevy_lua_ecs::LuaEventAccumulator>()
+                .clone();
+            let events = accumulator.drain(instance_id, "WindowBackendScaleFactorChanged");
             let results = lua.create_table()?;
             let mut index = 1;
             for event_json in events {
@@ -13980,6 +14268,22 @@ pub fn dispatch_read_events(
             }
             Ok(mlua::Value::Table(results))
         }
+        "WindowCreated" | "bevy_window::event::WindowCreated" | "bevy::window::WindowCreated" => {
+            let instance_id: u64 = lua.globals().get("__INSTANCE_ID__").unwrap_or(0);
+            let accumulator = world
+                .resource::<bevy_lua_ecs::LuaEventAccumulator>()
+                .clone();
+            let events = accumulator.drain(instance_id, "WindowCreated");
+            let results = lua.create_table()?;
+            let mut index = 1;
+            for event_json in events {
+                if let Ok(lua_value) = bevy_lua_ecs::json_to_lua_value(lua, &event_json) {
+                    results.set(index, lua_value)?;
+                    index += 1;
+                }
+            }
+            Ok(mlua::Value::Table(results))
+        }
         "WindowDestroyed"
         | "bevy_window::event::WindowDestroyed"
         | "bevy::window::WindowDestroyed" => {
@@ -13998,44 +14302,12 @@ pub fn dispatch_read_events(
             }
             Ok(mlua::Value::Table(results))
         }
-        "CursorMoved" | "bevy_window::event::CursorMoved" | "bevy::window::CursorMoved" => {
+        "WindowEvent" | "bevy_window::event::WindowEvent" | "bevy::window::WindowEvent" => {
             let instance_id: u64 = lua.globals().get("__INSTANCE_ID__").unwrap_or(0);
             let accumulator = world
                 .resource::<bevy_lua_ecs::LuaEventAccumulator>()
                 .clone();
-            let events = accumulator.drain(instance_id, "CursorMoved");
-            let results = lua.create_table()?;
-            let mut index = 1;
-            for event_json in events {
-                if let Ok(lua_value) = bevy_lua_ecs::json_to_lua_value(lua, &event_json) {
-                    results.set(index, lua_value)?;
-                    index += 1;
-                }
-            }
-            Ok(mlua::Value::Table(results))
-        }
-        "CursorEntered" | "bevy_window::event::CursorEntered" | "bevy::window::CursorEntered" => {
-            let instance_id: u64 = lua.globals().get("__INSTANCE_ID__").unwrap_or(0);
-            let accumulator = world
-                .resource::<bevy_lua_ecs::LuaEventAccumulator>()
-                .clone();
-            let events = accumulator.drain(instance_id, "CursorEntered");
-            let results = lua.create_table()?;
-            let mut index = 1;
-            for event_json in events {
-                if let Ok(lua_value) = bevy_lua_ecs::json_to_lua_value(lua, &event_json) {
-                    results.set(index, lua_value)?;
-                    index += 1;
-                }
-            }
-            Ok(mlua::Value::Table(results))
-        }
-        "CursorLeft" | "bevy_window::event::CursorLeft" | "bevy::window::CursorLeft" => {
-            let instance_id: u64 = lua.globals().get("__INSTANCE_ID__").unwrap_or(0);
-            let accumulator = world
-                .resource::<bevy_lua_ecs::LuaEventAccumulator>()
-                .clone();
-            let events = accumulator.drain(instance_id, "CursorLeft");
+            let events = accumulator.drain(instance_id, "WindowEvent");
             let results = lua.create_table()?;
             let mut index = 1;
             for event_json in events {
@@ -14052,6 +14324,22 @@ pub fn dispatch_read_events(
                 .resource::<bevy_lua_ecs::LuaEventAccumulator>()
                 .clone();
             let events = accumulator.drain(instance_id, "WindowFocused");
+            let results = lua.create_table()?;
+            let mut index = 1;
+            for event_json in events {
+                if let Ok(lua_value) = bevy_lua_ecs::json_to_lua_value(lua, &event_json) {
+                    results.set(index, lua_value)?;
+                    index += 1;
+                }
+            }
+            Ok(mlua::Value::Table(results))
+        }
+        "WindowMoved" | "bevy_window::event::WindowMoved" | "bevy::window::WindowMoved" => {
+            let instance_id: u64 = lua.globals().get("__INSTANCE_ID__").unwrap_or(0);
+            let accumulator = world
+                .resource::<bevy_lua_ecs::LuaEventAccumulator>()
+                .clone();
+            let events = accumulator.drain(instance_id, "WindowMoved");
             let results = lua.create_table()?;
             let mut index = 1;
             for event_json in events {
@@ -14080,6 +14368,22 @@ pub fn dispatch_read_events(
             }
             Ok(mlua::Value::Table(results))
         }
+        "WindowResized" | "bevy_window::event::WindowResized" | "bevy::window::WindowResized" => {
+            let instance_id: u64 = lua.globals().get("__INSTANCE_ID__").unwrap_or(0);
+            let accumulator = world
+                .resource::<bevy_lua_ecs::LuaEventAccumulator>()
+                .clone();
+            let events = accumulator.drain(instance_id, "WindowResized");
+            let results = lua.create_table()?;
+            let mut index = 1;
+            for event_json in events {
+                if let Ok(lua_value) = bevy_lua_ecs::json_to_lua_value(lua, &event_json) {
+                    results.set(index, lua_value)?;
+                    index += 1;
+                }
+            }
+            Ok(mlua::Value::Table(results))
+        }
         "WindowScaleFactorChanged"
         | "bevy_window::event::WindowScaleFactorChanged"
         | "bevy::window::WindowScaleFactorChanged" => {
@@ -14098,58 +14402,6 @@ pub fn dispatch_read_events(
             }
             Ok(mlua::Value::Table(results))
         }
-        "WindowBackendScaleFactorChanged"
-        | "bevy_window::event::WindowBackendScaleFactorChanged"
-        | "bevy::window::WindowBackendScaleFactorChanged" => {
-            let instance_id: u64 = lua.globals().get("__INSTANCE_ID__").unwrap_or(0);
-            let accumulator = world
-                .resource::<bevy_lua_ecs::LuaEventAccumulator>()
-                .clone();
-            let events = accumulator.drain(instance_id, "WindowBackendScaleFactorChanged");
-            let results = lua.create_table()?;
-            let mut index = 1;
-            for event_json in events {
-                if let Ok(lua_value) = bevy_lua_ecs::json_to_lua_value(lua, &event_json) {
-                    results.set(index, lua_value)?;
-                    index += 1;
-                }
-            }
-            Ok(mlua::Value::Table(results))
-        }
-        "FileDragAndDrop"
-        | "bevy_window::event::FileDragAndDrop"
-        | "bevy::window::FileDragAndDrop" => {
-            let instance_id: u64 = lua.globals().get("__INSTANCE_ID__").unwrap_or(0);
-            let accumulator = world
-                .resource::<bevy_lua_ecs::LuaEventAccumulator>()
-                .clone();
-            let events = accumulator.drain(instance_id, "FileDragAndDrop");
-            let results = lua.create_table()?;
-            let mut index = 1;
-            for event_json in events {
-                if let Ok(lua_value) = bevy_lua_ecs::json_to_lua_value(lua, &event_json) {
-                    results.set(index, lua_value)?;
-                    index += 1;
-                }
-            }
-            Ok(mlua::Value::Table(results))
-        }
-        "WindowMoved" | "bevy_window::event::WindowMoved" | "bevy::window::WindowMoved" => {
-            let instance_id: u64 = lua.globals().get("__INSTANCE_ID__").unwrap_or(0);
-            let accumulator = world
-                .resource::<bevy_lua_ecs::LuaEventAccumulator>()
-                .clone();
-            let events = accumulator.drain(instance_id, "WindowMoved");
-            let results = lua.create_table()?;
-            let mut index = 1;
-            for event_json in events {
-                if let Ok(lua_value) = bevy_lua_ecs::json_to_lua_value(lua, &event_json) {
-                    results.set(index, lua_value)?;
-                    index += 1;
-                }
-            }
-            Ok(mlua::Value::Table(results))
-        }
         "WindowThemeChanged"
         | "bevy_window::event::WindowThemeChanged"
         | "bevy::window::WindowThemeChanged" => {
@@ -14158,124 +14410,6 @@ pub fn dispatch_read_events(
                 .resource::<bevy_lua_ecs::LuaEventAccumulator>()
                 .clone();
             let events = accumulator.drain(instance_id, "WindowThemeChanged");
-            let results = lua.create_table()?;
-            let mut index = 1;
-            for event_json in events {
-                if let Ok(lua_value) = bevy_lua_ecs::json_to_lua_value(lua, &event_json) {
-                    results.set(index, lua_value)?;
-                    index += 1;
-                }
-            }
-            Ok(mlua::Value::Table(results))
-        }
-        "AppLifecycle" | "bevy_window::event::AppLifecycle" | "bevy::window::AppLifecycle" => {
-            let instance_id: u64 = lua.globals().get("__INSTANCE_ID__").unwrap_or(0);
-            let accumulator = world
-                .resource::<bevy_lua_ecs::LuaEventAccumulator>()
-                .clone();
-            let events = accumulator.drain(instance_id, "AppLifecycle");
-            let results = lua.create_table()?;
-            let mut index = 1;
-            for event_json in events {
-                if let Ok(lua_value) = bevy_lua_ecs::json_to_lua_value(lua, &event_json) {
-                    results.set(index, lua_value)?;
-                    index += 1;
-                }
-            }
-            Ok(mlua::Value::Table(results))
-        }
-        "WindowEvent" | "bevy_window::event::WindowEvent" | "bevy::window::WindowEvent" => {
-            let instance_id: u64 = lua.globals().get("__INSTANCE_ID__").unwrap_or(0);
-            let accumulator = world
-                .resource::<bevy_lua_ecs::LuaEventAccumulator>()
-                .clone();
-            let events = accumulator.drain(instance_id, "WindowEvent");
-            let results = lua.create_table()?;
-            let mut index = 1;
-            for event_json in events {
-                if let Ok(lua_value) = bevy_lua_ecs::json_to_lua_value(lua, &event_json) {
-                    results.set(index, lua_value)?;
-                    index += 1;
-                }
-            }
-            Ok(mlua::Value::Table(results))
-        }
-        "KeyboardInput"
-        | "bevy_input::keyboard::KeyboardInput"
-        | "bevy::input::keyboard::KeyboardInput" => {
-            let instance_id: u64 = lua.globals().get("__INSTANCE_ID__").unwrap_or(0);
-            let accumulator = world
-                .resource::<bevy_lua_ecs::LuaEventAccumulator>()
-                .clone();
-            let events = accumulator.drain(instance_id, "KeyboardInput");
-            let results = lua.create_table()?;
-            let mut index = 1;
-            for event_json in events {
-                if let Ok(lua_value) = bevy_lua_ecs::json_to_lua_value(lua, &event_json) {
-                    results.set(index, lua_value)?;
-                    index += 1;
-                }
-            }
-            Ok(mlua::Value::Table(results))
-        }
-        "KeyboardFocusLost"
-        | "bevy_input::keyboard::KeyboardFocusLost"
-        | "bevy::input::keyboard::KeyboardFocusLost" => {
-            let instance_id: u64 = lua.globals().get("__INSTANCE_ID__").unwrap_or(0);
-            let accumulator = world
-                .resource::<bevy_lua_ecs::LuaEventAccumulator>()
-                .clone();
-            let events = accumulator.drain(instance_id, "KeyboardFocusLost");
-            let results = lua.create_table()?;
-            let mut index = 1;
-            for event_json in events {
-                if let Ok(lua_value) = bevy_lua_ecs::json_to_lua_value(lua, &event_json) {
-                    results.set(index, lua_value)?;
-                    index += 1;
-                }
-            }
-            Ok(mlua::Value::Table(results))
-        }
-        "MouseButtonInput"
-        | "bevy_input::mouse::MouseButtonInput"
-        | "bevy::input::mouse::MouseButtonInput" => {
-            let instance_id: u64 = lua.globals().get("__INSTANCE_ID__").unwrap_or(0);
-            let accumulator = world
-                .resource::<bevy_lua_ecs::LuaEventAccumulator>()
-                .clone();
-            let events = accumulator.drain(instance_id, "MouseButtonInput");
-            let results = lua.create_table()?;
-            let mut index = 1;
-            for event_json in events {
-                if let Ok(lua_value) = bevy_lua_ecs::json_to_lua_value(lua, &event_json) {
-                    results.set(index, lua_value)?;
-                    index += 1;
-                }
-            }
-            Ok(mlua::Value::Table(results))
-        }
-        "MouseMotion" | "bevy_input::mouse::MouseMotion" | "bevy::input::mouse::MouseMotion" => {
-            let instance_id: u64 = lua.globals().get("__INSTANCE_ID__").unwrap_or(0);
-            let accumulator = world
-                .resource::<bevy_lua_ecs::LuaEventAccumulator>()
-                .clone();
-            let events = accumulator.drain(instance_id, "MouseMotion");
-            let results = lua.create_table()?;
-            let mut index = 1;
-            for event_json in events {
-                if let Ok(lua_value) = bevy_lua_ecs::json_to_lua_value(lua, &event_json) {
-                    results.set(index, lua_value)?;
-                    index += 1;
-                }
-            }
-            Ok(mlua::Value::Table(results))
-        }
-        "MouseWheel" | "bevy_input::mouse::MouseWheel" | "bevy::input::mouse::MouseWheel" => {
-            let instance_id: u64 = lua.globals().get("__INSTANCE_ID__").unwrap_or(0);
-            let accumulator = world
-                .resource::<bevy_lua_ecs::LuaEventAccumulator>()
-                .clone();
-            let events = accumulator.drain(instance_id, "MouseWheel");
             let results = lua.create_table()?;
             let mut index = 1;
             for event_json in events {
@@ -14426,7 +14560,7 @@ pub fn dispatch_write_events(
     event_type: &str,
     data: &mlua::Table,
 ) -> Result<(), String> {
-    match event_type { "WindowResized" | "bevy_window::event::WindowResized" | "bevy::window::WindowResized" => { let type_registry = world . resource :: < bevy :: ecs :: reflect :: AppTypeRegistry > () . clone () ; let registry = type_registry . read () ; if let Some (type_registration) = registry . get_with_type_path ("bevy::window::WindowResized") . or_else (|| registry . get_with_type_path ("bevy_window::event::WindowResized")) { let type_info = type_registration . type_info () ; let dynamic = bevy_lua_ecs :: lua_table_to_dynamic (lua , data , type_info , & type_registry) . map_err (| e | format ! ("Failed to build event '{}': {}" , "bevy::window::WindowResized" , e)) ? ; if let Some (concrete_event) = < bevy :: window :: WindowResized as bevy :: reflect :: FromReflect > :: from_reflect (& dynamic) { drop (registry) ; let mut system_state = bevy :: ecs :: system :: SystemState :: < bevy :: prelude :: EventWriter < bevy :: window :: WindowResized >> :: new (world) ; let mut event_writer = system_state . get_mut (world) ; event_writer . write (concrete_event) ; bevy :: log :: debug ! ("[EVENT_WRITE] Sent event: {}" , "bevy::window::WindowResized") ; return Ok (()) ; } return Err (format ! ("Failed to construct event '{}' via FromReflect" , "bevy::window::WindowResized")) ; } else { return Err (format ! ("Event type '{}' not found in TypeRegistry" , "bevy::window::WindowResized")) ; } } , "RequestRedraw" | "bevy_window::event::RequestRedraw" | "bevy::window::RequestRedraw" => { let type_registry = world . resource :: < bevy :: ecs :: reflect :: AppTypeRegistry > () . clone () ; let registry = type_registry . read () ; if let Some (type_registration) = registry . get_with_type_path ("bevy::window::RequestRedraw") . or_else (|| registry . get_with_type_path ("bevy_window::event::RequestRedraw")) { let type_info = type_registration . type_info () ; let dynamic = bevy_lua_ecs :: lua_table_to_dynamic (lua , data , type_info , & type_registry) . map_err (| e | format ! ("Failed to build event '{}': {}" , "bevy::window::RequestRedraw" , e)) ? ; if let Some (concrete_event) = < bevy :: window :: RequestRedraw as bevy :: reflect :: FromReflect > :: from_reflect (& dynamic) { drop (registry) ; let mut system_state = bevy :: ecs :: system :: SystemState :: < bevy :: prelude :: EventWriter < bevy :: window :: RequestRedraw >> :: new (world) ; let mut event_writer = system_state . get_mut (world) ; event_writer . write (concrete_event) ; bevy :: log :: debug ! ("[EVENT_WRITE] Sent event: {}" , "bevy::window::RequestRedraw") ; return Ok (()) ; } return Err (format ! ("Failed to construct event '{}' via FromReflect" , "bevy::window::RequestRedraw")) ; } else { return Err (format ! ("Event type '{}' not found in TypeRegistry" , "bevy::window::RequestRedraw")) ; } } , "WindowCreated" | "bevy_window::event::WindowCreated" | "bevy::window::WindowCreated" => { let type_registry = world . resource :: < bevy :: ecs :: reflect :: AppTypeRegistry > () . clone () ; let registry = type_registry . read () ; if let Some (type_registration) = registry . get_with_type_path ("bevy::window::WindowCreated") . or_else (|| registry . get_with_type_path ("bevy_window::event::WindowCreated")) { let type_info = type_registration . type_info () ; let dynamic = bevy_lua_ecs :: lua_table_to_dynamic (lua , data , type_info , & type_registry) . map_err (| e | format ! ("Failed to build event '{}': {}" , "bevy::window::WindowCreated" , e)) ? ; if let Some (concrete_event) = < bevy :: window :: WindowCreated as bevy :: reflect :: FromReflect > :: from_reflect (& dynamic) { drop (registry) ; let mut system_state = bevy :: ecs :: system :: SystemState :: < bevy :: prelude :: EventWriter < bevy :: window :: WindowCreated >> :: new (world) ; let mut event_writer = system_state . get_mut (world) ; event_writer . write (concrete_event) ; bevy :: log :: debug ! ("[EVENT_WRITE] Sent event: {}" , "bevy::window::WindowCreated") ; return Ok (()) ; } return Err (format ! ("Failed to construct event '{}' via FromReflect" , "bevy::window::WindowCreated")) ; } else { return Err (format ! ("Event type '{}' not found in TypeRegistry" , "bevy::window::WindowCreated")) ; } } , "WindowCloseRequested" | "bevy_window::event::WindowCloseRequested" | "bevy::window::WindowCloseRequested" => { let type_registry = world . resource :: < bevy :: ecs :: reflect :: AppTypeRegistry > () . clone () ; let registry = type_registry . read () ; if let Some (type_registration) = registry . get_with_type_path ("bevy::window::WindowCloseRequested") . or_else (|| registry . get_with_type_path ("bevy_window::event::WindowCloseRequested")) { let type_info = type_registration . type_info () ; let dynamic = bevy_lua_ecs :: lua_table_to_dynamic (lua , data , type_info , & type_registry) . map_err (| e | format ! ("Failed to build event '{}': {}" , "bevy::window::WindowCloseRequested" , e)) ? ; if let Some (concrete_event) = < bevy :: window :: WindowCloseRequested as bevy :: reflect :: FromReflect > :: from_reflect (& dynamic) { drop (registry) ; let mut system_state = bevy :: ecs :: system :: SystemState :: < bevy :: prelude :: EventWriter < bevy :: window :: WindowCloseRequested >> :: new (world) ; let mut event_writer = system_state . get_mut (world) ; event_writer . write (concrete_event) ; bevy :: log :: debug ! ("[EVENT_WRITE] Sent event: {}" , "bevy::window::WindowCloseRequested") ; return Ok (()) ; } return Err (format ! ("Failed to construct event '{}' via FromReflect" , "bevy::window::WindowCloseRequested")) ; } else { return Err (format ! ("Event type '{}' not found in TypeRegistry" , "bevy::window::WindowCloseRequested")) ; } } , "WindowClosed" | "bevy_window::event::WindowClosed" | "bevy::window::WindowClosed" => { let type_registry = world . resource :: < bevy :: ecs :: reflect :: AppTypeRegistry > () . clone () ; let registry = type_registry . read () ; if let Some (type_registration) = registry . get_with_type_path ("bevy::window::WindowClosed") . or_else (|| registry . get_with_type_path ("bevy_window::event::WindowClosed")) { let type_info = type_registration . type_info () ; let dynamic = bevy_lua_ecs :: lua_table_to_dynamic (lua , data , type_info , & type_registry) . map_err (| e | format ! ("Failed to build event '{}': {}" , "bevy::window::WindowClosed" , e)) ? ; if let Some (concrete_event) = < bevy :: window :: WindowClosed as bevy :: reflect :: FromReflect > :: from_reflect (& dynamic) { drop (registry) ; let mut system_state = bevy :: ecs :: system :: SystemState :: < bevy :: prelude :: EventWriter < bevy :: window :: WindowClosed >> :: new (world) ; let mut event_writer = system_state . get_mut (world) ; event_writer . write (concrete_event) ; bevy :: log :: debug ! ("[EVENT_WRITE] Sent event: {}" , "bevy::window::WindowClosed") ; return Ok (()) ; } return Err (format ! ("Failed to construct event '{}' via FromReflect" , "bevy::window::WindowClosed")) ; } else { return Err (format ! ("Event type '{}' not found in TypeRegistry" , "bevy::window::WindowClosed")) ; } } , "WindowClosing" | "bevy_window::event::WindowClosing" | "bevy::window::WindowClosing" => { let type_registry = world . resource :: < bevy :: ecs :: reflect :: AppTypeRegistry > () . clone () ; let registry = type_registry . read () ; if let Some (type_registration) = registry . get_with_type_path ("bevy::window::WindowClosing") . or_else (|| registry . get_with_type_path ("bevy_window::event::WindowClosing")) { let type_info = type_registration . type_info () ; let dynamic = bevy_lua_ecs :: lua_table_to_dynamic (lua , data , type_info , & type_registry) . map_err (| e | format ! ("Failed to build event '{}': {}" , "bevy::window::WindowClosing" , e)) ? ; if let Some (concrete_event) = < bevy :: window :: WindowClosing as bevy :: reflect :: FromReflect > :: from_reflect (& dynamic) { drop (registry) ; let mut system_state = bevy :: ecs :: system :: SystemState :: < bevy :: prelude :: EventWriter < bevy :: window :: WindowClosing >> :: new (world) ; let mut event_writer = system_state . get_mut (world) ; event_writer . write (concrete_event) ; bevy :: log :: debug ! ("[EVENT_WRITE] Sent event: {}" , "bevy::window::WindowClosing") ; return Ok (()) ; } return Err (format ! ("Failed to construct event '{}' via FromReflect" , "bevy::window::WindowClosing")) ; } else { return Err (format ! ("Event type '{}' not found in TypeRegistry" , "bevy::window::WindowClosing")) ; } } , "WindowDestroyed" | "bevy_window::event::WindowDestroyed" | "bevy::window::WindowDestroyed" => { let type_registry = world . resource :: < bevy :: ecs :: reflect :: AppTypeRegistry > () . clone () ; let registry = type_registry . read () ; if let Some (type_registration) = registry . get_with_type_path ("bevy::window::WindowDestroyed") . or_else (|| registry . get_with_type_path ("bevy_window::event::WindowDestroyed")) { let type_info = type_registration . type_info () ; let dynamic = bevy_lua_ecs :: lua_table_to_dynamic (lua , data , type_info , & type_registry) . map_err (| e | format ! ("Failed to build event '{}': {}" , "bevy::window::WindowDestroyed" , e)) ? ; if let Some (concrete_event) = < bevy :: window :: WindowDestroyed as bevy :: reflect :: FromReflect > :: from_reflect (& dynamic) { drop (registry) ; let mut system_state = bevy :: ecs :: system :: SystemState :: < bevy :: prelude :: EventWriter < bevy :: window :: WindowDestroyed >> :: new (world) ; let mut event_writer = system_state . get_mut (world) ; event_writer . write (concrete_event) ; bevy :: log :: debug ! ("[EVENT_WRITE] Sent event: {}" , "bevy::window::WindowDestroyed") ; return Ok (()) ; } return Err (format ! ("Failed to construct event '{}' via FromReflect" , "bevy::window::WindowDestroyed")) ; } else { return Err (format ! ("Event type '{}' not found in TypeRegistry" , "bevy::window::WindowDestroyed")) ; } } , "CursorMoved" | "bevy_window::event::CursorMoved" | "bevy::window::CursorMoved" => { let type_registry = world . resource :: < bevy :: ecs :: reflect :: AppTypeRegistry > () . clone () ; let registry = type_registry . read () ; if let Some (type_registration) = registry . get_with_type_path ("bevy::window::CursorMoved") . or_else (|| registry . get_with_type_path ("bevy_window::event::CursorMoved")) { let type_info = type_registration . type_info () ; let dynamic = bevy_lua_ecs :: lua_table_to_dynamic (lua , data , type_info , & type_registry) . map_err (| e | format ! ("Failed to build event '{}': {}" , "bevy::window::CursorMoved" , e)) ? ; if let Some (concrete_event) = < bevy :: window :: CursorMoved as bevy :: reflect :: FromReflect > :: from_reflect (& dynamic) { drop (registry) ; let mut system_state = bevy :: ecs :: system :: SystemState :: < bevy :: prelude :: EventWriter < bevy :: window :: CursorMoved >> :: new (world) ; let mut event_writer = system_state . get_mut (world) ; event_writer . write (concrete_event) ; bevy :: log :: debug ! ("[EVENT_WRITE] Sent event: {}" , "bevy::window::CursorMoved") ; return Ok (()) ; } return Err (format ! ("Failed to construct event '{}' via FromReflect" , "bevy::window::CursorMoved")) ; } else { return Err (format ! ("Event type '{}' not found in TypeRegistry" , "bevy::window::CursorMoved")) ; } } , "CursorEntered" | "bevy_window::event::CursorEntered" | "bevy::window::CursorEntered" => { let type_registry = world . resource :: < bevy :: ecs :: reflect :: AppTypeRegistry > () . clone () ; let registry = type_registry . read () ; if let Some (type_registration) = registry . get_with_type_path ("bevy::window::CursorEntered") . or_else (|| registry . get_with_type_path ("bevy_window::event::CursorEntered")) { let type_info = type_registration . type_info () ; let dynamic = bevy_lua_ecs :: lua_table_to_dynamic (lua , data , type_info , & type_registry) . map_err (| e | format ! ("Failed to build event '{}': {}" , "bevy::window::CursorEntered" , e)) ? ; if let Some (concrete_event) = < bevy :: window :: CursorEntered as bevy :: reflect :: FromReflect > :: from_reflect (& dynamic) { drop (registry) ; let mut system_state = bevy :: ecs :: system :: SystemState :: < bevy :: prelude :: EventWriter < bevy :: window :: CursorEntered >> :: new (world) ; let mut event_writer = system_state . get_mut (world) ; event_writer . write (concrete_event) ; bevy :: log :: debug ! ("[EVENT_WRITE] Sent event: {}" , "bevy::window::CursorEntered") ; return Ok (()) ; } return Err (format ! ("Failed to construct event '{}' via FromReflect" , "bevy::window::CursorEntered")) ; } else { return Err (format ! ("Event type '{}' not found in TypeRegistry" , "bevy::window::CursorEntered")) ; } } , "CursorLeft" | "bevy_window::event::CursorLeft" | "bevy::window::CursorLeft" => { let type_registry = world . resource :: < bevy :: ecs :: reflect :: AppTypeRegistry > () . clone () ; let registry = type_registry . read () ; if let Some (type_registration) = registry . get_with_type_path ("bevy::window::CursorLeft") . or_else (|| registry . get_with_type_path ("bevy_window::event::CursorLeft")) { let type_info = type_registration . type_info () ; let dynamic = bevy_lua_ecs :: lua_table_to_dynamic (lua , data , type_info , & type_registry) . map_err (| e | format ! ("Failed to build event '{}': {}" , "bevy::window::CursorLeft" , e)) ? ; if let Some (concrete_event) = < bevy :: window :: CursorLeft as bevy :: reflect :: FromReflect > :: from_reflect (& dynamic) { drop (registry) ; let mut system_state = bevy :: ecs :: system :: SystemState :: < bevy :: prelude :: EventWriter < bevy :: window :: CursorLeft >> :: new (world) ; let mut event_writer = system_state . get_mut (world) ; event_writer . write (concrete_event) ; bevy :: log :: debug ! ("[EVENT_WRITE] Sent event: {}" , "bevy::window::CursorLeft") ; return Ok (()) ; } return Err (format ! ("Failed to construct event '{}' via FromReflect" , "bevy::window::CursorLeft")) ; } else { return Err (format ! ("Event type '{}' not found in TypeRegistry" , "bevy::window::CursorLeft")) ; } } , "WindowFocused" | "bevy_window::event::WindowFocused" | "bevy::window::WindowFocused" => { let type_registry = world . resource :: < bevy :: ecs :: reflect :: AppTypeRegistry > () . clone () ; let registry = type_registry . read () ; if let Some (type_registration) = registry . get_with_type_path ("bevy::window::WindowFocused") . or_else (|| registry . get_with_type_path ("bevy_window::event::WindowFocused")) { let type_info = type_registration . type_info () ; let dynamic = bevy_lua_ecs :: lua_table_to_dynamic (lua , data , type_info , & type_registry) . map_err (| e | format ! ("Failed to build event '{}': {}" , "bevy::window::WindowFocused" , e)) ? ; if let Some (concrete_event) = < bevy :: window :: WindowFocused as bevy :: reflect :: FromReflect > :: from_reflect (& dynamic) { drop (registry) ; let mut system_state = bevy :: ecs :: system :: SystemState :: < bevy :: prelude :: EventWriter < bevy :: window :: WindowFocused >> :: new (world) ; let mut event_writer = system_state . get_mut (world) ; event_writer . write (concrete_event) ; bevy :: log :: debug ! ("[EVENT_WRITE] Sent event: {}" , "bevy::window::WindowFocused") ; return Ok (()) ; } return Err (format ! ("Failed to construct event '{}' via FromReflect" , "bevy::window::WindowFocused")) ; } else { return Err (format ! ("Event type '{}' not found in TypeRegistry" , "bevy::window::WindowFocused")) ; } } , "WindowOccluded" | "bevy_window::event::WindowOccluded" | "bevy::window::WindowOccluded" => { let type_registry = world . resource :: < bevy :: ecs :: reflect :: AppTypeRegistry > () . clone () ; let registry = type_registry . read () ; if let Some (type_registration) = registry . get_with_type_path ("bevy::window::WindowOccluded") . or_else (|| registry . get_with_type_path ("bevy_window::event::WindowOccluded")) { let type_info = type_registration . type_info () ; let dynamic = bevy_lua_ecs :: lua_table_to_dynamic (lua , data , type_info , & type_registry) . map_err (| e | format ! ("Failed to build event '{}': {}" , "bevy::window::WindowOccluded" , e)) ? ; if let Some (concrete_event) = < bevy :: window :: WindowOccluded as bevy :: reflect :: FromReflect > :: from_reflect (& dynamic) { drop (registry) ; let mut system_state = bevy :: ecs :: system :: SystemState :: < bevy :: prelude :: EventWriter < bevy :: window :: WindowOccluded >> :: new (world) ; let mut event_writer = system_state . get_mut (world) ; event_writer . write (concrete_event) ; bevy :: log :: debug ! ("[EVENT_WRITE] Sent event: {}" , "bevy::window::WindowOccluded") ; return Ok (()) ; } return Err (format ! ("Failed to construct event '{}' via FromReflect" , "bevy::window::WindowOccluded")) ; } else { return Err (format ! ("Event type '{}' not found in TypeRegistry" , "bevy::window::WindowOccluded")) ; } } , "WindowScaleFactorChanged" | "bevy_window::event::WindowScaleFactorChanged" | "bevy::window::WindowScaleFactorChanged" => { let type_registry = world . resource :: < bevy :: ecs :: reflect :: AppTypeRegistry > () . clone () ; let registry = type_registry . read () ; if let Some (type_registration) = registry . get_with_type_path ("bevy::window::WindowScaleFactorChanged") . or_else (|| registry . get_with_type_path ("bevy_window::event::WindowScaleFactorChanged")) { let type_info = type_registration . type_info () ; let dynamic = bevy_lua_ecs :: lua_table_to_dynamic (lua , data , type_info , & type_registry) . map_err (| e | format ! ("Failed to build event '{}': {}" , "bevy::window::WindowScaleFactorChanged" , e)) ? ; if let Some (concrete_event) = < bevy :: window :: WindowScaleFactorChanged as bevy :: reflect :: FromReflect > :: from_reflect (& dynamic) { drop (registry) ; let mut system_state = bevy :: ecs :: system :: SystemState :: < bevy :: prelude :: EventWriter < bevy :: window :: WindowScaleFactorChanged >> :: new (world) ; let mut event_writer = system_state . get_mut (world) ; event_writer . write (concrete_event) ; bevy :: log :: debug ! ("[EVENT_WRITE] Sent event: {}" , "bevy::window::WindowScaleFactorChanged") ; return Ok (()) ; } return Err (format ! ("Failed to construct event '{}' via FromReflect" , "bevy::window::WindowScaleFactorChanged")) ; } else { return Err (format ! ("Event type '{}' not found in TypeRegistry" , "bevy::window::WindowScaleFactorChanged")) ; } } , "WindowBackendScaleFactorChanged" | "bevy_window::event::WindowBackendScaleFactorChanged" | "bevy::window::WindowBackendScaleFactorChanged" => { let type_registry = world . resource :: < bevy :: ecs :: reflect :: AppTypeRegistry > () . clone () ; let registry = type_registry . read () ; if let Some (type_registration) = registry . get_with_type_path ("bevy::window::WindowBackendScaleFactorChanged") . or_else (|| registry . get_with_type_path ("bevy_window::event::WindowBackendScaleFactorChanged")) { let type_info = type_registration . type_info () ; let dynamic = bevy_lua_ecs :: lua_table_to_dynamic (lua , data , type_info , & type_registry) . map_err (| e | format ! ("Failed to build event '{}': {}" , "bevy::window::WindowBackendScaleFactorChanged" , e)) ? ; if let Some (concrete_event) = < bevy :: window :: WindowBackendScaleFactorChanged as bevy :: reflect :: FromReflect > :: from_reflect (& dynamic) { drop (registry) ; let mut system_state = bevy :: ecs :: system :: SystemState :: < bevy :: prelude :: EventWriter < bevy :: window :: WindowBackendScaleFactorChanged >> :: new (world) ; let mut event_writer = system_state . get_mut (world) ; event_writer . write (concrete_event) ; bevy :: log :: debug ! ("[EVENT_WRITE] Sent event: {}" , "bevy::window::WindowBackendScaleFactorChanged") ; return Ok (()) ; } return Err (format ! ("Failed to construct event '{}' via FromReflect" , "bevy::window::WindowBackendScaleFactorChanged")) ; } else { return Err (format ! ("Event type '{}' not found in TypeRegistry" , "bevy::window::WindowBackendScaleFactorChanged")) ; } } , "FileDragAndDrop" | "bevy_window::event::FileDragAndDrop" | "bevy::window::FileDragAndDrop" => { let type_registry = world . resource :: < bevy :: ecs :: reflect :: AppTypeRegistry > () . clone () ; let registry = type_registry . read () ; if let Some (type_registration) = registry . get_with_type_path ("bevy::window::FileDragAndDrop") . or_else (|| registry . get_with_type_path ("bevy_window::event::FileDragAndDrop")) { let type_info = type_registration . type_info () ; let dynamic = bevy_lua_ecs :: lua_table_to_dynamic (lua , data , type_info , & type_registry) . map_err (| e | format ! ("Failed to build event '{}': {}" , "bevy::window::FileDragAndDrop" , e)) ? ; if let Some (concrete_event) = < bevy :: window :: FileDragAndDrop as bevy :: reflect :: FromReflect > :: from_reflect (& dynamic) { drop (registry) ; let mut system_state = bevy :: ecs :: system :: SystemState :: < bevy :: prelude :: EventWriter < bevy :: window :: FileDragAndDrop >> :: new (world) ; let mut event_writer = system_state . get_mut (world) ; event_writer . write (concrete_event) ; bevy :: log :: debug ! ("[EVENT_WRITE] Sent event: {}" , "bevy::window::FileDragAndDrop") ; return Ok (()) ; } return Err (format ! ("Failed to construct event '{}' via FromReflect" , "bevy::window::FileDragAndDrop")) ; } else { return Err (format ! ("Event type '{}' not found in TypeRegistry" , "bevy::window::FileDragAndDrop")) ; } } , "WindowMoved" | "bevy_window::event::WindowMoved" | "bevy::window::WindowMoved" => { let type_registry = world . resource :: < bevy :: ecs :: reflect :: AppTypeRegistry > () . clone () ; let registry = type_registry . read () ; if let Some (type_registration) = registry . get_with_type_path ("bevy::window::WindowMoved") . or_else (|| registry . get_with_type_path ("bevy_window::event::WindowMoved")) { let type_info = type_registration . type_info () ; let dynamic = bevy_lua_ecs :: lua_table_to_dynamic (lua , data , type_info , & type_registry) . map_err (| e | format ! ("Failed to build event '{}': {}" , "bevy::window::WindowMoved" , e)) ? ; if let Some (concrete_event) = < bevy :: window :: WindowMoved as bevy :: reflect :: FromReflect > :: from_reflect (& dynamic) { drop (registry) ; let mut system_state = bevy :: ecs :: system :: SystemState :: < bevy :: prelude :: EventWriter < bevy :: window :: WindowMoved >> :: new (world) ; let mut event_writer = system_state . get_mut (world) ; event_writer . write (concrete_event) ; bevy :: log :: debug ! ("[EVENT_WRITE] Sent event: {}" , "bevy::window::WindowMoved") ; return Ok (()) ; } return Err (format ! ("Failed to construct event '{}' via FromReflect" , "bevy::window::WindowMoved")) ; } else { return Err (format ! ("Event type '{}' not found in TypeRegistry" , "bevy::window::WindowMoved")) ; } } , "WindowThemeChanged" | "bevy_window::event::WindowThemeChanged" | "bevy::window::WindowThemeChanged" => { let type_registry = world . resource :: < bevy :: ecs :: reflect :: AppTypeRegistry > () . clone () ; let registry = type_registry . read () ; if let Some (type_registration) = registry . get_with_type_path ("bevy::window::WindowThemeChanged") . or_else (|| registry . get_with_type_path ("bevy_window::event::WindowThemeChanged")) { let type_info = type_registration . type_info () ; let dynamic = bevy_lua_ecs :: lua_table_to_dynamic (lua , data , type_info , & type_registry) . map_err (| e | format ! ("Failed to build event '{}': {}" , "bevy::window::WindowThemeChanged" , e)) ? ; if let Some (concrete_event) = < bevy :: window :: WindowThemeChanged as bevy :: reflect :: FromReflect > :: from_reflect (& dynamic) { drop (registry) ; let mut system_state = bevy :: ecs :: system :: SystemState :: < bevy :: prelude :: EventWriter < bevy :: window :: WindowThemeChanged >> :: new (world) ; let mut event_writer = system_state . get_mut (world) ; event_writer . write (concrete_event) ; bevy :: log :: debug ! ("[EVENT_WRITE] Sent event: {}" , "bevy::window::WindowThemeChanged") ; return Ok (()) ; } return Err (format ! ("Failed to construct event '{}' via FromReflect" , "bevy::window::WindowThemeChanged")) ; } else { return Err (format ! ("Event type '{}' not found in TypeRegistry" , "bevy::window::WindowThemeChanged")) ; } } , "AppLifecycle" | "bevy_window::event::AppLifecycle" | "bevy::window::AppLifecycle" => { let type_registry = world . resource :: < bevy :: ecs :: reflect :: AppTypeRegistry > () . clone () ; let registry = type_registry . read () ; if let Some (type_registration) = registry . get_with_type_path ("bevy::window::AppLifecycle") . or_else (|| registry . get_with_type_path ("bevy_window::event::AppLifecycle")) { let type_info = type_registration . type_info () ; let dynamic = bevy_lua_ecs :: lua_table_to_dynamic (lua , data , type_info , & type_registry) . map_err (| e | format ! ("Failed to build event '{}': {}" , "bevy::window::AppLifecycle" , e)) ? ; if let Some (concrete_event) = < bevy :: window :: AppLifecycle as bevy :: reflect :: FromReflect > :: from_reflect (& dynamic) { drop (registry) ; let mut system_state = bevy :: ecs :: system :: SystemState :: < bevy :: prelude :: EventWriter < bevy :: window :: AppLifecycle >> :: new (world) ; let mut event_writer = system_state . get_mut (world) ; event_writer . write (concrete_event) ; bevy :: log :: debug ! ("[EVENT_WRITE] Sent event: {}" , "bevy::window::AppLifecycle") ; return Ok (()) ; } return Err (format ! ("Failed to construct event '{}' via FromReflect" , "bevy::window::AppLifecycle")) ; } else { return Err (format ! ("Event type '{}' not found in TypeRegistry" , "bevy::window::AppLifecycle")) ; } } , "WindowEvent" | "bevy_window::event::WindowEvent" | "bevy::window::WindowEvent" => { let type_registry = world . resource :: < bevy :: ecs :: reflect :: AppTypeRegistry > () . clone () ; let registry = type_registry . read () ; if let Some (type_registration) = registry . get_with_type_path ("bevy::window::WindowEvent") . or_else (|| registry . get_with_type_path ("bevy_window::event::WindowEvent")) { let type_info = type_registration . type_info () ; let dynamic = bevy_lua_ecs :: lua_table_to_dynamic (lua , data , type_info , & type_registry) . map_err (| e | format ! ("Failed to build event '{}': {}" , "bevy::window::WindowEvent" , e)) ? ; if let Some (concrete_event) = < bevy :: window :: WindowEvent as bevy :: reflect :: FromReflect > :: from_reflect (& dynamic) { drop (registry) ; let mut system_state = bevy :: ecs :: system :: SystemState :: < bevy :: prelude :: EventWriter < bevy :: window :: WindowEvent >> :: new (world) ; let mut event_writer = system_state . get_mut (world) ; event_writer . write (concrete_event) ; bevy :: log :: debug ! ("[EVENT_WRITE] Sent event: {}" , "bevy::window::WindowEvent") ; return Ok (()) ; } return Err (format ! ("Failed to construct event '{}' via FromReflect" , "bevy::window::WindowEvent")) ; } else { return Err (format ! ("Event type '{}' not found in TypeRegistry" , "bevy::window::WindowEvent")) ; } } , "KeyboardInput" | "bevy_input::keyboard::KeyboardInput" | "bevy::input::keyboard::KeyboardInput" => { let type_registry = world . resource :: < bevy :: ecs :: reflect :: AppTypeRegistry > () . clone () ; let registry = type_registry . read () ; if let Some (type_registration) = registry . get_with_type_path ("bevy::input::keyboard::KeyboardInput") . or_else (|| registry . get_with_type_path ("bevy_input::keyboard::KeyboardInput")) { let type_info = type_registration . type_info () ; let dynamic = bevy_lua_ecs :: lua_table_to_dynamic (lua , data , type_info , & type_registry) . map_err (| e | format ! ("Failed to build event '{}': {}" , "bevy::input::keyboard::KeyboardInput" , e)) ? ; if let Some (concrete_event) = < bevy :: input :: keyboard :: KeyboardInput as bevy :: reflect :: FromReflect > :: from_reflect (& dynamic) { drop (registry) ; let mut system_state = bevy :: ecs :: system :: SystemState :: < bevy :: prelude :: EventWriter < bevy :: input :: keyboard :: KeyboardInput >> :: new (world) ; let mut event_writer = system_state . get_mut (world) ; event_writer . write (concrete_event) ; bevy :: log :: debug ! ("[EVENT_WRITE] Sent event: {}" , "bevy::input::keyboard::KeyboardInput") ; return Ok (()) ; } return Err (format ! ("Failed to construct event '{}' via FromReflect" , "bevy::input::keyboard::KeyboardInput")) ; } else { return Err (format ! ("Event type '{}' not found in TypeRegistry" , "bevy::input::keyboard::KeyboardInput")) ; } } , "KeyboardFocusLost" | "bevy_input::keyboard::KeyboardFocusLost" | "bevy::input::keyboard::KeyboardFocusLost" => { let type_registry = world . resource :: < bevy :: ecs :: reflect :: AppTypeRegistry > () . clone () ; let registry = type_registry . read () ; if let Some (type_registration) = registry . get_with_type_path ("bevy::input::keyboard::KeyboardFocusLost") . or_else (|| registry . get_with_type_path ("bevy_input::keyboard::KeyboardFocusLost")) { let type_info = type_registration . type_info () ; let dynamic = bevy_lua_ecs :: lua_table_to_dynamic (lua , data , type_info , & type_registry) . map_err (| e | format ! ("Failed to build event '{}': {}" , "bevy::input::keyboard::KeyboardFocusLost" , e)) ? ; if let Some (concrete_event) = < bevy :: input :: keyboard :: KeyboardFocusLost as bevy :: reflect :: FromReflect > :: from_reflect (& dynamic) { drop (registry) ; let mut system_state = bevy :: ecs :: system :: SystemState :: < bevy :: prelude :: EventWriter < bevy :: input :: keyboard :: KeyboardFocusLost >> :: new (world) ; let mut event_writer = system_state . get_mut (world) ; event_writer . write (concrete_event) ; bevy :: log :: debug ! ("[EVENT_WRITE] Sent event: {}" , "bevy::input::keyboard::KeyboardFocusLost") ; return Ok (()) ; } return Err (format ! ("Failed to construct event '{}' via FromReflect" , "bevy::input::keyboard::KeyboardFocusLost")) ; } else { return Err (format ! ("Event type '{}' not found in TypeRegistry" , "bevy::input::keyboard::KeyboardFocusLost")) ; } } , "MouseButtonInput" | "bevy_input::mouse::MouseButtonInput" | "bevy::input::mouse::MouseButtonInput" => { let type_registry = world . resource :: < bevy :: ecs :: reflect :: AppTypeRegistry > () . clone () ; let registry = type_registry . read () ; if let Some (type_registration) = registry . get_with_type_path ("bevy::input::mouse::MouseButtonInput") . or_else (|| registry . get_with_type_path ("bevy_input::mouse::MouseButtonInput")) { let type_info = type_registration . type_info () ; let dynamic = bevy_lua_ecs :: lua_table_to_dynamic (lua , data , type_info , & type_registry) . map_err (| e | format ! ("Failed to build event '{}': {}" , "bevy::input::mouse::MouseButtonInput" , e)) ? ; if let Some (concrete_event) = < bevy :: input :: mouse :: MouseButtonInput as bevy :: reflect :: FromReflect > :: from_reflect (& dynamic) { drop (registry) ; let mut system_state = bevy :: ecs :: system :: SystemState :: < bevy :: prelude :: EventWriter < bevy :: input :: mouse :: MouseButtonInput >> :: new (world) ; let mut event_writer = system_state . get_mut (world) ; event_writer . write (concrete_event) ; bevy :: log :: debug ! ("[EVENT_WRITE] Sent event: {}" , "bevy::input::mouse::MouseButtonInput") ; return Ok (()) ; } return Err (format ! ("Failed to construct event '{}' via FromReflect" , "bevy::input::mouse::MouseButtonInput")) ; } else { return Err (format ! ("Event type '{}' not found in TypeRegistry" , "bevy::input::mouse::MouseButtonInput")) ; } } , "MouseMotion" | "bevy_input::mouse::MouseMotion" | "bevy::input::mouse::MouseMotion" => { let type_registry = world . resource :: < bevy :: ecs :: reflect :: AppTypeRegistry > () . clone () ; let registry = type_registry . read () ; if let Some (type_registration) = registry . get_with_type_path ("bevy::input::mouse::MouseMotion") . or_else (|| registry . get_with_type_path ("bevy_input::mouse::MouseMotion")) { let type_info = type_registration . type_info () ; let dynamic = bevy_lua_ecs :: lua_table_to_dynamic (lua , data , type_info , & type_registry) . map_err (| e | format ! ("Failed to build event '{}': {}" , "bevy::input::mouse::MouseMotion" , e)) ? ; if let Some (concrete_event) = < bevy :: input :: mouse :: MouseMotion as bevy :: reflect :: FromReflect > :: from_reflect (& dynamic) { drop (registry) ; let mut system_state = bevy :: ecs :: system :: SystemState :: < bevy :: prelude :: EventWriter < bevy :: input :: mouse :: MouseMotion >> :: new (world) ; let mut event_writer = system_state . get_mut (world) ; event_writer . write (concrete_event) ; bevy :: log :: debug ! ("[EVENT_WRITE] Sent event: {}" , "bevy::input::mouse::MouseMotion") ; return Ok (()) ; } return Err (format ! ("Failed to construct event '{}' via FromReflect" , "bevy::input::mouse::MouseMotion")) ; } else { return Err (format ! ("Event type '{}' not found in TypeRegistry" , "bevy::input::mouse::MouseMotion")) ; } } , "MouseWheel" | "bevy_input::mouse::MouseWheel" | "bevy::input::mouse::MouseWheel" => { let type_registry = world . resource :: < bevy :: ecs :: reflect :: AppTypeRegistry > () . clone () ; let registry = type_registry . read () ; if let Some (type_registration) = registry . get_with_type_path ("bevy::input::mouse::MouseWheel") . or_else (|| registry . get_with_type_path ("bevy_input::mouse::MouseWheel")) { let type_info = type_registration . type_info () ; let dynamic = bevy_lua_ecs :: lua_table_to_dynamic (lua , data , type_info , & type_registry) . map_err (| e | format ! ("Failed to build event '{}': {}" , "bevy::input::mouse::MouseWheel" , e)) ? ; if let Some (concrete_event) = < bevy :: input :: mouse :: MouseWheel as bevy :: reflect :: FromReflect > :: from_reflect (& dynamic) { drop (registry) ; let mut system_state = bevy :: ecs :: system :: SystemState :: < bevy :: prelude :: EventWriter < bevy :: input :: mouse :: MouseWheel >> :: new (world) ; let mut event_writer = system_state . get_mut (world) ; event_writer . write (concrete_event) ; bevy :: log :: debug ! ("[EVENT_WRITE] Sent event: {}" , "bevy::input::mouse::MouseWheel") ; return Ok (()) ; } return Err (format ! ("Failed to construct event '{}' via FromReflect" , "bevy::input::mouse::MouseWheel")) ; } else { return Err (format ! ("Event type '{}' not found in TypeRegistry" , "bevy::input::mouse::MouseWheel")) ; } } _ => Err (format ! ("Unknown event type: '{}'. Available events are discovered from bevy_window and bevy_input." , event_type)) }
+    match event_type { "AppLifecycle" | "bevy_window::event::AppLifecycle" | "bevy::window::AppLifecycle" => { let type_registry = world . resource :: < bevy :: ecs :: reflect :: AppTypeRegistry > () . clone () ; let registry = type_registry . read () ; if let Some (type_registration) = registry . get_with_type_path ("bevy::window::AppLifecycle") . or_else (|| registry . get_with_type_path ("bevy_window::event::AppLifecycle")) { let type_info = type_registration . type_info () ; let dynamic = bevy_lua_ecs :: lua_table_to_dynamic (lua , data , type_info , & type_registry) . map_err (| e | format ! ("Failed to build event '{}': {}" , "bevy::window::AppLifecycle" , e)) ? ; if let Some (concrete_event) = < bevy :: window :: AppLifecycle as bevy :: reflect :: FromReflect > :: from_reflect (& dynamic) { drop (registry) ; let mut system_state = bevy :: ecs :: system :: SystemState :: < bevy :: prelude :: EventWriter < bevy :: window :: AppLifecycle >> :: new (world) ; let mut event_writer = system_state . get_mut (world) ; event_writer . write (concrete_event) ; bevy :: log :: debug ! ("[EVENT_WRITE] Sent event: {}" , "bevy::window::AppLifecycle") ; return Ok (()) ; } return Err (format ! ("Failed to construct event '{}' via FromReflect" , "bevy::window::AppLifecycle")) ; } else { return Err (format ! ("Event type '{}' not found in TypeRegistry" , "bevy::window::AppLifecycle")) ; } } , "CursorEntered" | "bevy_window::event::CursorEntered" | "bevy::window::CursorEntered" => { let type_registry = world . resource :: < bevy :: ecs :: reflect :: AppTypeRegistry > () . clone () ; let registry = type_registry . read () ; if let Some (type_registration) = registry . get_with_type_path ("bevy::window::CursorEntered") . or_else (|| registry . get_with_type_path ("bevy_window::event::CursorEntered")) { let type_info = type_registration . type_info () ; let dynamic = bevy_lua_ecs :: lua_table_to_dynamic (lua , data , type_info , & type_registry) . map_err (| e | format ! ("Failed to build event '{}': {}" , "bevy::window::CursorEntered" , e)) ? ; if let Some (concrete_event) = < bevy :: window :: CursorEntered as bevy :: reflect :: FromReflect > :: from_reflect (& dynamic) { drop (registry) ; let mut system_state = bevy :: ecs :: system :: SystemState :: < bevy :: prelude :: EventWriter < bevy :: window :: CursorEntered >> :: new (world) ; let mut event_writer = system_state . get_mut (world) ; event_writer . write (concrete_event) ; bevy :: log :: debug ! ("[EVENT_WRITE] Sent event: {}" , "bevy::window::CursorEntered") ; return Ok (()) ; } return Err (format ! ("Failed to construct event '{}' via FromReflect" , "bevy::window::CursorEntered")) ; } else { return Err (format ! ("Event type '{}' not found in TypeRegistry" , "bevy::window::CursorEntered")) ; } } , "CursorLeft" | "bevy_window::event::CursorLeft" | "bevy::window::CursorLeft" => { let type_registry = world . resource :: < bevy :: ecs :: reflect :: AppTypeRegistry > () . clone () ; let registry = type_registry . read () ; if let Some (type_registration) = registry . get_with_type_path ("bevy::window::CursorLeft") . or_else (|| registry . get_with_type_path ("bevy_window::event::CursorLeft")) { let type_info = type_registration . type_info () ; let dynamic = bevy_lua_ecs :: lua_table_to_dynamic (lua , data , type_info , & type_registry) . map_err (| e | format ! ("Failed to build event '{}': {}" , "bevy::window::CursorLeft" , e)) ? ; if let Some (concrete_event) = < bevy :: window :: CursorLeft as bevy :: reflect :: FromReflect > :: from_reflect (& dynamic) { drop (registry) ; let mut system_state = bevy :: ecs :: system :: SystemState :: < bevy :: prelude :: EventWriter < bevy :: window :: CursorLeft >> :: new (world) ; let mut event_writer = system_state . get_mut (world) ; event_writer . write (concrete_event) ; bevy :: log :: debug ! ("[EVENT_WRITE] Sent event: {}" , "bevy::window::CursorLeft") ; return Ok (()) ; } return Err (format ! ("Failed to construct event '{}' via FromReflect" , "bevy::window::CursorLeft")) ; } else { return Err (format ! ("Event type '{}' not found in TypeRegistry" , "bevy::window::CursorLeft")) ; } } , "CursorMoved" | "bevy_window::event::CursorMoved" | "bevy::window::CursorMoved" => { let type_registry = world . resource :: < bevy :: ecs :: reflect :: AppTypeRegistry > () . clone () ; let registry = type_registry . read () ; if let Some (type_registration) = registry . get_with_type_path ("bevy::window::CursorMoved") . or_else (|| registry . get_with_type_path ("bevy_window::event::CursorMoved")) { let type_info = type_registration . type_info () ; let dynamic = bevy_lua_ecs :: lua_table_to_dynamic (lua , data , type_info , & type_registry) . map_err (| e | format ! ("Failed to build event '{}': {}" , "bevy::window::CursorMoved" , e)) ? ; if let Some (concrete_event) = < bevy :: window :: CursorMoved as bevy :: reflect :: FromReflect > :: from_reflect (& dynamic) { drop (registry) ; let mut system_state = bevy :: ecs :: system :: SystemState :: < bevy :: prelude :: EventWriter < bevy :: window :: CursorMoved >> :: new (world) ; let mut event_writer = system_state . get_mut (world) ; event_writer . write (concrete_event) ; bevy :: log :: debug ! ("[EVENT_WRITE] Sent event: {}" , "bevy::window::CursorMoved") ; return Ok (()) ; } return Err (format ! ("Failed to construct event '{}' via FromReflect" , "bevy::window::CursorMoved")) ; } else { return Err (format ! ("Event type '{}' not found in TypeRegistry" , "bevy::window::CursorMoved")) ; } } , "FileDragAndDrop" | "bevy_window::event::FileDragAndDrop" | "bevy::window::FileDragAndDrop" => { let type_registry = world . resource :: < bevy :: ecs :: reflect :: AppTypeRegistry > () . clone () ; let registry = type_registry . read () ; if let Some (type_registration) = registry . get_with_type_path ("bevy::window::FileDragAndDrop") . or_else (|| registry . get_with_type_path ("bevy_window::event::FileDragAndDrop")) { let type_info = type_registration . type_info () ; let dynamic = bevy_lua_ecs :: lua_table_to_dynamic (lua , data , type_info , & type_registry) . map_err (| e | format ! ("Failed to build event '{}': {}" , "bevy::window::FileDragAndDrop" , e)) ? ; if let Some (concrete_event) = < bevy :: window :: FileDragAndDrop as bevy :: reflect :: FromReflect > :: from_reflect (& dynamic) { drop (registry) ; let mut system_state = bevy :: ecs :: system :: SystemState :: < bevy :: prelude :: EventWriter < bevy :: window :: FileDragAndDrop >> :: new (world) ; let mut event_writer = system_state . get_mut (world) ; event_writer . write (concrete_event) ; bevy :: log :: debug ! ("[EVENT_WRITE] Sent event: {}" , "bevy::window::FileDragAndDrop") ; return Ok (()) ; } return Err (format ! ("Failed to construct event '{}' via FromReflect" , "bevy::window::FileDragAndDrop")) ; } else { return Err (format ! ("Event type '{}' not found in TypeRegistry" , "bevy::window::FileDragAndDrop")) ; } } , "GamepadAxisChangedEvent" | "bevy_input::gamepad::GamepadAxisChangedEvent" | "bevy::input::gamepad::GamepadAxisChangedEvent" => { let type_registry = world . resource :: < bevy :: ecs :: reflect :: AppTypeRegistry > () . clone () ; let registry = type_registry . read () ; if let Some (type_registration) = registry . get_with_type_path ("bevy::input::gamepad::GamepadAxisChangedEvent") . or_else (|| registry . get_with_type_path ("bevy_input::gamepad::GamepadAxisChangedEvent")) { let type_info = type_registration . type_info () ; let dynamic = bevy_lua_ecs :: lua_table_to_dynamic (lua , data , type_info , & type_registry) . map_err (| e | format ! ("Failed to build event '{}': {}" , "bevy::input::gamepad::GamepadAxisChangedEvent" , e)) ? ; if let Some (concrete_event) = < bevy :: input :: gamepad :: GamepadAxisChangedEvent as bevy :: reflect :: FromReflect > :: from_reflect (& dynamic) { drop (registry) ; let mut system_state = bevy :: ecs :: system :: SystemState :: < bevy :: prelude :: EventWriter < bevy :: input :: gamepad :: GamepadAxisChangedEvent >> :: new (world) ; let mut event_writer = system_state . get_mut (world) ; event_writer . write (concrete_event) ; bevy :: log :: debug ! ("[EVENT_WRITE] Sent event: {}" , "bevy::input::gamepad::GamepadAxisChangedEvent") ; return Ok (()) ; } return Err (format ! ("Failed to construct event '{}' via FromReflect" , "bevy::input::gamepad::GamepadAxisChangedEvent")) ; } else { return Err (format ! ("Event type '{}' not found in TypeRegistry" , "bevy::input::gamepad::GamepadAxisChangedEvent")) ; } } , "GamepadButtonChangedEvent" | "bevy_input::gamepad::GamepadButtonChangedEvent" | "bevy::input::gamepad::GamepadButtonChangedEvent" => { let type_registry = world . resource :: < bevy :: ecs :: reflect :: AppTypeRegistry > () . clone () ; let registry = type_registry . read () ; if let Some (type_registration) = registry . get_with_type_path ("bevy::input::gamepad::GamepadButtonChangedEvent") . or_else (|| registry . get_with_type_path ("bevy_input::gamepad::GamepadButtonChangedEvent")) { let type_info = type_registration . type_info () ; let dynamic = bevy_lua_ecs :: lua_table_to_dynamic (lua , data , type_info , & type_registry) . map_err (| e | format ! ("Failed to build event '{}': {}" , "bevy::input::gamepad::GamepadButtonChangedEvent" , e)) ? ; if let Some (concrete_event) = < bevy :: input :: gamepad :: GamepadButtonChangedEvent as bevy :: reflect :: FromReflect > :: from_reflect (& dynamic) { drop (registry) ; let mut system_state = bevy :: ecs :: system :: SystemState :: < bevy :: prelude :: EventWriter < bevy :: input :: gamepad :: GamepadButtonChangedEvent >> :: new (world) ; let mut event_writer = system_state . get_mut (world) ; event_writer . write (concrete_event) ; bevy :: log :: debug ! ("[EVENT_WRITE] Sent event: {}" , "bevy::input::gamepad::GamepadButtonChangedEvent") ; return Ok (()) ; } return Err (format ! ("Failed to construct event '{}' via FromReflect" , "bevy::input::gamepad::GamepadButtonChangedEvent")) ; } else { return Err (format ! ("Event type '{}' not found in TypeRegistry" , "bevy::input::gamepad::GamepadButtonChangedEvent")) ; } } , "GamepadButtonStateChangedEvent" | "bevy_input::gamepad::GamepadButtonStateChangedEvent" | "bevy::input::gamepad::GamepadButtonStateChangedEvent" => { let type_registry = world . resource :: < bevy :: ecs :: reflect :: AppTypeRegistry > () . clone () ; let registry = type_registry . read () ; if let Some (type_registration) = registry . get_with_type_path ("bevy::input::gamepad::GamepadButtonStateChangedEvent") . or_else (|| registry . get_with_type_path ("bevy_input::gamepad::GamepadButtonStateChangedEvent")) { let type_info = type_registration . type_info () ; let dynamic = bevy_lua_ecs :: lua_table_to_dynamic (lua , data , type_info , & type_registry) . map_err (| e | format ! ("Failed to build event '{}': {}" , "bevy::input::gamepad::GamepadButtonStateChangedEvent" , e)) ? ; if let Some (concrete_event) = < bevy :: input :: gamepad :: GamepadButtonStateChangedEvent as bevy :: reflect :: FromReflect > :: from_reflect (& dynamic) { drop (registry) ; let mut system_state = bevy :: ecs :: system :: SystemState :: < bevy :: prelude :: EventWriter < bevy :: input :: gamepad :: GamepadButtonStateChangedEvent >> :: new (world) ; let mut event_writer = system_state . get_mut (world) ; event_writer . write (concrete_event) ; bevy :: log :: debug ! ("[EVENT_WRITE] Sent event: {}" , "bevy::input::gamepad::GamepadButtonStateChangedEvent") ; return Ok (()) ; } return Err (format ! ("Failed to construct event '{}' via FromReflect" , "bevy::input::gamepad::GamepadButtonStateChangedEvent")) ; } else { return Err (format ! ("Event type '{}' not found in TypeRegistry" , "bevy::input::gamepad::GamepadButtonStateChangedEvent")) ; } } , "GamepadConnectionEvent" | "bevy_input::gamepad::GamepadConnectionEvent" | "bevy::input::gamepad::GamepadConnectionEvent" => { let type_registry = world . resource :: < bevy :: ecs :: reflect :: AppTypeRegistry > () . clone () ; let registry = type_registry . read () ; if let Some (type_registration) = registry . get_with_type_path ("bevy::input::gamepad::GamepadConnectionEvent") . or_else (|| registry . get_with_type_path ("bevy_input::gamepad::GamepadConnectionEvent")) { let type_info = type_registration . type_info () ; let dynamic = bevy_lua_ecs :: lua_table_to_dynamic (lua , data , type_info , & type_registry) . map_err (| e | format ! ("Failed to build event '{}': {}" , "bevy::input::gamepad::GamepadConnectionEvent" , e)) ? ; if let Some (concrete_event) = < bevy :: input :: gamepad :: GamepadConnectionEvent as bevy :: reflect :: FromReflect > :: from_reflect (& dynamic) { drop (registry) ; let mut system_state = bevy :: ecs :: system :: SystemState :: < bevy :: prelude :: EventWriter < bevy :: input :: gamepad :: GamepadConnectionEvent >> :: new (world) ; let mut event_writer = system_state . get_mut (world) ; event_writer . write (concrete_event) ; bevy :: log :: debug ! ("[EVENT_WRITE] Sent event: {}" , "bevy::input::gamepad::GamepadConnectionEvent") ; return Ok (()) ; } return Err (format ! ("Failed to construct event '{}' via FromReflect" , "bevy::input::gamepad::GamepadConnectionEvent")) ; } else { return Err (format ! ("Event type '{}' not found in TypeRegistry" , "bevy::input::gamepad::GamepadConnectionEvent")) ; } } , "GamepadEvent" | "bevy_input::gamepad::GamepadEvent" | "bevy::input::gamepad::GamepadEvent" => { let type_registry = world . resource :: < bevy :: ecs :: reflect :: AppTypeRegistry > () . clone () ; let registry = type_registry . read () ; if let Some (type_registration) = registry . get_with_type_path ("bevy::input::gamepad::GamepadEvent") . or_else (|| registry . get_with_type_path ("bevy_input::gamepad::GamepadEvent")) { let type_info = type_registration . type_info () ; let dynamic = bevy_lua_ecs :: lua_table_to_dynamic (lua , data , type_info , & type_registry) . map_err (| e | format ! ("Failed to build event '{}': {}" , "bevy::input::gamepad::GamepadEvent" , e)) ? ; if let Some (concrete_event) = < bevy :: input :: gamepad :: GamepadEvent as bevy :: reflect :: FromReflect > :: from_reflect (& dynamic) { drop (registry) ; let mut system_state = bevy :: ecs :: system :: SystemState :: < bevy :: prelude :: EventWriter < bevy :: input :: gamepad :: GamepadEvent >> :: new (world) ; let mut event_writer = system_state . get_mut (world) ; event_writer . write (concrete_event) ; bevy :: log :: debug ! ("[EVENT_WRITE] Sent event: {}" , "bevy::input::gamepad::GamepadEvent") ; return Ok (()) ; } return Err (format ! ("Failed to construct event '{}' via FromReflect" , "bevy::input::gamepad::GamepadEvent")) ; } else { return Err (format ! ("Event type '{}' not found in TypeRegistry" , "bevy::input::gamepad::GamepadEvent")) ; } } , "GamepadRumbleRequest" | "bevy_input::gamepad::GamepadRumbleRequest" | "bevy::input::gamepad::GamepadRumbleRequest" => { let type_registry = world . resource :: < bevy :: ecs :: reflect :: AppTypeRegistry > () . clone () ; let registry = type_registry . read () ; if let Some (type_registration) = registry . get_with_type_path ("bevy::input::gamepad::GamepadRumbleRequest") . or_else (|| registry . get_with_type_path ("bevy_input::gamepad::GamepadRumbleRequest")) { let type_info = type_registration . type_info () ; let dynamic = bevy_lua_ecs :: lua_table_to_dynamic (lua , data , type_info , & type_registry) . map_err (| e | format ! ("Failed to build event '{}': {}" , "bevy::input::gamepad::GamepadRumbleRequest" , e)) ? ; if let Some (concrete_event) = < bevy :: input :: gamepad :: GamepadRumbleRequest as bevy :: reflect :: FromReflect > :: from_reflect (& dynamic) { drop (registry) ; let mut system_state = bevy :: ecs :: system :: SystemState :: < bevy :: prelude :: EventWriter < bevy :: input :: gamepad :: GamepadRumbleRequest >> :: new (world) ; let mut event_writer = system_state . get_mut (world) ; event_writer . write (concrete_event) ; bevy :: log :: debug ! ("[EVENT_WRITE] Sent event: {}" , "bevy::input::gamepad::GamepadRumbleRequest") ; return Ok (()) ; } return Err (format ! ("Failed to construct event '{}' via FromReflect" , "bevy::input::gamepad::GamepadRumbleRequest")) ; } else { return Err (format ! ("Event type '{}' not found in TypeRegistry" , "bevy::input::gamepad::GamepadRumbleRequest")) ; } } , "KeyboardFocusLost" | "bevy_input::keyboard::KeyboardFocusLost" | "bevy::input::keyboard::KeyboardFocusLost" => { let type_registry = world . resource :: < bevy :: ecs :: reflect :: AppTypeRegistry > () . clone () ; let registry = type_registry . read () ; if let Some (type_registration) = registry . get_with_type_path ("bevy::input::keyboard::KeyboardFocusLost") . or_else (|| registry . get_with_type_path ("bevy_input::keyboard::KeyboardFocusLost")) { let type_info = type_registration . type_info () ; let dynamic = bevy_lua_ecs :: lua_table_to_dynamic (lua , data , type_info , & type_registry) . map_err (| e | format ! ("Failed to build event '{}': {}" , "bevy::input::keyboard::KeyboardFocusLost" , e)) ? ; if let Some (concrete_event) = < bevy :: input :: keyboard :: KeyboardFocusLost as bevy :: reflect :: FromReflect > :: from_reflect (& dynamic) { drop (registry) ; let mut system_state = bevy :: ecs :: system :: SystemState :: < bevy :: prelude :: EventWriter < bevy :: input :: keyboard :: KeyboardFocusLost >> :: new (world) ; let mut event_writer = system_state . get_mut (world) ; event_writer . write (concrete_event) ; bevy :: log :: debug ! ("[EVENT_WRITE] Sent event: {}" , "bevy::input::keyboard::KeyboardFocusLost") ; return Ok (()) ; } return Err (format ! ("Failed to construct event '{}' via FromReflect" , "bevy::input::keyboard::KeyboardFocusLost")) ; } else { return Err (format ! ("Event type '{}' not found in TypeRegistry" , "bevy::input::keyboard::KeyboardFocusLost")) ; } } , "KeyboardInput" | "bevy_input::keyboard::KeyboardInput" | "bevy::input::keyboard::KeyboardInput" => { let type_registry = world . resource :: < bevy :: ecs :: reflect :: AppTypeRegistry > () . clone () ; let registry = type_registry . read () ; if let Some (type_registration) = registry . get_with_type_path ("bevy::input::keyboard::KeyboardInput") . or_else (|| registry . get_with_type_path ("bevy_input::keyboard::KeyboardInput")) { let type_info = type_registration . type_info () ; let dynamic = bevy_lua_ecs :: lua_table_to_dynamic (lua , data , type_info , & type_registry) . map_err (| e | format ! ("Failed to build event '{}': {}" , "bevy::input::keyboard::KeyboardInput" , e)) ? ; if let Some (concrete_event) = < bevy :: input :: keyboard :: KeyboardInput as bevy :: reflect :: FromReflect > :: from_reflect (& dynamic) { drop (registry) ; let mut system_state = bevy :: ecs :: system :: SystemState :: < bevy :: prelude :: EventWriter < bevy :: input :: keyboard :: KeyboardInput >> :: new (world) ; let mut event_writer = system_state . get_mut (world) ; event_writer . write (concrete_event) ; bevy :: log :: debug ! ("[EVENT_WRITE] Sent event: {}" , "bevy::input::keyboard::KeyboardInput") ; return Ok (()) ; } return Err (format ! ("Failed to construct event '{}' via FromReflect" , "bevy::input::keyboard::KeyboardInput")) ; } else { return Err (format ! ("Event type '{}' not found in TypeRegistry" , "bevy::input::keyboard::KeyboardInput")) ; } } , "MouseButtonInput" | "bevy_input::mouse::MouseButtonInput" | "bevy::input::mouse::MouseButtonInput" => { let type_registry = world . resource :: < bevy :: ecs :: reflect :: AppTypeRegistry > () . clone () ; let registry = type_registry . read () ; if let Some (type_registration) = registry . get_with_type_path ("bevy::input::mouse::MouseButtonInput") . or_else (|| registry . get_with_type_path ("bevy_input::mouse::MouseButtonInput")) { let type_info = type_registration . type_info () ; let dynamic = bevy_lua_ecs :: lua_table_to_dynamic (lua , data , type_info , & type_registry) . map_err (| e | format ! ("Failed to build event '{}': {}" , "bevy::input::mouse::MouseButtonInput" , e)) ? ; if let Some (concrete_event) = < bevy :: input :: mouse :: MouseButtonInput as bevy :: reflect :: FromReflect > :: from_reflect (& dynamic) { drop (registry) ; let mut system_state = bevy :: ecs :: system :: SystemState :: < bevy :: prelude :: EventWriter < bevy :: input :: mouse :: MouseButtonInput >> :: new (world) ; let mut event_writer = system_state . get_mut (world) ; event_writer . write (concrete_event) ; bevy :: log :: debug ! ("[EVENT_WRITE] Sent event: {}" , "bevy::input::mouse::MouseButtonInput") ; return Ok (()) ; } return Err (format ! ("Failed to construct event '{}' via FromReflect" , "bevy::input::mouse::MouseButtonInput")) ; } else { return Err (format ! ("Event type '{}' not found in TypeRegistry" , "bevy::input::mouse::MouseButtonInput")) ; } } , "MouseMotion" | "bevy_input::mouse::MouseMotion" | "bevy::input::mouse::MouseMotion" => { let type_registry = world . resource :: < bevy :: ecs :: reflect :: AppTypeRegistry > () . clone () ; let registry = type_registry . read () ; if let Some (type_registration) = registry . get_with_type_path ("bevy::input::mouse::MouseMotion") . or_else (|| registry . get_with_type_path ("bevy_input::mouse::MouseMotion")) { let type_info = type_registration . type_info () ; let dynamic = bevy_lua_ecs :: lua_table_to_dynamic (lua , data , type_info , & type_registry) . map_err (| e | format ! ("Failed to build event '{}': {}" , "bevy::input::mouse::MouseMotion" , e)) ? ; if let Some (concrete_event) = < bevy :: input :: mouse :: MouseMotion as bevy :: reflect :: FromReflect > :: from_reflect (& dynamic) { drop (registry) ; let mut system_state = bevy :: ecs :: system :: SystemState :: < bevy :: prelude :: EventWriter < bevy :: input :: mouse :: MouseMotion >> :: new (world) ; let mut event_writer = system_state . get_mut (world) ; event_writer . write (concrete_event) ; bevy :: log :: debug ! ("[EVENT_WRITE] Sent event: {}" , "bevy::input::mouse::MouseMotion") ; return Ok (()) ; } return Err (format ! ("Failed to construct event '{}' via FromReflect" , "bevy::input::mouse::MouseMotion")) ; } else { return Err (format ! ("Event type '{}' not found in TypeRegistry" , "bevy::input::mouse::MouseMotion")) ; } } , "MouseWheel" | "bevy_input::mouse::MouseWheel" | "bevy::input::mouse::MouseWheel" => { let type_registry = world . resource :: < bevy :: ecs :: reflect :: AppTypeRegistry > () . clone () ; let registry = type_registry . read () ; if let Some (type_registration) = registry . get_with_type_path ("bevy::input::mouse::MouseWheel") . or_else (|| registry . get_with_type_path ("bevy_input::mouse::MouseWheel")) { let type_info = type_registration . type_info () ; let dynamic = bevy_lua_ecs :: lua_table_to_dynamic (lua , data , type_info , & type_registry) . map_err (| e | format ! ("Failed to build event '{}': {}" , "bevy::input::mouse::MouseWheel" , e)) ? ; if let Some (concrete_event) = < bevy :: input :: mouse :: MouseWheel as bevy :: reflect :: FromReflect > :: from_reflect (& dynamic) { drop (registry) ; let mut system_state = bevy :: ecs :: system :: SystemState :: < bevy :: prelude :: EventWriter < bevy :: input :: mouse :: MouseWheel >> :: new (world) ; let mut event_writer = system_state . get_mut (world) ; event_writer . write (concrete_event) ; bevy :: log :: debug ! ("[EVENT_WRITE] Sent event: {}" , "bevy::input::mouse::MouseWheel") ; return Ok (()) ; } return Err (format ! ("Failed to construct event '{}' via FromReflect" , "bevy::input::mouse::MouseWheel")) ; } else { return Err (format ! ("Event type '{}' not found in TypeRegistry" , "bevy::input::mouse::MouseWheel")) ; } } , "PointerInput" | "bevy_picking::pointer::PointerInput" | "bevy::picking::pointer::PointerInput" => { let type_registry = world . resource :: < bevy :: ecs :: reflect :: AppTypeRegistry > () . clone () ; let registry = type_registry . read () ; if let Some (type_registration) = registry . get_with_type_path ("bevy::picking::pointer::PointerInput") . or_else (|| registry . get_with_type_path ("bevy_picking::pointer::PointerInput")) { let type_info = type_registration . type_info () ; let dynamic = bevy_lua_ecs :: lua_table_to_dynamic (lua , data , type_info , & type_registry) . map_err (| e | format ! ("Failed to build event '{}': {}" , "bevy::picking::pointer::PointerInput" , e)) ? ; if let Some (concrete_event) = < bevy :: picking :: pointer :: PointerInput as bevy :: reflect :: FromReflect > :: from_reflect (& dynamic) { drop (registry) ; let mut system_state = bevy :: ecs :: system :: SystemState :: < bevy :: prelude :: EventWriter < bevy :: picking :: pointer :: PointerInput >> :: new (world) ; let mut event_writer = system_state . get_mut (world) ; event_writer . write (concrete_event) ; bevy :: log :: debug ! ("[EVENT_WRITE] Sent event: {}" , "bevy::picking::pointer::PointerInput") ; return Ok (()) ; } return Err (format ! ("Failed to construct event '{}' via FromReflect" , "bevy::picking::pointer::PointerInput")) ; } else { return Err (format ! ("Event type '{}' not found in TypeRegistry" , "bevy::picking::pointer::PointerInput")) ; } } , "RawGamepadAxisChangedEvent" | "bevy_input::gamepad::RawGamepadAxisChangedEvent" | "bevy::input::gamepad::RawGamepadAxisChangedEvent" => { let type_registry = world . resource :: < bevy :: ecs :: reflect :: AppTypeRegistry > () . clone () ; let registry = type_registry . read () ; if let Some (type_registration) = registry . get_with_type_path ("bevy::input::gamepad::RawGamepadAxisChangedEvent") . or_else (|| registry . get_with_type_path ("bevy_input::gamepad::RawGamepadAxisChangedEvent")) { let type_info = type_registration . type_info () ; let dynamic = bevy_lua_ecs :: lua_table_to_dynamic (lua , data , type_info , & type_registry) . map_err (| e | format ! ("Failed to build event '{}': {}" , "bevy::input::gamepad::RawGamepadAxisChangedEvent" , e)) ? ; if let Some (concrete_event) = < bevy :: input :: gamepad :: RawGamepadAxisChangedEvent as bevy :: reflect :: FromReflect > :: from_reflect (& dynamic) { drop (registry) ; let mut system_state = bevy :: ecs :: system :: SystemState :: < bevy :: prelude :: EventWriter < bevy :: input :: gamepad :: RawGamepadAxisChangedEvent >> :: new (world) ; let mut event_writer = system_state . get_mut (world) ; event_writer . write (concrete_event) ; bevy :: log :: debug ! ("[EVENT_WRITE] Sent event: {}" , "bevy::input::gamepad::RawGamepadAxisChangedEvent") ; return Ok (()) ; } return Err (format ! ("Failed to construct event '{}' via FromReflect" , "bevy::input::gamepad::RawGamepadAxisChangedEvent")) ; } else { return Err (format ! ("Event type '{}' not found in TypeRegistry" , "bevy::input::gamepad::RawGamepadAxisChangedEvent")) ; } } , "RawGamepadButtonChangedEvent" | "bevy_input::gamepad::RawGamepadButtonChangedEvent" | "bevy::input::gamepad::RawGamepadButtonChangedEvent" => { let type_registry = world . resource :: < bevy :: ecs :: reflect :: AppTypeRegistry > () . clone () ; let registry = type_registry . read () ; if let Some (type_registration) = registry . get_with_type_path ("bevy::input::gamepad::RawGamepadButtonChangedEvent") . or_else (|| registry . get_with_type_path ("bevy_input::gamepad::RawGamepadButtonChangedEvent")) { let type_info = type_registration . type_info () ; let dynamic = bevy_lua_ecs :: lua_table_to_dynamic (lua , data , type_info , & type_registry) . map_err (| e | format ! ("Failed to build event '{}': {}" , "bevy::input::gamepad::RawGamepadButtonChangedEvent" , e)) ? ; if let Some (concrete_event) = < bevy :: input :: gamepad :: RawGamepadButtonChangedEvent as bevy :: reflect :: FromReflect > :: from_reflect (& dynamic) { drop (registry) ; let mut system_state = bevy :: ecs :: system :: SystemState :: < bevy :: prelude :: EventWriter < bevy :: input :: gamepad :: RawGamepadButtonChangedEvent >> :: new (world) ; let mut event_writer = system_state . get_mut (world) ; event_writer . write (concrete_event) ; bevy :: log :: debug ! ("[EVENT_WRITE] Sent event: {}" , "bevy::input::gamepad::RawGamepadButtonChangedEvent") ; return Ok (()) ; } return Err (format ! ("Failed to construct event '{}' via FromReflect" , "bevy::input::gamepad::RawGamepadButtonChangedEvent")) ; } else { return Err (format ! ("Event type '{}' not found in TypeRegistry" , "bevy::input::gamepad::RawGamepadButtonChangedEvent")) ; } } , "RawGamepadEvent" | "bevy_input::gamepad::RawGamepadEvent" | "bevy::input::gamepad::RawGamepadEvent" => { let type_registry = world . resource :: < bevy :: ecs :: reflect :: AppTypeRegistry > () . clone () ; let registry = type_registry . read () ; if let Some (type_registration) = registry . get_with_type_path ("bevy::input::gamepad::RawGamepadEvent") . or_else (|| registry . get_with_type_path ("bevy_input::gamepad::RawGamepadEvent")) { let type_info = type_registration . type_info () ; let dynamic = bevy_lua_ecs :: lua_table_to_dynamic (lua , data , type_info , & type_registry) . map_err (| e | format ! ("Failed to build event '{}': {}" , "bevy::input::gamepad::RawGamepadEvent" , e)) ? ; if let Some (concrete_event) = < bevy :: input :: gamepad :: RawGamepadEvent as bevy :: reflect :: FromReflect > :: from_reflect (& dynamic) { drop (registry) ; let mut system_state = bevy :: ecs :: system :: SystemState :: < bevy :: prelude :: EventWriter < bevy :: input :: gamepad :: RawGamepadEvent >> :: new (world) ; let mut event_writer = system_state . get_mut (world) ; event_writer . write (concrete_event) ; bevy :: log :: debug ! ("[EVENT_WRITE] Sent event: {}" , "bevy::input::gamepad::RawGamepadEvent") ; return Ok (()) ; } return Err (format ! ("Failed to construct event '{}' via FromReflect" , "bevy::input::gamepad::RawGamepadEvent")) ; } else { return Err (format ! ("Event type '{}' not found in TypeRegistry" , "bevy::input::gamepad::RawGamepadEvent")) ; } } , "RequestRedraw" | "bevy_window::event::RequestRedraw" | "bevy::window::RequestRedraw" => { let type_registry = world . resource :: < bevy :: ecs :: reflect :: AppTypeRegistry > () . clone () ; let registry = type_registry . read () ; if let Some (type_registration) = registry . get_with_type_path ("bevy::window::RequestRedraw") . or_else (|| registry . get_with_type_path ("bevy_window::event::RequestRedraw")) { let type_info = type_registration . type_info () ; let dynamic = bevy_lua_ecs :: lua_table_to_dynamic (lua , data , type_info , & type_registry) . map_err (| e | format ! ("Failed to build event '{}': {}" , "bevy::window::RequestRedraw" , e)) ? ; if let Some (concrete_event) = < bevy :: window :: RequestRedraw as bevy :: reflect :: FromReflect > :: from_reflect (& dynamic) { drop (registry) ; let mut system_state = bevy :: ecs :: system :: SystemState :: < bevy :: prelude :: EventWriter < bevy :: window :: RequestRedraw >> :: new (world) ; let mut event_writer = system_state . get_mut (world) ; event_writer . write (concrete_event) ; bevy :: log :: debug ! ("[EVENT_WRITE] Sent event: {}" , "bevy::window::RequestRedraw") ; return Ok (()) ; } return Err (format ! ("Failed to construct event '{}' via FromReflect" , "bevy::window::RequestRedraw")) ; } else { return Err (format ! ("Event type '{}' not found in TypeRegistry" , "bevy::window::RequestRedraw")) ; } } , "TouchInput" | "bevy_input::touch::TouchInput" | "bevy::input::touch::TouchInput" => { let type_registry = world . resource :: < bevy :: ecs :: reflect :: AppTypeRegistry > () . clone () ; let registry = type_registry . read () ; if let Some (type_registration) = registry . get_with_type_path ("bevy::input::touch::TouchInput") . or_else (|| registry . get_with_type_path ("bevy_input::touch::TouchInput")) { let type_info = type_registration . type_info () ; let dynamic = bevy_lua_ecs :: lua_table_to_dynamic (lua , data , type_info , & type_registry) . map_err (| e | format ! ("Failed to build event '{}': {}" , "bevy::input::touch::TouchInput" , e)) ? ; if let Some (concrete_event) = < bevy :: input :: touch :: TouchInput as bevy :: reflect :: FromReflect > :: from_reflect (& dynamic) { drop (registry) ; let mut system_state = bevy :: ecs :: system :: SystemState :: < bevy :: prelude :: EventWriter < bevy :: input :: touch :: TouchInput >> :: new (world) ; let mut event_writer = system_state . get_mut (world) ; event_writer . write (concrete_event) ; bevy :: log :: debug ! ("[EVENT_WRITE] Sent event: {}" , "bevy::input::touch::TouchInput") ; return Ok (()) ; } return Err (format ! ("Failed to construct event '{}' via FromReflect" , "bevy::input::touch::TouchInput")) ; } else { return Err (format ! ("Event type '{}' not found in TypeRegistry" , "bevy::input::touch::TouchInput")) ; } } , "WindowBackendScaleFactorChanged" | "bevy_window::event::WindowBackendScaleFactorChanged" | "bevy::window::WindowBackendScaleFactorChanged" => { let type_registry = world . resource :: < bevy :: ecs :: reflect :: AppTypeRegistry > () . clone () ; let registry = type_registry . read () ; if let Some (type_registration) = registry . get_with_type_path ("bevy::window::WindowBackendScaleFactorChanged") . or_else (|| registry . get_with_type_path ("bevy_window::event::WindowBackendScaleFactorChanged")) { let type_info = type_registration . type_info () ; let dynamic = bevy_lua_ecs :: lua_table_to_dynamic (lua , data , type_info , & type_registry) . map_err (| e | format ! ("Failed to build event '{}': {}" , "bevy::window::WindowBackendScaleFactorChanged" , e)) ? ; if let Some (concrete_event) = < bevy :: window :: WindowBackendScaleFactorChanged as bevy :: reflect :: FromReflect > :: from_reflect (& dynamic) { drop (registry) ; let mut system_state = bevy :: ecs :: system :: SystemState :: < bevy :: prelude :: EventWriter < bevy :: window :: WindowBackendScaleFactorChanged >> :: new (world) ; let mut event_writer = system_state . get_mut (world) ; event_writer . write (concrete_event) ; bevy :: log :: debug ! ("[EVENT_WRITE] Sent event: {}" , "bevy::window::WindowBackendScaleFactorChanged") ; return Ok (()) ; } return Err (format ! ("Failed to construct event '{}' via FromReflect" , "bevy::window::WindowBackendScaleFactorChanged")) ; } else { return Err (format ! ("Event type '{}' not found in TypeRegistry" , "bevy::window::WindowBackendScaleFactorChanged")) ; } } , "WindowCloseRequested" | "bevy_window::event::WindowCloseRequested" | "bevy::window::WindowCloseRequested" => { let type_registry = world . resource :: < bevy :: ecs :: reflect :: AppTypeRegistry > () . clone () ; let registry = type_registry . read () ; if let Some (type_registration) = registry . get_with_type_path ("bevy::window::WindowCloseRequested") . or_else (|| registry . get_with_type_path ("bevy_window::event::WindowCloseRequested")) { let type_info = type_registration . type_info () ; let dynamic = bevy_lua_ecs :: lua_table_to_dynamic (lua , data , type_info , & type_registry) . map_err (| e | format ! ("Failed to build event '{}': {}" , "bevy::window::WindowCloseRequested" , e)) ? ; if let Some (concrete_event) = < bevy :: window :: WindowCloseRequested as bevy :: reflect :: FromReflect > :: from_reflect (& dynamic) { drop (registry) ; let mut system_state = bevy :: ecs :: system :: SystemState :: < bevy :: prelude :: EventWriter < bevy :: window :: WindowCloseRequested >> :: new (world) ; let mut event_writer = system_state . get_mut (world) ; event_writer . write (concrete_event) ; bevy :: log :: debug ! ("[EVENT_WRITE] Sent event: {}" , "bevy::window::WindowCloseRequested") ; return Ok (()) ; } return Err (format ! ("Failed to construct event '{}' via FromReflect" , "bevy::window::WindowCloseRequested")) ; } else { return Err (format ! ("Event type '{}' not found in TypeRegistry" , "bevy::window::WindowCloseRequested")) ; } } , "WindowClosed" | "bevy_window::event::WindowClosed" | "bevy::window::WindowClosed" => { let type_registry = world . resource :: < bevy :: ecs :: reflect :: AppTypeRegistry > () . clone () ; let registry = type_registry . read () ; if let Some (type_registration) = registry . get_with_type_path ("bevy::window::WindowClosed") . or_else (|| registry . get_with_type_path ("bevy_window::event::WindowClosed")) { let type_info = type_registration . type_info () ; let dynamic = bevy_lua_ecs :: lua_table_to_dynamic (lua , data , type_info , & type_registry) . map_err (| e | format ! ("Failed to build event '{}': {}" , "bevy::window::WindowClosed" , e)) ? ; if let Some (concrete_event) = < bevy :: window :: WindowClosed as bevy :: reflect :: FromReflect > :: from_reflect (& dynamic) { drop (registry) ; let mut system_state = bevy :: ecs :: system :: SystemState :: < bevy :: prelude :: EventWriter < bevy :: window :: WindowClosed >> :: new (world) ; let mut event_writer = system_state . get_mut (world) ; event_writer . write (concrete_event) ; bevy :: log :: debug ! ("[EVENT_WRITE] Sent event: {}" , "bevy::window::WindowClosed") ; return Ok (()) ; } return Err (format ! ("Failed to construct event '{}' via FromReflect" , "bevy::window::WindowClosed")) ; } else { return Err (format ! ("Event type '{}' not found in TypeRegistry" , "bevy::window::WindowClosed")) ; } } , "WindowClosing" | "bevy_window::event::WindowClosing" | "bevy::window::WindowClosing" => { let type_registry = world . resource :: < bevy :: ecs :: reflect :: AppTypeRegistry > () . clone () ; let registry = type_registry . read () ; if let Some (type_registration) = registry . get_with_type_path ("bevy::window::WindowClosing") . or_else (|| registry . get_with_type_path ("bevy_window::event::WindowClosing")) { let type_info = type_registration . type_info () ; let dynamic = bevy_lua_ecs :: lua_table_to_dynamic (lua , data , type_info , & type_registry) . map_err (| e | format ! ("Failed to build event '{}': {}" , "bevy::window::WindowClosing" , e)) ? ; if let Some (concrete_event) = < bevy :: window :: WindowClosing as bevy :: reflect :: FromReflect > :: from_reflect (& dynamic) { drop (registry) ; let mut system_state = bevy :: ecs :: system :: SystemState :: < bevy :: prelude :: EventWriter < bevy :: window :: WindowClosing >> :: new (world) ; let mut event_writer = system_state . get_mut (world) ; event_writer . write (concrete_event) ; bevy :: log :: debug ! ("[EVENT_WRITE] Sent event: {}" , "bevy::window::WindowClosing") ; return Ok (()) ; } return Err (format ! ("Failed to construct event '{}' via FromReflect" , "bevy::window::WindowClosing")) ; } else { return Err (format ! ("Event type '{}' not found in TypeRegistry" , "bevy::window::WindowClosing")) ; } } , "WindowCreated" | "bevy_window::event::WindowCreated" | "bevy::window::WindowCreated" => { let type_registry = world . resource :: < bevy :: ecs :: reflect :: AppTypeRegistry > () . clone () ; let registry = type_registry . read () ; if let Some (type_registration) = registry . get_with_type_path ("bevy::window::WindowCreated") . or_else (|| registry . get_with_type_path ("bevy_window::event::WindowCreated")) { let type_info = type_registration . type_info () ; let dynamic = bevy_lua_ecs :: lua_table_to_dynamic (lua , data , type_info , & type_registry) . map_err (| e | format ! ("Failed to build event '{}': {}" , "bevy::window::WindowCreated" , e)) ? ; if let Some (concrete_event) = < bevy :: window :: WindowCreated as bevy :: reflect :: FromReflect > :: from_reflect (& dynamic) { drop (registry) ; let mut system_state = bevy :: ecs :: system :: SystemState :: < bevy :: prelude :: EventWriter < bevy :: window :: WindowCreated >> :: new (world) ; let mut event_writer = system_state . get_mut (world) ; event_writer . write (concrete_event) ; bevy :: log :: debug ! ("[EVENT_WRITE] Sent event: {}" , "bevy::window::WindowCreated") ; return Ok (()) ; } return Err (format ! ("Failed to construct event '{}' via FromReflect" , "bevy::window::WindowCreated")) ; } else { return Err (format ! ("Event type '{}' not found in TypeRegistry" , "bevy::window::WindowCreated")) ; } } , "WindowDestroyed" | "bevy_window::event::WindowDestroyed" | "bevy::window::WindowDestroyed" => { let type_registry = world . resource :: < bevy :: ecs :: reflect :: AppTypeRegistry > () . clone () ; let registry = type_registry . read () ; if let Some (type_registration) = registry . get_with_type_path ("bevy::window::WindowDestroyed") . or_else (|| registry . get_with_type_path ("bevy_window::event::WindowDestroyed")) { let type_info = type_registration . type_info () ; let dynamic = bevy_lua_ecs :: lua_table_to_dynamic (lua , data , type_info , & type_registry) . map_err (| e | format ! ("Failed to build event '{}': {}" , "bevy::window::WindowDestroyed" , e)) ? ; if let Some (concrete_event) = < bevy :: window :: WindowDestroyed as bevy :: reflect :: FromReflect > :: from_reflect (& dynamic) { drop (registry) ; let mut system_state = bevy :: ecs :: system :: SystemState :: < bevy :: prelude :: EventWriter < bevy :: window :: WindowDestroyed >> :: new (world) ; let mut event_writer = system_state . get_mut (world) ; event_writer . write (concrete_event) ; bevy :: log :: debug ! ("[EVENT_WRITE] Sent event: {}" , "bevy::window::WindowDestroyed") ; return Ok (()) ; } return Err (format ! ("Failed to construct event '{}' via FromReflect" , "bevy::window::WindowDestroyed")) ; } else { return Err (format ! ("Event type '{}' not found in TypeRegistry" , "bevy::window::WindowDestroyed")) ; } } , "WindowEvent" | "bevy_window::event::WindowEvent" | "bevy::window::WindowEvent" => { let type_registry = world . resource :: < bevy :: ecs :: reflect :: AppTypeRegistry > () . clone () ; let registry = type_registry . read () ; if let Some (type_registration) = registry . get_with_type_path ("bevy::window::WindowEvent") . or_else (|| registry . get_with_type_path ("bevy_window::event::WindowEvent")) { let type_info = type_registration . type_info () ; let dynamic = bevy_lua_ecs :: lua_table_to_dynamic (lua , data , type_info , & type_registry) . map_err (| e | format ! ("Failed to build event '{}': {}" , "bevy::window::WindowEvent" , e)) ? ; if let Some (concrete_event) = < bevy :: window :: WindowEvent as bevy :: reflect :: FromReflect > :: from_reflect (& dynamic) { drop (registry) ; let mut system_state = bevy :: ecs :: system :: SystemState :: < bevy :: prelude :: EventWriter < bevy :: window :: WindowEvent >> :: new (world) ; let mut event_writer = system_state . get_mut (world) ; event_writer . write (concrete_event) ; bevy :: log :: debug ! ("[EVENT_WRITE] Sent event: {}" , "bevy::window::WindowEvent") ; return Ok (()) ; } return Err (format ! ("Failed to construct event '{}' via FromReflect" , "bevy::window::WindowEvent")) ; } else { return Err (format ! ("Event type '{}' not found in TypeRegistry" , "bevy::window::WindowEvent")) ; } } , "WindowFocused" | "bevy_window::event::WindowFocused" | "bevy::window::WindowFocused" => { let type_registry = world . resource :: < bevy :: ecs :: reflect :: AppTypeRegistry > () . clone () ; let registry = type_registry . read () ; if let Some (type_registration) = registry . get_with_type_path ("bevy::window::WindowFocused") . or_else (|| registry . get_with_type_path ("bevy_window::event::WindowFocused")) { let type_info = type_registration . type_info () ; let dynamic = bevy_lua_ecs :: lua_table_to_dynamic (lua , data , type_info , & type_registry) . map_err (| e | format ! ("Failed to build event '{}': {}" , "bevy::window::WindowFocused" , e)) ? ; if let Some (concrete_event) = < bevy :: window :: WindowFocused as bevy :: reflect :: FromReflect > :: from_reflect (& dynamic) { drop (registry) ; let mut system_state = bevy :: ecs :: system :: SystemState :: < bevy :: prelude :: EventWriter < bevy :: window :: WindowFocused >> :: new (world) ; let mut event_writer = system_state . get_mut (world) ; event_writer . write (concrete_event) ; bevy :: log :: debug ! ("[EVENT_WRITE] Sent event: {}" , "bevy::window::WindowFocused") ; return Ok (()) ; } return Err (format ! ("Failed to construct event '{}' via FromReflect" , "bevy::window::WindowFocused")) ; } else { return Err (format ! ("Event type '{}' not found in TypeRegistry" , "bevy::window::WindowFocused")) ; } } , "WindowMoved" | "bevy_window::event::WindowMoved" | "bevy::window::WindowMoved" => { let type_registry = world . resource :: < bevy :: ecs :: reflect :: AppTypeRegistry > () . clone () ; let registry = type_registry . read () ; if let Some (type_registration) = registry . get_with_type_path ("bevy::window::WindowMoved") . or_else (|| registry . get_with_type_path ("bevy_window::event::WindowMoved")) { let type_info = type_registration . type_info () ; let dynamic = bevy_lua_ecs :: lua_table_to_dynamic (lua , data , type_info , & type_registry) . map_err (| e | format ! ("Failed to build event '{}': {}" , "bevy::window::WindowMoved" , e)) ? ; if let Some (concrete_event) = < bevy :: window :: WindowMoved as bevy :: reflect :: FromReflect > :: from_reflect (& dynamic) { drop (registry) ; let mut system_state = bevy :: ecs :: system :: SystemState :: < bevy :: prelude :: EventWriter < bevy :: window :: WindowMoved >> :: new (world) ; let mut event_writer = system_state . get_mut (world) ; event_writer . write (concrete_event) ; bevy :: log :: debug ! ("[EVENT_WRITE] Sent event: {}" , "bevy::window::WindowMoved") ; return Ok (()) ; } return Err (format ! ("Failed to construct event '{}' via FromReflect" , "bevy::window::WindowMoved")) ; } else { return Err (format ! ("Event type '{}' not found in TypeRegistry" , "bevy::window::WindowMoved")) ; } } , "WindowOccluded" | "bevy_window::event::WindowOccluded" | "bevy::window::WindowOccluded" => { let type_registry = world . resource :: < bevy :: ecs :: reflect :: AppTypeRegistry > () . clone () ; let registry = type_registry . read () ; if let Some (type_registration) = registry . get_with_type_path ("bevy::window::WindowOccluded") . or_else (|| registry . get_with_type_path ("bevy_window::event::WindowOccluded")) { let type_info = type_registration . type_info () ; let dynamic = bevy_lua_ecs :: lua_table_to_dynamic (lua , data , type_info , & type_registry) . map_err (| e | format ! ("Failed to build event '{}': {}" , "bevy::window::WindowOccluded" , e)) ? ; if let Some (concrete_event) = < bevy :: window :: WindowOccluded as bevy :: reflect :: FromReflect > :: from_reflect (& dynamic) { drop (registry) ; let mut system_state = bevy :: ecs :: system :: SystemState :: < bevy :: prelude :: EventWriter < bevy :: window :: WindowOccluded >> :: new (world) ; let mut event_writer = system_state . get_mut (world) ; event_writer . write (concrete_event) ; bevy :: log :: debug ! ("[EVENT_WRITE] Sent event: {}" , "bevy::window::WindowOccluded") ; return Ok (()) ; } return Err (format ! ("Failed to construct event '{}' via FromReflect" , "bevy::window::WindowOccluded")) ; } else { return Err (format ! ("Event type '{}' not found in TypeRegistry" , "bevy::window::WindowOccluded")) ; } } , "WindowResized" | "bevy_window::event::WindowResized" | "bevy::window::WindowResized" => { let type_registry = world . resource :: < bevy :: ecs :: reflect :: AppTypeRegistry > () . clone () ; let registry = type_registry . read () ; if let Some (type_registration) = registry . get_with_type_path ("bevy::window::WindowResized") . or_else (|| registry . get_with_type_path ("bevy_window::event::WindowResized")) { let type_info = type_registration . type_info () ; let dynamic = bevy_lua_ecs :: lua_table_to_dynamic (lua , data , type_info , & type_registry) . map_err (| e | format ! ("Failed to build event '{}': {}" , "bevy::window::WindowResized" , e)) ? ; if let Some (concrete_event) = < bevy :: window :: WindowResized as bevy :: reflect :: FromReflect > :: from_reflect (& dynamic) { drop (registry) ; let mut system_state = bevy :: ecs :: system :: SystemState :: < bevy :: prelude :: EventWriter < bevy :: window :: WindowResized >> :: new (world) ; let mut event_writer = system_state . get_mut (world) ; event_writer . write (concrete_event) ; bevy :: log :: debug ! ("[EVENT_WRITE] Sent event: {}" , "bevy::window::WindowResized") ; return Ok (()) ; } return Err (format ! ("Failed to construct event '{}' via FromReflect" , "bevy::window::WindowResized")) ; } else { return Err (format ! ("Event type '{}' not found in TypeRegistry" , "bevy::window::WindowResized")) ; } } , "WindowScaleFactorChanged" | "bevy_window::event::WindowScaleFactorChanged" | "bevy::window::WindowScaleFactorChanged" => { let type_registry = world . resource :: < bevy :: ecs :: reflect :: AppTypeRegistry > () . clone () ; let registry = type_registry . read () ; if let Some (type_registration) = registry . get_with_type_path ("bevy::window::WindowScaleFactorChanged") . or_else (|| registry . get_with_type_path ("bevy_window::event::WindowScaleFactorChanged")) { let type_info = type_registration . type_info () ; let dynamic = bevy_lua_ecs :: lua_table_to_dynamic (lua , data , type_info , & type_registry) . map_err (| e | format ! ("Failed to build event '{}': {}" , "bevy::window::WindowScaleFactorChanged" , e)) ? ; if let Some (concrete_event) = < bevy :: window :: WindowScaleFactorChanged as bevy :: reflect :: FromReflect > :: from_reflect (& dynamic) { drop (registry) ; let mut system_state = bevy :: ecs :: system :: SystemState :: < bevy :: prelude :: EventWriter < bevy :: window :: WindowScaleFactorChanged >> :: new (world) ; let mut event_writer = system_state . get_mut (world) ; event_writer . write (concrete_event) ; bevy :: log :: debug ! ("[EVENT_WRITE] Sent event: {}" , "bevy::window::WindowScaleFactorChanged") ; return Ok (()) ; } return Err (format ! ("Failed to construct event '{}' via FromReflect" , "bevy::window::WindowScaleFactorChanged")) ; } else { return Err (format ! ("Event type '{}' not found in TypeRegistry" , "bevy::window::WindowScaleFactorChanged")) ; } } , "WindowThemeChanged" | "bevy_window::event::WindowThemeChanged" | "bevy::window::WindowThemeChanged" => { let type_registry = world . resource :: < bevy :: ecs :: reflect :: AppTypeRegistry > () . clone () ; let registry = type_registry . read () ; if let Some (type_registration) = registry . get_with_type_path ("bevy::window::WindowThemeChanged") . or_else (|| registry . get_with_type_path ("bevy_window::event::WindowThemeChanged")) { let type_info = type_registration . type_info () ; let dynamic = bevy_lua_ecs :: lua_table_to_dynamic (lua , data , type_info , & type_registry) . map_err (| e | format ! ("Failed to build event '{}': {}" , "bevy::window::WindowThemeChanged" , e)) ? ; if let Some (concrete_event) = < bevy :: window :: WindowThemeChanged as bevy :: reflect :: FromReflect > :: from_reflect (& dynamic) { drop (registry) ; let mut system_state = bevy :: ecs :: system :: SystemState :: < bevy :: prelude :: EventWriter < bevy :: window :: WindowThemeChanged >> :: new (world) ; let mut event_writer = system_state . get_mut (world) ; event_writer . write (concrete_event) ; bevy :: log :: debug ! ("[EVENT_WRITE] Sent event: {}" , "bevy::window::WindowThemeChanged") ; return Ok (()) ; } return Err (format ! ("Failed to construct event '{}' via FromReflect" , "bevy::window::WindowThemeChanged")) ; } else { return Err (format ! ("Event type '{}' not found in TypeRegistry" , "bevy::window::WindowThemeChanged")) ; } } _ => Err (format ! ("Unknown event type: '{}'. Available events are discovered from bevy_window and bevy_input." , event_type)) }
 }
 #[doc = r" Dispatch write_message call for a specific message type"]
 #[doc = r" Uses MessageWriter<T> and lua_table_to_dynamic for reflection-based construction"]
@@ -15527,10 +15661,124 @@ fn log_registered_events(type_registry: bevy::prelude::Res<bevy::ecs::reflect::A
 fn register_bevy_events(app: &mut bevy::prelude::App) {
     bevy::log::debug!(
         "[REGISTER_EVENTS] Adding event type: {}",
-        "bevy::window::WindowResized"
+        "bevy::window::AppLifecycle"
     );
-    app.add_event::<bevy::window::WindowResized>();
-    app.register_type::<bevy::window::WindowResized>();
+    app.add_event::<bevy::window::AppLifecycle>();
+    app.register_type::<bevy::window::AppLifecycle>();
+    bevy::log::debug!(
+        "[REGISTER_EVENTS] Adding event type: {}",
+        "bevy::window::CursorEntered"
+    );
+    app.add_event::<bevy::window::CursorEntered>();
+    app.register_type::<bevy::window::CursorEntered>();
+    bevy::log::debug!(
+        "[REGISTER_EVENTS] Adding event type: {}",
+        "bevy::window::CursorLeft"
+    );
+    app.add_event::<bevy::window::CursorLeft>();
+    app.register_type::<bevy::window::CursorLeft>();
+    bevy::log::debug!(
+        "[REGISTER_EVENTS] Adding event type: {}",
+        "bevy::window::CursorMoved"
+    );
+    app.add_event::<bevy::window::CursorMoved>();
+    app.register_type::<bevy::window::CursorMoved>();
+    bevy::log::debug!(
+        "[REGISTER_EVENTS] Adding event type: {}",
+        "bevy::window::FileDragAndDrop"
+    );
+    app.add_event::<bevy::window::FileDragAndDrop>();
+    app.register_type::<bevy::window::FileDragAndDrop>();
+    bevy::log::debug!(
+        "[REGISTER_EVENTS] Adding event type: {}",
+        "bevy::input::gamepad::GamepadAxisChangedEvent"
+    );
+    app.add_event::<bevy::input::gamepad::GamepadAxisChangedEvent>();
+    app.register_type::<bevy::input::gamepad::GamepadAxisChangedEvent>();
+    bevy::log::debug!(
+        "[REGISTER_EVENTS] Adding event type: {}",
+        "bevy::input::gamepad::GamepadButtonChangedEvent"
+    );
+    app.add_event::<bevy::input::gamepad::GamepadButtonChangedEvent>();
+    app.register_type::<bevy::input::gamepad::GamepadButtonChangedEvent>();
+    bevy::log::debug!(
+        "[REGISTER_EVENTS] Adding event type: {}",
+        "bevy::input::gamepad::GamepadButtonStateChangedEvent"
+    );
+    app.add_event::<bevy::input::gamepad::GamepadButtonStateChangedEvent>();
+    app.register_type::<bevy::input::gamepad::GamepadButtonStateChangedEvent>();
+    bevy::log::debug!(
+        "[REGISTER_EVENTS] Adding event type: {}",
+        "bevy::input::gamepad::GamepadConnectionEvent"
+    );
+    app.add_event::<bevy::input::gamepad::GamepadConnectionEvent>();
+    app.register_type::<bevy::input::gamepad::GamepadConnectionEvent>();
+    bevy::log::debug!(
+        "[REGISTER_EVENTS] Adding event type: {}",
+        "bevy::input::gamepad::GamepadEvent"
+    );
+    app.add_event::<bevy::input::gamepad::GamepadEvent>();
+    app.register_type::<bevy::input::gamepad::GamepadEvent>();
+    bevy::log::debug!(
+        "[REGISTER_EVENTS] Adding event type: {}",
+        "bevy::input::gamepad::GamepadRumbleRequest"
+    );
+    app.add_event::<bevy::input::gamepad::GamepadRumbleRequest>();
+    app.register_type::<bevy::input::gamepad::GamepadRumbleRequest>();
+    bevy::log::debug!(
+        "[REGISTER_EVENTS] Adding event type: {}",
+        "bevy::input::keyboard::KeyboardFocusLost"
+    );
+    app.add_event::<bevy::input::keyboard::KeyboardFocusLost>();
+    app.register_type::<bevy::input::keyboard::KeyboardFocusLost>();
+    bevy::log::debug!(
+        "[REGISTER_EVENTS] Adding event type: {}",
+        "bevy::input::keyboard::KeyboardInput"
+    );
+    app.add_event::<bevy::input::keyboard::KeyboardInput>();
+    app.register_type::<bevy::input::keyboard::KeyboardInput>();
+    bevy::log::debug!(
+        "[REGISTER_EVENTS] Adding event type: {}",
+        "bevy::input::mouse::MouseButtonInput"
+    );
+    app.add_event::<bevy::input::mouse::MouseButtonInput>();
+    app.register_type::<bevy::input::mouse::MouseButtonInput>();
+    bevy::log::debug!(
+        "[REGISTER_EVENTS] Adding event type: {}",
+        "bevy::input::mouse::MouseMotion"
+    );
+    app.add_event::<bevy::input::mouse::MouseMotion>();
+    app.register_type::<bevy::input::mouse::MouseMotion>();
+    bevy::log::debug!(
+        "[REGISTER_EVENTS] Adding event type: {}",
+        "bevy::input::mouse::MouseWheel"
+    );
+    app.add_event::<bevy::input::mouse::MouseWheel>();
+    app.register_type::<bevy::input::mouse::MouseWheel>();
+    bevy::log::debug!(
+        "[REGISTER_EVENTS] Adding event type: {}",
+        "bevy::picking::pointer::PointerInput"
+    );
+    app.add_event::<bevy::picking::pointer::PointerInput>();
+    app.register_type::<bevy::picking::pointer::PointerInput>();
+    bevy::log::debug!(
+        "[REGISTER_EVENTS] Adding event type: {}",
+        "bevy::input::gamepad::RawGamepadAxisChangedEvent"
+    );
+    app.add_event::<bevy::input::gamepad::RawGamepadAxisChangedEvent>();
+    app.register_type::<bevy::input::gamepad::RawGamepadAxisChangedEvent>();
+    bevy::log::debug!(
+        "[REGISTER_EVENTS] Adding event type: {}",
+        "bevy::input::gamepad::RawGamepadButtonChangedEvent"
+    );
+    app.add_event::<bevy::input::gamepad::RawGamepadButtonChangedEvent>();
+    app.register_type::<bevy::input::gamepad::RawGamepadButtonChangedEvent>();
+    bevy::log::debug!(
+        "[REGISTER_EVENTS] Adding event type: {}",
+        "bevy::input::gamepad::RawGamepadEvent"
+    );
+    app.add_event::<bevy::input::gamepad::RawGamepadEvent>();
+    app.register_type::<bevy::input::gamepad::RawGamepadEvent>();
     bevy::log::debug!(
         "[REGISTER_EVENTS] Adding event type: {}",
         "bevy::window::RequestRedraw"
@@ -15539,10 +15787,16 @@ fn register_bevy_events(app: &mut bevy::prelude::App) {
     app.register_type::<bevy::window::RequestRedraw>();
     bevy::log::debug!(
         "[REGISTER_EVENTS] Adding event type: {}",
-        "bevy::window::WindowCreated"
+        "bevy::input::touch::TouchInput"
     );
-    app.add_event::<bevy::window::WindowCreated>();
-    app.register_type::<bevy::window::WindowCreated>();
+    app.add_event::<bevy::input::touch::TouchInput>();
+    app.register_type::<bevy::input::touch::TouchInput>();
+    bevy::log::debug!(
+        "[REGISTER_EVENTS] Adding event type: {}",
+        "bevy::window::WindowBackendScaleFactorChanged"
+    );
+    app.add_event::<bevy::window::WindowBackendScaleFactorChanged>();
+    app.register_type::<bevy::window::WindowBackendScaleFactorChanged>();
     bevy::log::debug!(
         "[REGISTER_EVENTS] Adding event type: {}",
         "bevy::window::WindowCloseRequested"
@@ -15563,76 +15817,16 @@ fn register_bevy_events(app: &mut bevy::prelude::App) {
     app.register_type::<bevy::window::WindowClosing>();
     bevy::log::debug!(
         "[REGISTER_EVENTS] Adding event type: {}",
+        "bevy::window::WindowCreated"
+    );
+    app.add_event::<bevy::window::WindowCreated>();
+    app.register_type::<bevy::window::WindowCreated>();
+    bevy::log::debug!(
+        "[REGISTER_EVENTS] Adding event type: {}",
         "bevy::window::WindowDestroyed"
     );
     app.add_event::<bevy::window::WindowDestroyed>();
     app.register_type::<bevy::window::WindowDestroyed>();
-    bevy::log::debug!(
-        "[REGISTER_EVENTS] Adding event type: {}",
-        "bevy::window::CursorMoved"
-    );
-    app.add_event::<bevy::window::CursorMoved>();
-    app.register_type::<bevy::window::CursorMoved>();
-    bevy::log::debug!(
-        "[REGISTER_EVENTS] Adding event type: {}",
-        "bevy::window::CursorEntered"
-    );
-    app.add_event::<bevy::window::CursorEntered>();
-    app.register_type::<bevy::window::CursorEntered>();
-    bevy::log::debug!(
-        "[REGISTER_EVENTS] Adding event type: {}",
-        "bevy::window::CursorLeft"
-    );
-    app.add_event::<bevy::window::CursorLeft>();
-    app.register_type::<bevy::window::CursorLeft>();
-    bevy::log::debug!(
-        "[REGISTER_EVENTS] Adding event type: {}",
-        "bevy::window::WindowFocused"
-    );
-    app.add_event::<bevy::window::WindowFocused>();
-    app.register_type::<bevy::window::WindowFocused>();
-    bevy::log::debug!(
-        "[REGISTER_EVENTS] Adding event type: {}",
-        "bevy::window::WindowOccluded"
-    );
-    app.add_event::<bevy::window::WindowOccluded>();
-    app.register_type::<bevy::window::WindowOccluded>();
-    bevy::log::debug!(
-        "[REGISTER_EVENTS] Adding event type: {}",
-        "bevy::window::WindowScaleFactorChanged"
-    );
-    app.add_event::<bevy::window::WindowScaleFactorChanged>();
-    app.register_type::<bevy::window::WindowScaleFactorChanged>();
-    bevy::log::debug!(
-        "[REGISTER_EVENTS] Adding event type: {}",
-        "bevy::window::WindowBackendScaleFactorChanged"
-    );
-    app.add_event::<bevy::window::WindowBackendScaleFactorChanged>();
-    app.register_type::<bevy::window::WindowBackendScaleFactorChanged>();
-    bevy::log::debug!(
-        "[REGISTER_EVENTS] Adding event type: {}",
-        "bevy::window::FileDragAndDrop"
-    );
-    app.add_event::<bevy::window::FileDragAndDrop>();
-    app.register_type::<bevy::window::FileDragAndDrop>();
-    bevy::log::debug!(
-        "[REGISTER_EVENTS] Adding event type: {}",
-        "bevy::window::WindowMoved"
-    );
-    app.add_event::<bevy::window::WindowMoved>();
-    app.register_type::<bevy::window::WindowMoved>();
-    bevy::log::debug!(
-        "[REGISTER_EVENTS] Adding event type: {}",
-        "bevy::window::WindowThemeChanged"
-    );
-    app.add_event::<bevy::window::WindowThemeChanged>();
-    app.register_type::<bevy::window::WindowThemeChanged>();
-    bevy::log::debug!(
-        "[REGISTER_EVENTS] Adding event type: {}",
-        "bevy::window::AppLifecycle"
-    );
-    app.add_event::<bevy::window::AppLifecycle>();
-    app.register_type::<bevy::window::AppLifecycle>();
     bevy::log::debug!(
         "[REGISTER_EVENTS] Adding event type: {}",
         "bevy::window::WindowEvent"
@@ -15641,34 +15835,40 @@ fn register_bevy_events(app: &mut bevy::prelude::App) {
     app.register_type::<bevy::window::WindowEvent>();
     bevy::log::debug!(
         "[REGISTER_EVENTS] Adding event type: {}",
-        "bevy::input::keyboard::KeyboardInput"
+        "bevy::window::WindowFocused"
     );
-    app.add_event::<bevy::input::keyboard::KeyboardInput>();
-    app.register_type::<bevy::input::keyboard::KeyboardInput>();
+    app.add_event::<bevy::window::WindowFocused>();
+    app.register_type::<bevy::window::WindowFocused>();
     bevy::log::debug!(
         "[REGISTER_EVENTS] Adding event type: {}",
-        "bevy::input::keyboard::KeyboardFocusLost"
+        "bevy::window::WindowMoved"
     );
-    app.add_event::<bevy::input::keyboard::KeyboardFocusLost>();
-    app.register_type::<bevy::input::keyboard::KeyboardFocusLost>();
+    app.add_event::<bevy::window::WindowMoved>();
+    app.register_type::<bevy::window::WindowMoved>();
     bevy::log::debug!(
         "[REGISTER_EVENTS] Adding event type: {}",
-        "bevy::input::mouse::MouseButtonInput"
+        "bevy::window::WindowOccluded"
     );
-    app.add_event::<bevy::input::mouse::MouseButtonInput>();
-    app.register_type::<bevy::input::mouse::MouseButtonInput>();
+    app.add_event::<bevy::window::WindowOccluded>();
+    app.register_type::<bevy::window::WindowOccluded>();
     bevy::log::debug!(
         "[REGISTER_EVENTS] Adding event type: {}",
-        "bevy::input::mouse::MouseMotion"
+        "bevy::window::WindowResized"
     );
-    app.add_event::<bevy::input::mouse::MouseMotion>();
-    app.register_type::<bevy::input::mouse::MouseMotion>();
+    app.add_event::<bevy::window::WindowResized>();
+    app.register_type::<bevy::window::WindowResized>();
     bevy::log::debug!(
         "[REGISTER_EVENTS] Adding event type: {}",
-        "bevy::input::mouse::MouseWheel"
+        "bevy::window::WindowScaleFactorChanged"
     );
-    app.add_event::<bevy::input::mouse::MouseWheel>();
-    app.register_type::<bevy::input::mouse::MouseWheel>();
+    app.add_event::<bevy::window::WindowScaleFactorChanged>();
+    app.register_type::<bevy::window::WindowScaleFactorChanged>();
+    bevy::log::debug!(
+        "[REGISTER_EVENTS] Adding event type: {}",
+        "bevy::window::WindowThemeChanged"
+    );
+    app.add_event::<bevy::window::WindowThemeChanged>();
+    app.register_type::<bevy::window::WindowThemeChanged>();
     app.register_type::<crate::asset_events::AssetDeleteEvent>();
     bevy::log::debug!(
         "[REGISTER_MESSAGES] Adding message type: {}",
@@ -15704,6 +15904,11 @@ fn register_bevy_events(app: &mut bevy::prelude::App) {
         "[REGISTER_RESOURCES] Adding resource type: {}",
         "ButtonInput<KeyCode>"
     );
+    app.register_type::<bevy::input::ButtonInput<bevy::input::keyboard::Key>>();
+    bevy::log::debug!(
+        "[REGISTER_RESOURCES] Adding resource type: {}",
+        "ButtonInput<Key>"
+    );
     app.register_type::<bevy::input::ButtonInput<bevy::input::mouse::MouseButton>>();
     bevy::log::debug!(
         "[REGISTER_RESOURCES] Adding resource type: {}",
@@ -15724,163 +15929,305 @@ fn accumulate_events_for_lua(world: &mut bevy::prelude::World) {
         return;
     }
     {
-        let mut system_state = bevy::ecs::system::SystemState::<
-            bevy::prelude::EventReader<bevy::window::WindowResized>,
-        >::new(world);
-        let mut event_reader = system_state.get_mut(world);
+        let mut system_state = bevy::ecs::system::SystemState::<(
+            bevy::prelude::EventReader<bevy::window::AppLifecycle>,
+            bevy::prelude::Res<bevy::prelude::AppTypeRegistry>,
+        )>::new(world);
+        let (mut event_reader, type_registry) = system_state.get_mut(world);
         for event in event_reader.read() {
-            if let Ok(event_json) = serde_json::to_value(event) {
-                accumulator.push_to_instances(&active_instances, "WindowResized", event_json);
+            if let Some(event_json) = bevy_lua_ecs::reflect_to_json(event, &type_registry.read()) {
+                accumulator.push_to_instances(&active_instances, "AppLifecycle", event_json);
             }
         }
     }
     {
-        let mut system_state = bevy::ecs::system::SystemState::<
-            bevy::prelude::EventReader<bevy::window::RequestRedraw>,
-        >::new(world);
-        let mut event_reader = system_state.get_mut(world);
-        for event in event_reader.read() {
-            if let Ok(event_json) = serde_json::to_value(event) {
-                accumulator.push_to_instances(&active_instances, "RequestRedraw", event_json);
-            }
-        }
-    }
-    {
-        let mut system_state = bevy::ecs::system::SystemState::<
-            bevy::prelude::EventReader<bevy::window::WindowCreated>,
-        >::new(world);
-        let mut event_reader = system_state.get_mut(world);
-        for event in event_reader.read() {
-            if let Ok(event_json) = serde_json::to_value(event) {
-                accumulator.push_to_instances(&active_instances, "WindowCreated", event_json);
-            }
-        }
-    }
-    {
-        let mut system_state = bevy::ecs::system::SystemState::<
-            bevy::prelude::EventReader<bevy::window::WindowCloseRequested>,
-        >::new(world);
-        let mut event_reader = system_state.get_mut(world);
-        for event in event_reader.read() {
-            if let Ok(event_json) = serde_json::to_value(event) {
-                accumulator.push_to_instances(
-                    &active_instances,
-                    "WindowCloseRequested",
-                    event_json,
-                );
-            }
-        }
-    }
-    {
-        let mut system_state = bevy::ecs::system::SystemState::<
-            bevy::prelude::EventReader<bevy::window::WindowClosed>,
-        >::new(world);
-        let mut event_reader = system_state.get_mut(world);
-        for event in event_reader.read() {
-            if let Ok(event_json) = serde_json::to_value(event) {
-                accumulator.push_to_instances(&active_instances, "WindowClosed", event_json);
-            }
-        }
-    }
-    {
-        let mut system_state = bevy::ecs::system::SystemState::<
-            bevy::prelude::EventReader<bevy::window::WindowClosing>,
-        >::new(world);
-        let mut event_reader = system_state.get_mut(world);
-        for event in event_reader.read() {
-            if let Ok(event_json) = serde_json::to_value(event) {
-                accumulator.push_to_instances(&active_instances, "WindowClosing", event_json);
-            }
-        }
-    }
-    {
-        let mut system_state = bevy::ecs::system::SystemState::<
-            bevy::prelude::EventReader<bevy::window::WindowDestroyed>,
-        >::new(world);
-        let mut event_reader = system_state.get_mut(world);
-        for event in event_reader.read() {
-            if let Ok(event_json) = serde_json::to_value(event) {
-                accumulator.push_to_instances(&active_instances, "WindowDestroyed", event_json);
-            }
-        }
-    }
-    {
-        let mut system_state = bevy::ecs::system::SystemState::<
-            bevy::prelude::EventReader<bevy::window::CursorMoved>,
-        >::new(world);
-        let mut event_reader = system_state.get_mut(world);
-        for event in event_reader.read() {
-            if let Ok(event_json) = serde_json::to_value(event) {
-                accumulator.push_to_instances(&active_instances, "CursorMoved", event_json);
-            }
-        }
-    }
-    {
-        let mut system_state = bevy::ecs::system::SystemState::<
+        let mut system_state = bevy::ecs::system::SystemState::<(
             bevy::prelude::EventReader<bevy::window::CursorEntered>,
-        >::new(world);
-        let mut event_reader = system_state.get_mut(world);
+            bevy::prelude::Res<bevy::prelude::AppTypeRegistry>,
+        )>::new(world);
+        let (mut event_reader, type_registry) = system_state.get_mut(world);
         for event in event_reader.read() {
-            if let Ok(event_json) = serde_json::to_value(event) {
+            if let Some(event_json) = bevy_lua_ecs::reflect_to_json(event, &type_registry.read()) {
                 accumulator.push_to_instances(&active_instances, "CursorEntered", event_json);
             }
         }
     }
     {
-        let mut system_state = bevy::ecs::system::SystemState::<
+        let mut system_state = bevy::ecs::system::SystemState::<(
             bevy::prelude::EventReader<bevy::window::CursorLeft>,
-        >::new(world);
-        let mut event_reader = system_state.get_mut(world);
+            bevy::prelude::Res<bevy::prelude::AppTypeRegistry>,
+        )>::new(world);
+        let (mut event_reader, type_registry) = system_state.get_mut(world);
         for event in event_reader.read() {
-            if let Ok(event_json) = serde_json::to_value(event) {
+            if let Some(event_json) = bevy_lua_ecs::reflect_to_json(event, &type_registry.read()) {
                 accumulator.push_to_instances(&active_instances, "CursorLeft", event_json);
             }
         }
     }
     {
-        let mut system_state = bevy::ecs::system::SystemState::<
-            bevy::prelude::EventReader<bevy::window::WindowFocused>,
-        >::new(world);
-        let mut event_reader = system_state.get_mut(world);
+        let mut system_state = bevy::ecs::system::SystemState::<(
+            bevy::prelude::EventReader<bevy::window::CursorMoved>,
+            bevy::prelude::Res<bevy::prelude::AppTypeRegistry>,
+        )>::new(world);
+        let (mut event_reader, type_registry) = system_state.get_mut(world);
         for event in event_reader.read() {
-            if let Ok(event_json) = serde_json::to_value(event) {
-                accumulator.push_to_instances(&active_instances, "WindowFocused", event_json);
+            if let Some(event_json) = bevy_lua_ecs::reflect_to_json(event, &type_registry.read()) {
+                accumulator.push_to_instances(&active_instances, "CursorMoved", event_json);
             }
         }
     }
     {
-        let mut system_state = bevy::ecs::system::SystemState::<
-            bevy::prelude::EventReader<bevy::window::WindowOccluded>,
-        >::new(world);
-        let mut event_reader = system_state.get_mut(world);
+        let mut system_state = bevy::ecs::system::SystemState::<(
+            bevy::prelude::EventReader<bevy::window::FileDragAndDrop>,
+            bevy::prelude::Res<bevy::prelude::AppTypeRegistry>,
+        )>::new(world);
+        let (mut event_reader, type_registry) = system_state.get_mut(world);
         for event in event_reader.read() {
-            if let Ok(event_json) = serde_json::to_value(event) {
-                accumulator.push_to_instances(&active_instances, "WindowOccluded", event_json);
+            if let Some(event_json) = bevy_lua_ecs::reflect_to_json(event, &type_registry.read()) {
+                accumulator.push_to_instances(&active_instances, "FileDragAndDrop", event_json);
             }
         }
     }
     {
-        let mut system_state = bevy::ecs::system::SystemState::<
-            bevy::prelude::EventReader<bevy::window::WindowScaleFactorChanged>,
-        >::new(world);
-        let mut event_reader = system_state.get_mut(world);
+        let mut system_state = bevy::ecs::system::SystemState::<(
+            bevy::prelude::EventReader<bevy::input::gamepad::GamepadAxisChangedEvent>,
+            bevy::prelude::Res<bevy::prelude::AppTypeRegistry>,
+        )>::new(world);
+        let (mut event_reader, type_registry) = system_state.get_mut(world);
         for event in event_reader.read() {
-            if let Ok(event_json) = serde_json::to_value(event) {
+            if let Some(event_json) = bevy_lua_ecs::reflect_to_json(event, &type_registry.read()) {
                 accumulator.push_to_instances(
                     &active_instances,
-                    "WindowScaleFactorChanged",
+                    "GamepadAxisChangedEvent",
                     event_json,
                 );
             }
         }
     }
     {
-        let mut system_state = bevy::ecs::system::SystemState::<
-            bevy::prelude::EventReader<bevy::window::WindowBackendScaleFactorChanged>,
-        >::new(world);
-        let mut event_reader = system_state.get_mut(world);
+        let mut system_state = bevy::ecs::system::SystemState::<(
+            bevy::prelude::EventReader<bevy::input::gamepad::GamepadButtonChangedEvent>,
+            bevy::prelude::Res<bevy::prelude::AppTypeRegistry>,
+        )>::new(world);
+        let (mut event_reader, type_registry) = system_state.get_mut(world);
         for event in event_reader.read() {
-            if let Ok(event_json) = serde_json::to_value(event) {
+            if let Some(event_json) = bevy_lua_ecs::reflect_to_json(event, &type_registry.read()) {
+                accumulator.push_to_instances(
+                    &active_instances,
+                    "GamepadButtonChangedEvent",
+                    event_json,
+                );
+            }
+        }
+    }
+    {
+        let mut system_state = bevy::ecs::system::SystemState::<(
+            bevy::prelude::EventReader<bevy::input::gamepad::GamepadButtonStateChangedEvent>,
+            bevy::prelude::Res<bevy::prelude::AppTypeRegistry>,
+        )>::new(world);
+        let (mut event_reader, type_registry) = system_state.get_mut(world);
+        for event in event_reader.read() {
+            if let Some(event_json) = bevy_lua_ecs::reflect_to_json(event, &type_registry.read()) {
+                accumulator.push_to_instances(
+                    &active_instances,
+                    "GamepadButtonStateChangedEvent",
+                    event_json,
+                );
+            }
+        }
+    }
+    {
+        let mut system_state = bevy::ecs::system::SystemState::<(
+            bevy::prelude::EventReader<bevy::input::gamepad::GamepadConnectionEvent>,
+            bevy::prelude::Res<bevy::prelude::AppTypeRegistry>,
+        )>::new(world);
+        let (mut event_reader, type_registry) = system_state.get_mut(world);
+        for event in event_reader.read() {
+            if let Some(event_json) = bevy_lua_ecs::reflect_to_json(event, &type_registry.read()) {
+                accumulator.push_to_instances(
+                    &active_instances,
+                    "GamepadConnectionEvent",
+                    event_json,
+                );
+            }
+        }
+    }
+    {
+        let mut system_state = bevy::ecs::system::SystemState::<(
+            bevy::prelude::EventReader<bevy::input::gamepad::GamepadEvent>,
+            bevy::prelude::Res<bevy::prelude::AppTypeRegistry>,
+        )>::new(world);
+        let (mut event_reader, type_registry) = system_state.get_mut(world);
+        for event in event_reader.read() {
+            if let Some(event_json) = bevy_lua_ecs::reflect_to_json(event, &type_registry.read()) {
+                accumulator.push_to_instances(&active_instances, "GamepadEvent", event_json);
+            }
+        }
+    }
+    {
+        let mut system_state = bevy::ecs::system::SystemState::<(
+            bevy::prelude::EventReader<bevy::input::gamepad::GamepadRumbleRequest>,
+            bevy::prelude::Res<bevy::prelude::AppTypeRegistry>,
+        )>::new(world);
+        let (mut event_reader, type_registry) = system_state.get_mut(world);
+        for event in event_reader.read() {
+            if let Some(event_json) = bevy_lua_ecs::reflect_to_json(event, &type_registry.read()) {
+                accumulator.push_to_instances(
+                    &active_instances,
+                    "GamepadRumbleRequest",
+                    event_json,
+                );
+            }
+        }
+    }
+    {
+        let mut system_state = bevy::ecs::system::SystemState::<(
+            bevy::prelude::EventReader<bevy::input::keyboard::KeyboardFocusLost>,
+            bevy::prelude::Res<bevy::prelude::AppTypeRegistry>,
+        )>::new(world);
+        let (mut event_reader, type_registry) = system_state.get_mut(world);
+        for event in event_reader.read() {
+            if let Some(event_json) = bevy_lua_ecs::reflect_to_json(event, &type_registry.read()) {
+                accumulator.push_to_instances(&active_instances, "KeyboardFocusLost", event_json);
+            }
+        }
+    }
+    {
+        let mut system_state = bevy::ecs::system::SystemState::<(
+            bevy::prelude::EventReader<bevy::input::keyboard::KeyboardInput>,
+            bevy::prelude::Res<bevy::prelude::AppTypeRegistry>,
+        )>::new(world);
+        let (mut event_reader, type_registry) = system_state.get_mut(world);
+        for event in event_reader.read() {
+            if let Some(event_json) = bevy_lua_ecs::reflect_to_json(event, &type_registry.read()) {
+                accumulator.push_to_instances(&active_instances, "KeyboardInput", event_json);
+            }
+        }
+    }
+    {
+        let mut system_state = bevy::ecs::system::SystemState::<(
+            bevy::prelude::EventReader<bevy::input::mouse::MouseButtonInput>,
+            bevy::prelude::Res<bevy::prelude::AppTypeRegistry>,
+        )>::new(world);
+        let (mut event_reader, type_registry) = system_state.get_mut(world);
+        for event in event_reader.read() {
+            if let Some(event_json) = bevy_lua_ecs::reflect_to_json(event, &type_registry.read()) {
+                accumulator.push_to_instances(&active_instances, "MouseButtonInput", event_json);
+            }
+        }
+    }
+    {
+        let mut system_state = bevy::ecs::system::SystemState::<(
+            bevy::prelude::EventReader<bevy::input::mouse::MouseMotion>,
+            bevy::prelude::Res<bevy::prelude::AppTypeRegistry>,
+        )>::new(world);
+        let (mut event_reader, type_registry) = system_state.get_mut(world);
+        for event in event_reader.read() {
+            if let Some(event_json) = bevy_lua_ecs::reflect_to_json(event, &type_registry.read()) {
+                accumulator.push_to_instances(&active_instances, "MouseMotion", event_json);
+            }
+        }
+    }
+    {
+        let mut system_state = bevy::ecs::system::SystemState::<(
+            bevy::prelude::EventReader<bevy::input::mouse::MouseWheel>,
+            bevy::prelude::Res<bevy::prelude::AppTypeRegistry>,
+        )>::new(world);
+        let (mut event_reader, type_registry) = system_state.get_mut(world);
+        for event in event_reader.read() {
+            if let Some(event_json) = bevy_lua_ecs::reflect_to_json(event, &type_registry.read()) {
+                accumulator.push_to_instances(&active_instances, "MouseWheel", event_json);
+            }
+        }
+    }
+    {
+        let mut system_state = bevy::ecs::system::SystemState::<(
+            bevy::prelude::EventReader<bevy::picking::pointer::PointerInput>,
+            bevy::prelude::Res<bevy::prelude::AppTypeRegistry>,
+        )>::new(world);
+        let (mut event_reader, type_registry) = system_state.get_mut(world);
+        for event in event_reader.read() {
+            if let Some(event_json) = bevy_lua_ecs::reflect_to_json(event, &type_registry.read()) {
+                accumulator.push_to_instances(&active_instances, "PointerInput", event_json);
+            }
+        }
+    }
+    {
+        let mut system_state = bevy::ecs::system::SystemState::<(
+            bevy::prelude::EventReader<bevy::input::gamepad::RawGamepadAxisChangedEvent>,
+            bevy::prelude::Res<bevy::prelude::AppTypeRegistry>,
+        )>::new(world);
+        let (mut event_reader, type_registry) = system_state.get_mut(world);
+        for event in event_reader.read() {
+            if let Some(event_json) = bevy_lua_ecs::reflect_to_json(event, &type_registry.read()) {
+                accumulator.push_to_instances(
+                    &active_instances,
+                    "RawGamepadAxisChangedEvent",
+                    event_json,
+                );
+            }
+        }
+    }
+    {
+        let mut system_state = bevy::ecs::system::SystemState::<(
+            bevy::prelude::EventReader<bevy::input::gamepad::RawGamepadButtonChangedEvent>,
+            bevy::prelude::Res<bevy::prelude::AppTypeRegistry>,
+        )>::new(world);
+        let (mut event_reader, type_registry) = system_state.get_mut(world);
+        for event in event_reader.read() {
+            if let Some(event_json) = bevy_lua_ecs::reflect_to_json(event, &type_registry.read()) {
+                accumulator.push_to_instances(
+                    &active_instances,
+                    "RawGamepadButtonChangedEvent",
+                    event_json,
+                );
+            }
+        }
+    }
+    {
+        let mut system_state = bevy::ecs::system::SystemState::<(
+            bevy::prelude::EventReader<bevy::input::gamepad::RawGamepadEvent>,
+            bevy::prelude::Res<bevy::prelude::AppTypeRegistry>,
+        )>::new(world);
+        let (mut event_reader, type_registry) = system_state.get_mut(world);
+        for event in event_reader.read() {
+            if let Some(event_json) = bevy_lua_ecs::reflect_to_json(event, &type_registry.read()) {
+                accumulator.push_to_instances(&active_instances, "RawGamepadEvent", event_json);
+            }
+        }
+    }
+    {
+        let mut system_state = bevy::ecs::system::SystemState::<(
+            bevy::prelude::EventReader<bevy::window::RequestRedraw>,
+            bevy::prelude::Res<bevy::prelude::AppTypeRegistry>,
+        )>::new(world);
+        let (mut event_reader, type_registry) = system_state.get_mut(world);
+        for event in event_reader.read() {
+            if let Some(event_json) = bevy_lua_ecs::reflect_to_json(event, &type_registry.read()) {
+                accumulator.push_to_instances(&active_instances, "RequestRedraw", event_json);
+            }
+        }
+    }
+    {
+        let mut system_state = bevy::ecs::system::SystemState::<(
+            bevy::prelude::EventReader<bevy::input::touch::TouchInput>,
+            bevy::prelude::Res<bevy::prelude::AppTypeRegistry>,
+        )>::new(world);
+        let (mut event_reader, type_registry) = system_state.get_mut(world);
+        for event in event_reader.read() {
+            if let Some(event_json) = bevy_lua_ecs::reflect_to_json(event, &type_registry.read()) {
+                accumulator.push_to_instances(&active_instances, "TouchInput", event_json);
+            }
+        }
+    }
+    {
+        let mut system_state = bevy::ecs::system::SystemState::<(
+            bevy::prelude::EventReader<bevy::window::WindowBackendScaleFactorChanged>,
+            bevy::prelude::Res<bevy::prelude::AppTypeRegistry>,
+        )>::new(world);
+        let (mut event_reader, type_registry) = system_state.get_mut(world);
+        for event in event_reader.read() {
+            if let Some(event_json) = bevy_lua_ecs::reflect_to_json(event, &type_registry.read()) {
                 accumulator.push_to_instances(
                     &active_instances,
                     "WindowBackendScaleFactorChanged",
@@ -15890,112 +16237,154 @@ fn accumulate_events_for_lua(world: &mut bevy::prelude::World) {
         }
     }
     {
-        let mut system_state = bevy::ecs::system::SystemState::<
-            bevy::prelude::EventReader<bevy::window::FileDragAndDrop>,
-        >::new(world);
-        let mut event_reader = system_state.get_mut(world);
+        let mut system_state = bevy::ecs::system::SystemState::<(
+            bevy::prelude::EventReader<bevy::window::WindowCloseRequested>,
+            bevy::prelude::Res<bevy::prelude::AppTypeRegistry>,
+        )>::new(world);
+        let (mut event_reader, type_registry) = system_state.get_mut(world);
         for event in event_reader.read() {
-            if let Ok(event_json) = serde_json::to_value(event) {
-                accumulator.push_to_instances(&active_instances, "FileDragAndDrop", event_json);
+            if let Some(event_json) = bevy_lua_ecs::reflect_to_json(event, &type_registry.read()) {
+                accumulator.push_to_instances(
+                    &active_instances,
+                    "WindowCloseRequested",
+                    event_json,
+                );
             }
         }
     }
     {
-        let mut system_state = bevy::ecs::system::SystemState::<
-            bevy::prelude::EventReader<bevy::window::WindowMoved>,
-        >::new(world);
-        let mut event_reader = system_state.get_mut(world);
+        let mut system_state = bevy::ecs::system::SystemState::<(
+            bevy::prelude::EventReader<bevy::window::WindowClosed>,
+            bevy::prelude::Res<bevy::prelude::AppTypeRegistry>,
+        )>::new(world);
+        let (mut event_reader, type_registry) = system_state.get_mut(world);
         for event in event_reader.read() {
-            if let Ok(event_json) = serde_json::to_value(event) {
-                accumulator.push_to_instances(&active_instances, "WindowMoved", event_json);
+            if let Some(event_json) = bevy_lua_ecs::reflect_to_json(event, &type_registry.read()) {
+                accumulator.push_to_instances(&active_instances, "WindowClosed", event_json);
             }
         }
     }
     {
-        let mut system_state = bevy::ecs::system::SystemState::<
-            bevy::prelude::EventReader<bevy::window::WindowThemeChanged>,
-        >::new(world);
-        let mut event_reader = system_state.get_mut(world);
+        let mut system_state = bevy::ecs::system::SystemState::<(
+            bevy::prelude::EventReader<bevy::window::WindowClosing>,
+            bevy::prelude::Res<bevy::prelude::AppTypeRegistry>,
+        )>::new(world);
+        let (mut event_reader, type_registry) = system_state.get_mut(world);
         for event in event_reader.read() {
-            if let Ok(event_json) = serde_json::to_value(event) {
-                accumulator.push_to_instances(&active_instances, "WindowThemeChanged", event_json);
+            if let Some(event_json) = bevy_lua_ecs::reflect_to_json(event, &type_registry.read()) {
+                accumulator.push_to_instances(&active_instances, "WindowClosing", event_json);
             }
         }
     }
     {
-        let mut system_state = bevy::ecs::system::SystemState::<
-            bevy::prelude::EventReader<bevy::window::AppLifecycle>,
-        >::new(world);
-        let mut event_reader = system_state.get_mut(world);
+        let mut system_state = bevy::ecs::system::SystemState::<(
+            bevy::prelude::EventReader<bevy::window::WindowCreated>,
+            bevy::prelude::Res<bevy::prelude::AppTypeRegistry>,
+        )>::new(world);
+        let (mut event_reader, type_registry) = system_state.get_mut(world);
         for event in event_reader.read() {
-            if let Ok(event_json) = serde_json::to_value(event) {
-                accumulator.push_to_instances(&active_instances, "AppLifecycle", event_json);
+            if let Some(event_json) = bevy_lua_ecs::reflect_to_json(event, &type_registry.read()) {
+                accumulator.push_to_instances(&active_instances, "WindowCreated", event_json);
             }
         }
     }
     {
-        let mut system_state = bevy::ecs::system::SystemState::<
+        let mut system_state = bevy::ecs::system::SystemState::<(
+            bevy::prelude::EventReader<bevy::window::WindowDestroyed>,
+            bevy::prelude::Res<bevy::prelude::AppTypeRegistry>,
+        )>::new(world);
+        let (mut event_reader, type_registry) = system_state.get_mut(world);
+        for event in event_reader.read() {
+            if let Some(event_json) = bevy_lua_ecs::reflect_to_json(event, &type_registry.read()) {
+                accumulator.push_to_instances(&active_instances, "WindowDestroyed", event_json);
+            }
+        }
+    }
+    {
+        let mut system_state = bevy::ecs::system::SystemState::<(
             bevy::prelude::EventReader<bevy::window::WindowEvent>,
-        >::new(world);
-        let mut event_reader = system_state.get_mut(world);
+            bevy::prelude::Res<bevy::prelude::AppTypeRegistry>,
+        )>::new(world);
+        let (mut event_reader, type_registry) = system_state.get_mut(world);
         for event in event_reader.read() {
-            if let Ok(event_json) = serde_json::to_value(event) {
+            if let Some(event_json) = bevy_lua_ecs::reflect_to_json(event, &type_registry.read()) {
                 accumulator.push_to_instances(&active_instances, "WindowEvent", event_json);
             }
         }
     }
     {
-        let mut system_state = bevy::ecs::system::SystemState::<
-            bevy::prelude::EventReader<bevy::input::keyboard::KeyboardInput>,
-        >::new(world);
-        let mut event_reader = system_state.get_mut(world);
+        let mut system_state = bevy::ecs::system::SystemState::<(
+            bevy::prelude::EventReader<bevy::window::WindowFocused>,
+            bevy::prelude::Res<bevy::prelude::AppTypeRegistry>,
+        )>::new(world);
+        let (mut event_reader, type_registry) = system_state.get_mut(world);
         for event in event_reader.read() {
-            if let Ok(event_json) = serde_json::to_value(event) {
-                accumulator.push_to_instances(&active_instances, "KeyboardInput", event_json);
+            if let Some(event_json) = bevy_lua_ecs::reflect_to_json(event, &type_registry.read()) {
+                accumulator.push_to_instances(&active_instances, "WindowFocused", event_json);
             }
         }
     }
     {
-        let mut system_state = bevy::ecs::system::SystemState::<
-            bevy::prelude::EventReader<bevy::input::keyboard::KeyboardFocusLost>,
-        >::new(world);
-        let mut event_reader = system_state.get_mut(world);
+        let mut system_state = bevy::ecs::system::SystemState::<(
+            bevy::prelude::EventReader<bevy::window::WindowMoved>,
+            bevy::prelude::Res<bevy::prelude::AppTypeRegistry>,
+        )>::new(world);
+        let (mut event_reader, type_registry) = system_state.get_mut(world);
         for event in event_reader.read() {
-            if let Ok(event_json) = serde_json::to_value(event) {
-                accumulator.push_to_instances(&active_instances, "KeyboardFocusLost", event_json);
+            if let Some(event_json) = bevy_lua_ecs::reflect_to_json(event, &type_registry.read()) {
+                accumulator.push_to_instances(&active_instances, "WindowMoved", event_json);
             }
         }
     }
     {
-        let mut system_state = bevy::ecs::system::SystemState::<
-            bevy::prelude::EventReader<bevy::input::mouse::MouseButtonInput>,
-        >::new(world);
-        let mut event_reader = system_state.get_mut(world);
+        let mut system_state = bevy::ecs::system::SystemState::<(
+            bevy::prelude::EventReader<bevy::window::WindowOccluded>,
+            bevy::prelude::Res<bevy::prelude::AppTypeRegistry>,
+        )>::new(world);
+        let (mut event_reader, type_registry) = system_state.get_mut(world);
         for event in event_reader.read() {
-            if let Ok(event_json) = serde_json::to_value(event) {
-                accumulator.push_to_instances(&active_instances, "MouseButtonInput", event_json);
+            if let Some(event_json) = bevy_lua_ecs::reflect_to_json(event, &type_registry.read()) {
+                accumulator.push_to_instances(&active_instances, "WindowOccluded", event_json);
             }
         }
     }
     {
-        let mut system_state = bevy::ecs::system::SystemState::<
-            bevy::prelude::EventReader<bevy::input::mouse::MouseMotion>,
-        >::new(world);
-        let mut event_reader = system_state.get_mut(world);
+        let mut system_state = bevy::ecs::system::SystemState::<(
+            bevy::prelude::EventReader<bevy::window::WindowResized>,
+            bevy::prelude::Res<bevy::prelude::AppTypeRegistry>,
+        )>::new(world);
+        let (mut event_reader, type_registry) = system_state.get_mut(world);
         for event in event_reader.read() {
-            if let Ok(event_json) = serde_json::to_value(event) {
-                accumulator.push_to_instances(&active_instances, "MouseMotion", event_json);
+            if let Some(event_json) = bevy_lua_ecs::reflect_to_json(event, &type_registry.read()) {
+                accumulator.push_to_instances(&active_instances, "WindowResized", event_json);
             }
         }
     }
     {
-        let mut system_state = bevy::ecs::system::SystemState::<
-            bevy::prelude::EventReader<bevy::input::mouse::MouseWheel>,
-        >::new(world);
-        let mut event_reader = system_state.get_mut(world);
+        let mut system_state = bevy::ecs::system::SystemState::<(
+            bevy::prelude::EventReader<bevy::window::WindowScaleFactorChanged>,
+            bevy::prelude::Res<bevy::prelude::AppTypeRegistry>,
+        )>::new(world);
+        let (mut event_reader, type_registry) = system_state.get_mut(world);
         for event in event_reader.read() {
-            if let Ok(event_json) = serde_json::to_value(event) {
-                accumulator.push_to_instances(&active_instances, "MouseWheel", event_json);
+            if let Some(event_json) = bevy_lua_ecs::reflect_to_json(event, &type_registry.read()) {
+                accumulator.push_to_instances(
+                    &active_instances,
+                    "WindowScaleFactorChanged",
+                    event_json,
+                );
+            }
+        }
+    }
+    {
+        let mut system_state = bevy::ecs::system::SystemState::<(
+            bevy::prelude::EventReader<bevy::window::WindowThemeChanged>,
+            bevy::prelude::Res<bevy::prelude::AppTypeRegistry>,
+        )>::new(world);
+        let (mut event_reader, type_registry) = system_state.get_mut(world);
+        for event in event_reader.read() {
+            if let Some(event_json) = bevy_lua_ecs::reflect_to_json(event, &type_registry.read()) {
+                accumulator.push_to_instances(&active_instances, "WindowThemeChanged", event_json);
             }
         }
     }

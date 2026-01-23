@@ -683,7 +683,6 @@ impl AssetRegistry {
     /// Discovery method: Iterates TypeRegistry looking for types with ReflectAsset type data,
     /// which indicates they are registered asset types (Image, Mesh, StandardMaterial, etc.)
     pub fn discover_and_register_handle_creators(&self, type_registry: &AppTypeRegistry) {
-        use bevy::reflect::TypeInfo;
 
         let registry = type_registry.read();
         let mut handle_creators = self.handle_creators.lock().unwrap();
@@ -792,7 +791,7 @@ impl AssetRegistry {
     /// These are components like UiTargetCamera that wrap a single Entity field
     pub fn discover_entity_components(type_registry: &AppTypeRegistry) -> Vec<(String, String)> {
         use bevy::ecs::reflect::ReflectComponent;
-        use bevy::reflect::{ReflectRef, TypeInfo};
+        use bevy::reflect::TypeInfo;
 
         let registry = type_registry.read();
         let mut entity_components = Vec::new();

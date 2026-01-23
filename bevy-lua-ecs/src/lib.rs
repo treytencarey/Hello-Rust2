@@ -58,6 +58,7 @@ pub use despawn_queue::{process_despawn_queue, DespawnQueue};
 pub use entity_spawner::process_spawn_queue;
 pub use event_reader::{
     lua_table_to_dynamic, lua_table_to_dynamic_with_assets, lua_to_reflection, reflection_to_lua,
+    reflect_to_json,
 };
 pub use event_accumulator::{LuaEventAccumulator, json_to_lua_value};
 pub use event_sender::{LuaEventSenderPlugin, PendingLuaEvents, PendingLuaMessages};

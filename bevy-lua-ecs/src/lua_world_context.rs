@@ -33,6 +33,7 @@ pub struct LuaWorldContext<'w> {
     pub despawn_queue: crate::despawn_queue::DespawnQueue,
     pub pending_messages: crate::event_sender::PendingLuaMessages,
     pub last_run: u32,
+    pub last_run_real_time: std::time::Instant,
     pub this_run: u32,
     pub query_cache: Option<crate::query_cache::LuaQueryCache>,
     pub current_frame: u64,
@@ -53,6 +54,7 @@ impl<'w> LuaWorldContext<'w> {
         despawn_queue: crate::despawn_queue::DespawnQueue,
         pending_messages: crate::event_sender::PendingLuaMessages,
         last_run: u32,
+        last_run_real_time: std::time::Instant,
         this_run: u32,
         query_cache: Option<crate::query_cache::LuaQueryCache>,
         current_frame: u64,
@@ -69,6 +71,7 @@ impl<'w> LuaWorldContext<'w> {
             despawn_queue,
             pending_messages,
             last_run,
+            last_run_real_time,
             this_run,
             query_cache,
             current_frame,
@@ -84,10 +87,11 @@ impl<'w> LuaWorldContext<'w> {
 
 impl LuaUserData for LuaWorldContext<'_> {
     fn add_methods<M: LuaUserDataMethods<Self>>(methods: &mut M) {
-        // delta_time() - returns delta time in seconds
+        // delta_time() - returns real delta time since this system last ran
         methods.add_method("delta_time", |_lua, this, ()| {
-            let time = this.world().resource::<Time>();
-            Ok(time.delta_secs())
+            let now = std::time::Instant::now();
+            let delta = now.duration_since(this.last_run_real_time).as_secs_f32();
+            Ok(delta)
         });
 
         // query(with_components, changed_components) - executes immediately and returns results
@@ -132,12 +136,12 @@ impl LuaUserData for LuaWorldContext<'_> {
             let t3 = std::time::Instant::now();
             
             let elapsed = t3.duration_since(t0).as_micros();
-            if elapsed >= 100 {
+            if elapsed >= 5000 { // 5ms
                 let parse_time = t1.duration_since(t0).as_micros();
                 let query_time = t2.duration_since(t1).as_micros();
                 let table_time = t3.duration_since(t2).as_micros();
                 debug!(
-                    "[METHOD_TIMING] query({:?}) parse={}us exec={}us table={}us (n={}) total={}us",
+                    "[LUA_PERF] 🔍 SLOW QUERY: components={:?} parse={}us exec={}us table={}us (n={}) total={}us",
                     builder.with_components, parse_time, query_time, table_time, result_count, elapsed
                 );
             }
