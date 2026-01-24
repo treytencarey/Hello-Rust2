@@ -18,11 +18,15 @@ local DEFAULT_RATE_LIMIT = 0.05  -- 50ms between updates per component
 --------------------------------------------------------------------------------
 
 local function check_rate_limit(comp_name, config, rate_limit)
+    -- If no rate limit is specified, don't throttle
+    if not rate_limit then
+        return true
+    end
+
     local now = os.clock()
     local last_time = config.last_sync_times[comp_name] or 0
-    local limit = rate_limit or DEFAULT_RATE_LIMIT
     
-    if (now - last_time) < limit then
+    if (now - last_time) < rate_limit then
         return false
     end
     
@@ -50,7 +54,6 @@ function Outbound.system(world, context)
     for comp_name, _ in pairs(sync_types) do
         frame_changes[comp_name] = {}
         -- Query entities where this component changed
-        -- Note: We include marker to only detect changes on networked entities
         local changed_entities = world:query({ Components.MARKER, "ScriptOwned", comp_name }, { comp_name })
         for _, changed_entity in ipairs(changed_entities) do
             frame_changes[comp_name][changed_entity:id()] = true
@@ -86,12 +89,13 @@ function Outbound.system(world, context)
         end
         
         local config = State.get_sync_config(entity_id, sync.sync_components)
-        State.add_sync_types(config.sync_components)
         
         -- Handle initial spawn
         if not config.spawned then
-            local full_entity = world:get_entity(entity_id)
-            local spawn_msg = Messages.build_spawn(world, full_entity, net_id)
+            -- Register sync types just once
+            State.add_sync_types(config.sync_components)
+            
+            local spawn_msg = Messages.build_spawn(world, entity, net_id)
             if spawn_msg then
                 -- Add targeting for server
                 if is_server and get_clients then
@@ -121,33 +125,63 @@ function Outbound.system(world, context)
         end
 
         -- Collect changed components
-        local changed = {}
-        local has_changes = false
+        local reliable_changed = {}
+        local unreliable_changed = {}
+        local has_reliable = false
+        local has_unreliable = false
         
+        -- Server needs to partition client-auth components differently
+        local client_auth_reliable = {}
+        local client_auth_unreliable = {}
+        local has_client_auth_reliable = false
+        local has_client_auth_unreliable = false
+
         for comp_name, comp_config in pairs(config.sync_components) do
             local rate_limit = comp_config.rate_limit
+            local authority = comp_config.authority or "server"
             
+            -- Filter based on role and authority
+            if not is_server then
+                -- Client: Only send components we have authority over
+                if authority ~= "client" then
+                    goto continue_comp
+                end
+            end
+
             -- Send if dirty and rate limit allows
             if config.dirty[comp_name] and check_rate_limit(comp_name, config, rate_limit) then
                 local comp_data = entity:get(comp_name)
                 if comp_data then
-                    changed[comp_name] = comp_data
-                    has_changes = true
+                    -- Partition based on authority and reliability
+                    if is_server and authority == "client" then
+                        -- Server relaying client-auth components
+                        if comp_config.reliable == false then
+                            client_auth_unreliable[comp_name] = comp_data
+                            has_client_auth_unreliable = true
+                        else
+                            client_auth_reliable[comp_name] = comp_data
+                            has_client_auth_reliable = true
+                        end
+                    else
+                        -- Normal server-auth or client-to-server updates
+                        if comp_config.reliable == false then
+                            unreliable_changed[comp_name] = comp_data
+                            has_unreliable = true
+                        else
+                            reliable_changed[comp_name] = comp_data
+                            has_reliable = true
+                        end
+                    end
                     
                     -- Clear dirty flag since we're including it in an update
                     config.dirty[comp_name] = nil
-                    
-                    if is_server then
-                        -- print(string.format("[NET3_OUTBOUND] [SERVER] Entity %s changed: %s", net_id, comp_name))
-                    else
-                        -- print(string.format("[NET3_OUTBOUND] [CLIENT] Entity %s changed: %s", net_id, comp_name))
-                    end
                 end
             end
+            ::continue_comp::
         end
         
-        -- Send update if changes detected
-        if has_changes then
+        -- Helper to send an update message
+        local function send_update(changed_set, channel, exclude_owner)
             local seq = nil
             local ack_seq = nil
             
@@ -168,26 +202,48 @@ function Outbound.system(world, context)
                 sync.owner_client,
                 entity,
                 net_id,
-                changed,
+                changed_set,
                 seq,
-                ack_seq
+                ack_seq,
+                channel
             )
             
             -- Add targeting for server
             if is_server and get_clients then
                 local clients = {}
                 for _, client_id in ipairs(get_clients(world)) do
+                    -- Check if client knows about entity
                     if State.client_knows_entity(client_id, net_id) then
-                        table.insert(clients, client_id)
+                        -- Check if we should exclude the owner
+                        if not (exclude_owner and client_id == sync.owner_client) then
+                            table.insert(clients, client_id)
+                        end
                     end
                 end
                 if filter_clients then
                     clients = filter_clients(clients, entity, net_id)
                 end
                 update_msg.target_clients = clients
+                
+                -- Skip if no targets
+                if #clients == 0 then return end
             end
             
             spawn({ [Components.OUTBOUND] = update_msg })
+        end
+
+        -- Send update(s) if changes detected
+        if has_reliable then
+            send_update(reliable_changed, Messages.CHANNEL_RELIABLE, false)
+        end
+        if has_unreliable then
+            send_update(unreliable_changed, Messages.CHANNEL_UNRELIABLE, false)
+        end
+        if has_client_auth_reliable then
+            send_update(client_auth_reliable, Messages.CHANNEL_RELIABLE, true)
+        end
+        if has_client_auth_unreliable then
+            send_update(client_auth_unreliable, Messages.CHANNEL_UNRELIABLE, true)
         end
         
         ::continue_entity::

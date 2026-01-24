@@ -2,7 +2,6 @@
 -- Entry point for server-side game using net3 modules
 -- Just requiring modules registers their systems automatically
 
-local NetSync3 = require("modules/net3/init.lua")
 local NetGame3 = require("modules/net_game3.lua", { instanced = true })
 require("modules/net3/server_movement.lua")
 
@@ -34,7 +33,7 @@ end
 local function spawn_player_for_client(client_id, world)
     print(string.format("[CONFLUX3_SERVER] Spawning player for client %s", client_id))
     
-    local net_id = NetSync3.next_net_id()
+    local net_id = NetGame3.next_net_id()
     
     local player_id = spawn({
         Transform = {
@@ -49,7 +48,7 @@ local function spawn_player_for_client(client_id, world)
             health = 100,
             name = "Player_" .. client_id,
         },
-        [NetSync3.MARKER] = {
+        [NetGame3.MARKER] = {
             net_id = net_id,
             owner_client = client_id,
             authority = "local",
@@ -57,13 +56,13 @@ local function spawn_player_for_client(client_id, world)
                 SceneRoot = { rate_hz = 1.0 }, -- 1Hz
                 Transform = { rate_limit = 0.033 },  -- 30Hz
                 PlayerState = { rate_limit = 0.5 },   -- 2Hz
-                PlayerInput = { rate_limit = 0.016 }, -- 60Hz (as fast as possible)
+                PlayerInput = { authority = "client" }, -- No rate limit (unlimited)
             },
         },
     }):id()
     
-    NetSync3.register_entity(net_id, player_id)
-    NetSync3.set_owner(net_id, client_id)
+    NetGame3.register_entity(net_id, player_id)
+    NetGame3.set_owner(net_id, client_id)
     
     print(string.format("[CONFLUX3_SERVER] Player spawned: entity=%d net_id=%d", player_id, net_id))
     
@@ -74,7 +73,7 @@ local function despawn_player_for_client(client_id, world)
     print(string.format("[CONFLUX3_SERVER] Cleaning up player for client %d", client_id))
     
     -- Find and despawn player entity
-    local state = NetSync3.get_state()
+    local state = NetGame3.get_state()
     for net_id, entity_id in pairs(state.known_entities) do
         if state.net_id_owners[net_id] == client_id then
             local entity = world:get_entity(entity_id)

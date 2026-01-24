@@ -26,6 +26,10 @@ struct FileWatcherState {
     last_modified: std::collections::HashMap<PathBuf, std::time::SystemTime>,
     /// Debounce duration
     debounce_duration: Duration,
+    /// Polling interval - only check filesystem this often (prevents scanning every frame)
+    poll_interval: Duration,
+    /// Last time we polled the filesystem
+    last_poll: std::time::Instant,
 }
 
 impl Default for FileWatcherState {
@@ -33,19 +37,28 @@ impl Default for FileWatcherState {
         Self {
             last_modified: std::collections::HashMap::new(),
             debounce_duration: Duration::from_millis(100),
+            poll_interval: Duration::from_secs(5), // Only poll once per 5 seconds
+            last_poll: std::time::Instant::now(),
         }
     }
 }
 
 fn setup_file_watcher(mut commands: Commands) {
     commands.insert_resource(FileWatcherState::default());
-    debug!("Lua file watcher initialized (polling mode)");
+    debug!("Lua file watcher initialized (polling mode, 5s interval)");
 }
 
 fn poll_file_changes(
     mut state: ResMut<FileWatcherState>,
     mut events: MessageWriter<LuaFileChangeEvent>,
 ) {
+    // Rate limit: only poll filesystem once per poll_interval
+    let now = std::time::Instant::now();
+    if now.duration_since(state.last_poll) < state.poll_interval {
+        return; // Skip this frame
+    }
+    state.last_poll = now;
+
     // Watch assets/ directory (not just scripts/) to support scripts in any location
     let script_dir = Path::new("assets");
 

@@ -602,18 +602,22 @@ pub fn execute_query(
         if let Some(comp_id) = component_id {
             use std::time::Instant;
             let t0 = Instant::now();
-            
+
             let mut results = Vec::new();
             let mut cache_entries = Vec::new();
             let mut entities_checked = 0u32;
             let mut entities_matched = 0u32;
-            
+            let mut archetypes_checked = 0u32;
+            let mut archetypes_with_lua = 0u32;
+
             // Direct archetype traversal - no intermediate Vec, no parallel overhead
             for archetype in world.archetypes().iter() {
+                archetypes_checked += 1;
                 if !archetype.contains(comp_id) {
                     continue;
                 }
-                
+                archetypes_with_lua += 1;
+
                 for arch_entity in archetype.entities() {
                     entities_checked += 1;
                     let entity = arch_entity.id();
@@ -622,7 +626,7 @@ pub fn execute_query(
                             // Check if entity has ALL required Lua components
                             let has_all = query_builder.with_components.iter()
                                 .all(|name| custom_components.components.contains_key(name));
-                            
+
                             if has_all {
                                 entities_matched += 1;
                                 // Build component map directly - no intermediate allocations
@@ -632,13 +636,13 @@ pub fn execute_query(
                                         lua_components.insert(name.clone(), key.clone());
                                     }
                                 }
-                                
+
                                 // Build cache entry
                                 cache_entries.push(crate::query_cache::CachedEntityResult {
                                     entity_bits: entity.to_bits(),
                                     component_keys: lua_components.clone(),
                                 });
-                                
+
                                 results.push(LuaEntitySnapshot {
                                     entity,
                                     component_data: HashMap::new(),
@@ -650,95 +654,201 @@ pub fn execute_query(
                     }
                 }
             }
-            
-            let _elapsed = t0.elapsed().as_micros();
-            // Debug log for fast path stats (disabled in release for performance)
-            debug!(
-                "[QUERY_FAST_PATH] {:?} checked={} matched={} time={}us",
-                query_builder.with_components, entities_checked, entities_matched, _elapsed
-            );
-            
+
+            let elapsed = t0.elapsed().as_micros();
+            // Log for slow queries or when debugging
+            if elapsed >= 1000 { // 1ms
+                debug!(
+                    "[LUA_PERF] 🔍 FAST_PATH_QUERY: components={:?} archetypes={}/{} entities={}/{} time={}us",
+                    query_builder.with_components, archetypes_with_lua, archetypes_checked,
+                    entities_matched, entities_checked, elapsed
+                );
+            }
+
             // Cache results for later in this frame
             if let Some(cache) = query_cache {
                 cache.insert_full(&query_builder.with_components, cache_entries, current_frame);
             }
-            
+
             return Ok(results);
         }
     }
     
     // ARCHETYPE PATH: Optimized filtering using Bevy's archetype system
-    
-    // 1. Identify ComponentIds for all required components
+    let t_archetype_start = std::time::Instant::now();
+
+    // 1. Identify ComponentIds for all required components (with caching)
     let mut required_ids = Vec::new();
     let mut lua_required = Vec::new();
     let mut rust_required = Vec::new();
     let lua_custom_comp_id = world.components().component_id::<crate::components::LuaCustomComponents>();
-    
+
+    // Resolve component names to ComponentIds with caching
+    let mut cache_hits = 0u32;
+    let mut cache_misses = 0u32;
+    let mut cache_lookup_time_ns = 0u64;
+    let mut expensive_lookup_time_ns = 0u64;
+
     for name in &query_builder.with_components {
-        if let Some(type_id) = component_registry.get_non_reflected_type_id(name) {
-            if let Some(id) = world.components().get_id(*type_id) {
-                required_ids.push(id);
-                rust_required.push(name.clone());
-                continue;
-            }
-        }
-        
-        if let Some(type_path) = component_registry.get_type_path(name) {
-            if let Some(registration) = type_registry.get_with_type_path(&type_path) {
-                if let Some(id) = world.components().get_id(registration.type_id()) {
-                    required_ids.push(id);
-                    rust_required.push(name.clone());
-                    continue;
+        // Check cache first (fast path)
+        if let Some(cache) = query_cache {
+            let t_cache_start = std::time::Instant::now();
+            let cached_info = cache.get_component_info(name);
+            cache_lookup_time_ns += t_cache_start.elapsed().as_nanos() as u64;
+
+            if let Some(info) = cached_info {
+                cache_hits += 1;
+                match info {
+                    crate::query_cache::CachedComponentInfo::Rust(id) => {
+                        required_ids.push(id);
+                        rust_required.push(name.clone());
+                        continue;
+                    }
+                    crate::query_cache::CachedComponentInfo::Lua | crate::query_cache::CachedComponentInfo::NotFound => {
+                        let id = match lua_custom_comp_id {
+                            Some(id) => id,
+                            None => return Ok(Vec::new()),
+                        };
+                        if !required_ids.contains(&id) {
+                            required_ids.push(id);
+                        }
+                        lua_required.push(name.clone());
+                        continue;
+                    }
                 }
             }
         }
-        
-        // If not found in Rust registry, it must be a Lua component
-        let id = match lua_custom_comp_id {
-            Some(id) => id,
-            None => return Ok(Vec::new()), // Lua components required but none ever spawned
+
+        cache_misses += 1;
+        // Cache miss - do expensive lookup and cache result
+        let t_expensive_start = std::time::Instant::now();
+        let info = if let Some(type_id) = component_registry.get_non_reflected_type_id(name) {
+            if let Some(id) = world.components().get_id(*type_id) {
+                crate::query_cache::CachedComponentInfo::Rust(id)
+            } else {
+                crate::query_cache::CachedComponentInfo::Lua
+            }
+        } else if let Some(type_path) = component_registry.get_type_path(name) {
+            if let Some(registration) = type_registry.get_with_type_path(&type_path) {
+                if let Some(id) = world.components().get_id(registration.type_id()) {
+                    crate::query_cache::CachedComponentInfo::Rust(id)
+                } else {
+                    crate::query_cache::CachedComponentInfo::Lua
+                }
+            } else {
+                crate::query_cache::CachedComponentInfo::Lua
+            }
+        } else {
+            crate::query_cache::CachedComponentInfo::Lua
         };
-        
-        if !required_ids.contains(&id) {
-            required_ids.push(id);
+        expensive_lookup_time_ns += t_expensive_start.elapsed().as_nanos() as u64;
+
+        // Cache for next time
+        if let Some(cache) = query_cache {
+            cache.cache_component_info(name, info.clone());
         }
-        lua_required.push(name.clone());
+
+        // Apply the resolved info
+        match info {
+            crate::query_cache::CachedComponentInfo::Rust(id) => {
+                required_ids.push(id);
+                rust_required.push(name.clone());
+            }
+            crate::query_cache::CachedComponentInfo::Lua | crate::query_cache::CachedComponentInfo::NotFound => {
+                let id = match lua_custom_comp_id {
+                    Some(id) => id,
+                    None => return Ok(Vec::new()),
+                };
+                if !required_ids.contains(&id) {
+                    required_ids.push(id);
+                }
+                lua_required.push(name.clone());
+            }
+        }
     }
-    
-    // Add IDs for changed components
+
+    // Add IDs for changed components (also using cache)
     let mut changed_ids = Vec::new();
     let mut lua_changed = Vec::new();
     for name in &query_builder.changed_components {
-        if let Some(type_path) = component_registry.get_type_path(name) {
-            if let Some(registration) = type_registry.get_with_type_path(&type_path) {
-                if let Some(id) = world.components().get_id(registration.type_id()) {
-                    changed_ids.push((name.clone(), id));
-                    if !required_ids.contains(&id) {
-                        required_ids.push(id);
+        // Check cache first
+        if let Some(cache) = query_cache {
+            if let Some(info) = cache.get_component_info(name) {
+                match info {
+                    crate::query_cache::CachedComponentInfo::Rust(id) => {
+                        changed_ids.push((name.clone(), id));
+                        if !required_ids.contains(&id) {
+                            required_ids.push(id);
+                        }
+                        continue;
                     }
-                    continue;
+                    crate::query_cache::CachedComponentInfo::Lua | crate::query_cache::CachedComponentInfo::NotFound => {
+                        let id = match lua_custom_comp_id {
+                            Some(id) => id,
+                            None => return Ok(Vec::new()),
+                        };
+                        lua_changed.push(name.clone());
+                        if !required_ids.contains(&id) {
+                            required_ids.push(id);
+                        }
+                        continue;
+                    }
                 }
             }
         }
-        
-        // Lua changed component
-        let id = match lua_custom_comp_id {
-            Some(id) => id,
-            None => return Ok(Vec::new()), // Lua components required but none ever spawned
+
+        // Cache miss - do lookup
+        let info = if let Some(type_path) = component_registry.get_type_path(name) {
+            if let Some(registration) = type_registry.get_with_type_path(&type_path) {
+                if let Some(id) = world.components().get_id(registration.type_id()) {
+                    crate::query_cache::CachedComponentInfo::Rust(id)
+                } else {
+                    crate::query_cache::CachedComponentInfo::Lua
+                }
+            } else {
+                crate::query_cache::CachedComponentInfo::Lua
+            }
+        } else {
+            crate::query_cache::CachedComponentInfo::Lua
         };
-        
-        lua_changed.push(name.clone());
-        if !required_ids.contains(&id) {
-            required_ids.push(id);
+
+        // Cache for next time
+        if let Some(cache) = query_cache {
+            cache.cache_component_info(name, info.clone());
+        }
+
+        match info {
+            crate::query_cache::CachedComponentInfo::Rust(id) => {
+                changed_ids.push((name.clone(), id));
+                if !required_ids.contains(&id) {
+                    required_ids.push(id);
+                }
+            }
+            crate::query_cache::CachedComponentInfo::Lua | crate::query_cache::CachedComponentInfo::NotFound => {
+                let id = match lua_custom_comp_id {
+                    Some(id) => id,
+                    None => return Ok(Vec::new()),
+                };
+                lua_changed.push(name.clone());
+                if !required_ids.contains(&id) {
+                    required_ids.push(id);
+                }
+            }
         }
     }
-    
+
     let mut results = Vec::new();
     let mut cache_entries = Vec::new();
-    
+    let mut archetypes_checked = 0u32;
+    let mut archetypes_matched = 0u32;
+    let mut entities_checked = 0u32;
+
+    let t_id_resolve = std::time::Instant::now();
+    let id_resolve_time = t_id_resolve.duration_since(t_archetype_start).as_micros();
+
     // 2. Iterate archetypes that contain ALL required components
     for archetype in world.archetypes().iter() {
+        archetypes_checked += 1;
         let mut matches = true;
         for &id in &required_ids {
             if !archetype.contains(id) {
@@ -746,13 +856,15 @@ pub fn execute_query(
                 break;
             }
         }
-        
+
         if !matches {
             continue;
         }
+        archetypes_matched += 1;
         
         // 3. Collect entities and their data
         for arch_entity in archetype.entities() {
+            entities_checked += 1;
             let entity = arch_entity.id();
             let entity_ref = world.get_entity(entity).expect("Entity in archetype must exist");
             
@@ -882,7 +994,20 @@ pub fn execute_query(
             cache.insert_full(&query_builder.with_components, cache_entries, current_frame);
         }
     }
-    
+
+    let t_archetype_end = std::time::Instant::now();
+    let total_archetype_time = t_archetype_end.duration_since(t_archetype_start).as_micros();
+    if total_archetype_time >= 1000 { // 1ms
+        debug!(
+            "[LUA_PERF] 🔍 ARCHETYPE_PATH_QUERY: components={:?} changed={:?} id_resolve={}us (cache_lookup={}us expensive={}us) cache_hits={} cache_misses={} cache_avail={} archetypes={}/{} entities_checked={} results={} total={}us",
+            query_builder.with_components, query_builder.changed_components,
+            id_resolve_time, cache_lookup_time_ns / 1000, expensive_lookup_time_ns / 1000,
+            cache_hits, cache_misses, query_cache.is_some(),
+            archetypes_matched, archetypes_checked,
+            entities_checked, results.len(), total_archetype_time
+        );
+    }
+
     Ok(results)
 }
 

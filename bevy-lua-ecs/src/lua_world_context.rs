@@ -134,15 +134,16 @@ impl LuaUserData for LuaWorldContext<'_> {
             }
             
             let t3 = std::time::Instant::now();
-            
+
             let elapsed = t3.duration_since(t0).as_micros();
-            if elapsed >= 5000 { // 5ms
+            if elapsed >= 2000 { // 2ms threshold for logging
                 let parse_time = t1.duration_since(t0).as_micros();
                 let query_time = t2.duration_since(t1).as_micros();
                 let table_time = t3.duration_since(t2).as_micros();
+                let has_changed = !builder.changed_components.is_empty();
                 debug!(
-                    "[LUA_PERF] 🔍 SLOW QUERY: components={:?} parse={}us exec={}us table={}us (n={}) total={}us",
-                    builder.with_components, parse_time, query_time, table_time, result_count, elapsed
+                    "[LUA_PERF] 🔍 SLOW QUERY: with={:?} changed={} parse={}us exec={}us table={}us (n={}) total={}us",
+                    builder.with_components, has_changed, parse_time, query_time, table_time, result_count, elapsed
                 );
             }
 

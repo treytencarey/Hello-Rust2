@@ -11,6 +11,9 @@ pub mod auto_resource_bindings;
 // Text input wrapper for Lua spawning
 pub mod text_input;
 
+// Frame profiling for performance analysis
+pub mod frame_profiler;
+
 #[cfg(feature = "physics")]
 pub mod rapier;
 

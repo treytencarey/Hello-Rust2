@@ -195,10 +195,10 @@ local function movement_system(world)
         jump = jump,
         sprint = sprint,
         rotation_mode = state.rotation_mode,
-        sequence = is_moving and seq or (state.last_input and state.last_input.sequence or 0), -- Only send sequence if moving
+        sequence = seq, -- Send sequence for ALL input changes (including stops)
     }
     
-    -- 1. Send input to server via PlayerInput component if it changed and if moving
+    -- 1. Send input to server via PlayerInput component if it changed
     if input_changed then
         state.last_input = input
         entity:patch({ PlayerInput = input })

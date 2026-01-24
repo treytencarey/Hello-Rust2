@@ -72,11 +72,12 @@ end
 --- @param changed_components table Map of component_name -> component_data
 --- @param seq number|nil Input sequence number (for client prediction)
 --- @param ack_seq number|nil Last acknowledged sequence (server -> client)
+--- @param channel number|nil Optional channel (defaults to RELIABLE)
 --- @return table The outbound message
-function Messages.build_update(owner_client, entity, net_id, changed_components, seq, ack_seq)
+function Messages.build_update(owner_client, entity, net_id, changed_components, seq, ack_seq, channel)
     return {
         msg_type = "update",
-        channel = Messages.CHANNEL_UNRELIABLE,
+        channel = channel or Messages.CHANNEL_RELIABLE,
         net_id = net_id,
         owner_client = owner_client,
         payload = {

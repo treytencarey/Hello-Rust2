@@ -165,8 +165,31 @@ function Inbound.handle_update(world, msg, owner_client)
         state.client_input_seq[entity_id] = payload.seq
     end
     
+    -- Get sync config to check authority (initialize if missing)
+    local sync = entity:get(Components.MARKER)
+    local config = State.get_sync_config(entity_id, sync and sync.sync_components)
+    
     for comp_name, comp_data in pairs(payload.components or {}) do
-        -- Handle Transform specially for interpolation/prediction
+        -- 1. Authority Validation
+        local comp_config = config and config.sync_components and config.sync_components[comp_name] or {}
+        local authority = comp_config.authority or "server"
+        
+        if is_server then
+            -- Server: Only accept components with client authority
+            if authority ~= "client" then
+                print(string.format("[NET3] Server rejected update for %s (authority=%s)", comp_name, authority))
+                goto continue_update
+            end
+        elseif is_own_entity then
+            -- Client (Owner): Only accept components with server authority
+            -- (Local components with client authority are handled locally)
+            if authority ~= "server" then
+                print(string.format("[NET3] Owner rejected update for %s (authority=%s)", comp_name, authority))
+                goto continue_update
+            end
+        end
+
+        -- 2. Special handling for Transform (interpolation/prediction)
         if comp_name == "Transform" then
             if is_own_entity then
                 -- Update prediction state for reconciliation
@@ -210,11 +233,10 @@ function Inbound.handle_update(world, msg, owner_client)
             end
         end
         
-        -- Normal component update
+        -- 3. Apply normal component update
         entity:set({ [comp_name] = comp_data })
         
-        -- Update hash cache
-        local config = state.entity_sync_config[entity_id]
+        -- Update hash cache (if using manual diffing fallback)
         if config and config.last_sync_hashes then
             config.last_sync_hashes[comp_name] = json.encode(comp_data)
         end

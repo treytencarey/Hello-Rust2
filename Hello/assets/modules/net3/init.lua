@@ -170,56 +170,32 @@ register_system("Update", function(world)
         get_clients = state.get_clients,
         filter_clients = state.filter_clients,
     }
-    Outbound.system(world, context)
-end)
-
--- Server receive system: get messages from clients
-register_system("Update", function(world)
-    if state.mode ~= "server" then return end
     
-    Server.receive_system(world, state.get_clients)
-end)
+    -- 1. Receive messages
+    if state.mode == "server" then
+        Server.receive_system(world, state.get_clients)
+    elseif state.mode == "client" then
+        Client.receive_system(world)
+    end
 
--- Client receive system: get messages from server
-register_system("Update", function(world)
-    if state.mode ~= "client" then return end
-    
-    Client.receive_system(world)
-end)
-
--- Inbound system: process NetSyncInbound entities
-register_system("Update", function(world)
-    if not state.initialized then return end
-    
+    -- 2. Process messages
     Inbound.system(world)
-end)
 
--- Client prediction system: reconcile own entity with server state
-register_system("Update", function(world)
-    if state.mode ~= "client" then return end
-    
-    Prediction.system(world)
-end)
+    -- 3. Prediction and interpolation (only for clients) 
+    if state.mode == "client" then
+        Prediction.system(world)
+        Interpolation.system(world)
+    end
 
--- Client interpolation system: smooth movement for remote entities
-register_system("Update", function(world)
-    if state.mode ~= "client" then return end
-    
-    Interpolation.system(world)
-end)
+    -- 4. Prepare outbound messages
+    Outbound.system(world, context)
 
--- Server send system: process NetSyncOutbound, send to clients
-register_system("Update", function(world)
-    if state.mode ~= "server" then return end
-    
-    Server.send_system(world)
-end)
-
--- Client send system: process NetSyncOutbound, send to server
-register_system("Update", function(world)
-    if state.mode ~= "client" then return end
-    
-    Client.send_system(world)
+    -- 5. Send messages
+    if state.mode == "server" then
+        Server.send_system(world)
+    elseif state.mode == "client" then
+        Client.send_system(world)
+    end
 end)
 
 print("[NET3] Systems registered (will activate when init_server/init_client called)")

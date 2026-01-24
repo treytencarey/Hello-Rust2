@@ -3,7 +3,6 @@
 -- Just requiring modules registers their systems automatically
 
 local NetGame3 = require("modules/net_game3.lua", { instanced = true })
-local NetSync3 = require("modules/net3/init.lua")
 local PlayerController3 = require("modules/shared/player_controller3.lua")
 local CameraController = require("modules/camera3/controller.lua")
 

@@ -31,6 +31,20 @@ local state = define_resource("NetGame3State", {
 })
 
 --------------------------------------------------------------------------------
+-- Exports
+--------------------------------------------------------------------------------
+
+-- Component names
+NetGame3.MARKER = NetSync3.MARKER
+
+-- State accessors
+NetGame3.next_net_id = NetSync3.next_net_id
+NetGame3.register_entity = NetSync3.register_entity
+NetGame3.unregister_entity = NetSync3.unregister_entity
+NetGame3.set_owner = NetSync3.set_owner
+NetGame3.get_state = NetSync3.get_state
+
+--------------------------------------------------------------------------------
 -- Connection Handlers (internal)
 --------------------------------------------------------------------------------
 

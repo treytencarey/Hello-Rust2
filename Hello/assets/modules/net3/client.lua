@@ -36,6 +36,7 @@ function Client.send_system(world)
             owner_client = msg.owner_client,
             payload = msg.payload,
         })
+        print(string.format("[NET3_CLIENT] Sending message (%s): %s", channel == Messages.CHANNEL_RELIABLE and "RELIABLE" or "UNRELIABLE", encoded))
         
         -- Send to server
         world:call_resource_method("RenetClient", "send_message", channel, encoded)
