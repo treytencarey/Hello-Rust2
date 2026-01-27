@@ -212,15 +212,23 @@ pub fn process_component_updates(
         // Fallback: It's a generic Lua component - store in LuaCustomComponents
         // Get current tick for change tracking BEFORE borrowing world mutably
         let current_tick = world.read_change_tick().get();
-        
+
         if let Ok(mut entity_mut) = world.get_entity_mut(request.entity) {
             if let Some(mut lua_components) = entity_mut.get_mut::<LuaCustomComponents>() {
+                // Check if this is a NEW component (for Added filter support)
+                let is_new = !lua_components.components.contains_key(&request.component_name);
                 lua_components.components.insert(request.component_name.clone(), request.data.clone());
                 lua_components.changed_ticks.insert(request.component_name.clone(), current_tick);
+                // Only set added_ticks on first insertion
+                if is_new {
+                    lua_components.added_ticks.insert(request.component_name.clone(), current_tick);
+                }
             } else {
+                // Entity doesn't have LuaCustomComponents yet - this is definitely a new component
                 let mut lua_components = LuaCustomComponents::default();
                 lua_components.components.insert(request.component_name.clone(), request.data.clone());
                 lua_components.changed_ticks.insert(request.component_name.clone(), current_tick);
+                lua_components.added_ticks.insert(request.component_name.clone(), current_tick);
                 entity_mut.insert(lua_components);
             }
         } else {

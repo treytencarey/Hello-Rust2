@@ -33,8 +33,6 @@ end
 local function spawn_player_for_client(client_id, world)
     print(string.format("[CONFLUX3_SERVER] Spawning player for client %s", client_id))
     
-    local net_id = NetGame3.next_net_id()
-    
     local player_id = spawn({
         Transform = {
             translation = { x = 0, y = 1, z = 0 },
@@ -49,7 +47,6 @@ local function spawn_player_for_client(client_id, world)
             name = "Player_" .. client_id,
         },
         [NetGame3.MARKER] = {
-            net_id = net_id,
             owner_client = client_id,
             authority = "local",
             sync_components = {
@@ -61,10 +58,7 @@ local function spawn_player_for_client(client_id, world)
         },
     }):id()
     
-    NetGame3.register_entity(net_id, player_id)
-    NetGame3.set_owner(net_id, client_id)
-    
-    print(string.format("[CONFLUX3_SERVER] Player spawned: entity=%d net_id=%d", player_id, net_id))
+    print(string.format("[CONFLUX3_SERVER] Player spawned: entity=%d", player_id))
     
     return player_id
 end

@@ -95,6 +95,9 @@ end
 
 -- Convenience function to set up everything
 function FPS.setup()
+    if state.initialized then return end
+
+    print("FPS.setup() called")
     FPS.init()
     FPS.register()
 end

@@ -7,16 +7,101 @@
 
 use bevy::prelude::*;
 use mlua::prelude::*;
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 
 use crate::component_update_queue::ComponentUpdateQueue;
 use crate::components::LuaCustomComponents;
-use crate::lua_world_api::{execute_query, LuaQueryBuilder, LuaEntitySnapshot};
+use crate::lua_world_api::{execute_query, LuaQueryBuilder, LuaEntitySnapshot, OrFilters};
 use crate::spawn_queue::SpawnQueue;
 use crate::serde_components::SerdeComponentRegistry;
 use crate::ComponentRegistry;
 use crate::lua_systems::LuaSystemRegistry;
+
+/// Parse a DSL table into a LuaQueryBuilder
+/// DSL format:
+/// ```lua
+/// world:query({
+///     with = {"A", "B"},           -- With<A> && With<B>
+///     without = {"C"},             -- Without<C>
+///     any_of = {"D", "E"},         -- AnyOf<(&D, &E)>
+///     changed = {"A"},             -- Changed<A> (AND logic)
+///     added = {"B"},               -- Added<B> (AND logic)
+///     or = {                       -- Or<(Changed<X>, Added<Y>)>
+///         changed = {"X", "Y"},
+///         added = {"Z"},
+///     },
+/// })
+/// ```
+fn parse_query_dsl(table: &LuaTable, builder: &mut LuaQueryBuilder) -> LuaResult<()> {
+    // Parse 'with' - required components
+    if let Ok(with_table) = table.get::<LuaTable>("with") {
+        for comp_name in with_table.sequence_values::<String>() {
+            builder.with_components.push(comp_name?);
+        }
+    }
+
+    // Parse 'without' - excluded components
+    if let Ok(without_table) = table.get::<LuaTable>("without") {
+        for comp_name in without_table.sequence_values::<String>() {
+            builder.without_components.push(comp_name?);
+        }
+    }
+
+    // Parse 'any_of' - optional components (at least one required)
+    if let Ok(any_of_table) = table.get::<LuaTable>("any_of") {
+        for comp_name in any_of_table.sequence_values::<String>() {
+            builder.any_of_components.push(comp_name?);
+        }
+    }
+
+    // Parse 'changed' - AND changed filter
+    if let Ok(changed_table) = table.get::<LuaTable>("changed") {
+        for comp_name in changed_table.sequence_values::<String>() {
+            builder.changed_components.push(comp_name?);
+        }
+    }
+
+    // Parse 'added' - AND added filter
+    if let Ok(added_table) = table.get::<LuaTable>("added") {
+        for comp_name in added_table.sequence_values::<String>() {
+            builder.added_components.push(comp_name?);
+        }
+    }
+
+    // Parse 'or' - Or combinator for filters
+    if let Ok(or_table) = table.get::<LuaTable>("or") {
+        // Parse or.changed
+        if let Ok(or_changed_table) = or_table.get::<LuaTable>("changed") {
+            for comp_name in or_changed_table.sequence_values::<String>() {
+                builder.or_filters.changed.push(comp_name?);
+            }
+        }
+
+        // Parse or.added
+        if let Ok(or_added_table) = or_table.get::<LuaTable>("added") {
+            for comp_name in or_added_table.sequence_values::<String>() {
+                builder.or_filters.added.push(comp_name?);
+            }
+        }
+
+        // Parse or.removed
+        if let Ok(or_removed_table) = or_table.get::<LuaTable>("removed") {
+            for comp_name in or_removed_table.sequence_values::<String>() {
+                builder.or_filters.removed.push(comp_name?);
+            }
+        }
+    }
+
+    // Parse top-level 'removed' - shorthand for or.removed (since removed is inherently OR logic)
+    if let Ok(removed_table) = table.get::<LuaTable>("removed") {
+        for comp_name in removed_table.sequence_values::<String>() {
+            builder.or_filters.removed.push(comp_name?);
+        }
+    }
+
+    Ok(())
+}
 
 /// World userdata context - wraps references that are only valid during system execution
 /// SAFETY: This MUST only be used within a lua.scope() to ensure the world reference is valid
@@ -95,21 +180,40 @@ impl LuaUserData for LuaWorldContext<'_> {
         });
 
         // query(with_components, changed_components) - executes immediately and returns results
-        methods.add_method("query", |lua, this, (with_comps, changed_comps): (LuaTable, Option<LuaTable>)| {
+        // Supports two syntax forms:
+        // 1. Legacy: world:query({"A", "B"}, {"A"}) - array of components, optional changed array
+        // 2. DSL:    world:query({ with = {"A", "B"}, changed = {"A"}, without = {"C"}, ... })
+        methods.add_method("query", |lua, this, (first_arg, changed_comps): (LuaTable, Option<LuaTable>)| {
             let t0 = std::time::Instant::now();
-            
+
             let mut builder = LuaQueryBuilder::new();
 
-            for comp_name in with_comps.sequence_values::<String>() {
-                builder.with_components.push(comp_name?);
-            }
+            // Detect DSL vs legacy syntax by checking for string keys with Table values
+            // Must use matches! to distinguish between Ok(Nil) and Ok(Table(_))
+            let is_dsl = matches!(first_arg.get::<LuaValue>("with"), Ok(LuaValue::Table(_)))
+                || matches!(first_arg.get::<LuaValue>("without"), Ok(LuaValue::Table(_)))
+                || matches!(first_arg.get::<LuaValue>("any_of"), Ok(LuaValue::Table(_)))
+                || matches!(first_arg.get::<LuaValue>("changed"), Ok(LuaValue::Table(_)))
+                || matches!(first_arg.get::<LuaValue>("added"), Ok(LuaValue::Table(_)))
+                || matches!(first_arg.get::<LuaValue>("removed"), Ok(LuaValue::Table(_)))
+                || matches!(first_arg.get::<LuaValue>("or"), Ok(LuaValue::Table(_)));
 
-            if let Some(changed_table) = changed_comps {
-                for comp_name in changed_table.sequence_values::<String>() {
-                    builder.changed_components.push(comp_name?);
+            if is_dsl {
+                // DSL syntax: world:query({ with = {...}, without = {...}, ... })
+                parse_query_dsl(&first_arg, &mut builder)?;
+            } else {
+                // Legacy syntax: world:query({"A", "B"}, {"A"})
+                for comp_name in first_arg.sequence_values::<String>() {
+                    builder.with_components.push(comp_name?);
+                }
+
+                if let Some(changed_table) = changed_comps {
+                    for comp_name in changed_table.sequence_values::<String>() {
+                        builder.changed_components.push(comp_name?);
+                    }
                 }
             }
-            
+
             let t1 = std::time::Instant::now();
 
             let results = execute_query(
@@ -124,7 +228,7 @@ impl LuaUserData for LuaWorldContext<'_> {
                 this.current_frame,
                 this.asset_registry.as_ref(),
             )?;
-            
+
             let t2 = std::time::Instant::now();
             let result_count = results.len();
 
@@ -132,7 +236,7 @@ impl LuaUserData for LuaWorldContext<'_> {
             for (i, entity) in results.into_iter().enumerate() {
                 results_table.set(i + 1, entity)?;
             }
-            
+
             let t3 = std::time::Instant::now();
 
             let elapsed = t3.duration_since(t0).as_micros();
@@ -140,7 +244,7 @@ impl LuaUserData for LuaWorldContext<'_> {
                 let parse_time = t1.duration_since(t0).as_micros();
                 let query_time = t2.duration_since(t1).as_micros();
                 let table_time = t3.duration_since(t2).as_micros();
-                let has_changed = !builder.changed_components.is_empty();
+                let has_changed = builder.has_change_detection();
                 debug!(
                     "[LUA_PERF] 🔍 SLOW QUERY: with={:?} changed={} parse={}us exec={}us table={}us (n={}) total={}us",
                     builder.with_components, has_changed, parse_time, query_time, table_time, result_count, elapsed
@@ -248,6 +352,8 @@ impl LuaUserData for LuaWorldContext<'_> {
                 entity,
                 component_data: HashMap::new(), // Deprecated - using lua_components for all
                 lua_components: all_components,
+                changed_components: HashSet::new(),
+                added_components: HashSet::new(),
                 update_queue: this.update_queue.clone(),
             };
             
@@ -616,6 +722,39 @@ impl LuaUserData for LuaWorldContext<'_> {
             this.pending_messages.queue_message(message_type_name.clone(), json_data);
 
             Ok(())
+        });
+
+        // profiler_stats() - get system timing data from Rust for accurate profiling
+        // Returns a table: { systems = { [script_path] = {count, total_ms, max_ms, avg_ms, last_ms} }, ... }
+        methods.add_method("profiler_stats", |lua, this, ()| {
+            let progress = this.world().get_resource::<crate::lua_frame_budget::LuaSystemProgress>();
+            
+            let result = lua.create_table()?;
+            
+            if let Some(progress) = progress {
+                let timings = progress.get_system_timings();
+                let systems_table = lua.create_table()?;
+                
+                for (path, timing) in timings {
+                    let timing_table = lua.create_table()?;
+                    timing_table.set("count", timing.call_count)?;
+                    timing_table.set("total_ms", timing.total_ms)?;
+                    timing_table.set("max_ms", timing.max_ms)?;
+                    timing_table.set("last_ms", timing.last_ms)?;
+                    timing_table.set("avg_ms", if timing.call_count > 0 { 
+                        timing.total_ms / timing.call_count as f64 
+                    } else { 
+                        0.0 
+                    })?;
+                    systems_table.set(path, timing_table)?;
+                }
+                
+                result.set("systems", systems_table)?;
+                result.set("time_this_frame_ms", progress.time_this_frame().as_secs_f64() * 1000.0)?;
+                result.set("exceeded_count", progress.exceeded_count())?;
+            }
+            
+            Ok(result)
         });
     }
 }

@@ -24,8 +24,6 @@ local function find_entity_by_net_id(world, net_id)
         if entity then
             return cached
         end
-        -- Entity was despawned, clean up cache
-        State.unregister_entity(net_id)
     end
     
     -- Fallback: query world
@@ -151,8 +149,7 @@ function Inbound.handle_update(world, msg, owner_client)
     
     local entity = world:get_entity(entity_id)
     if not entity then
-        print(string.format("[NET3] Entity %d not found in world", entity_id))
-        State.unregister_entity(net_id)
+        print(string.format("[NET3] Entity %d not found in world (might be pending spawn)", entity_id))
         return
     end
     
@@ -170,6 +167,18 @@ function Inbound.handle_update(world, msg, owner_client)
     local config = State.get_sync_config(entity_id, sync and sync.sync_components)
     
     for comp_name, comp_data in pairs(payload.components or {}) do
+        -- 0. Shared Entity Suppression (for "both" mode)
+        -- If this entity is managed by another instance in the same world, 
+        -- we don't need to apply the update because the source instance
+        -- already updated the shared component data.
+        local script_owned = entity:get("ScriptOwned")
+        if script_owned and script_owned.instance_id ~= __INSTANCE_ID__ then
+            if config and config.created_locally == false then
+                print(string.format("[NET3] Skipping update for shared entity %d (net_id %d)", entity_id, net_id))
+                goto continue_update
+            end
+        end
+
         -- 1. Authority Validation
         local comp_config = config and config.sync_components and config.sync_components[comp_name] or {}
         local authority = comp_config.authority or "server"
@@ -235,11 +244,6 @@ function Inbound.handle_update(world, msg, owner_client)
         
         -- 3. Apply normal component update
         entity:set({ [comp_name] = comp_data })
-        
-        -- Update hash cache (if using manual diffing fallback)
-        if config and config.last_sync_hashes then
-            config.last_sync_hashes[comp_name] = json.encode(comp_data)
-        end
         
         ::continue_update::
     end

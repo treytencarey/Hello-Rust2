@@ -66,6 +66,19 @@ struct ProgressInner {
     
     /// Number of frames where budget was exceeded (for diagnostics)
     exceeded_count: u64,
+    
+    /// Per-system timing data: script_path -> (count, total_ms, max_ms, last_ms)
+    /// Used by the Lua profiler to show which systems are slow
+    system_timings: std::collections::HashMap<String, SystemTiming>,
+}
+
+/// Timing data for a single Lua system
+#[derive(Clone, Default)]
+pub struct SystemTiming {
+    pub call_count: u64,
+    pub total_ms: f64,
+    pub max_ms: f64,
+    pub last_ms: f64,
 }
 
 impl Default for LuaSystemProgress {
@@ -133,6 +146,30 @@ impl LuaSystemProgress {
     /// Get the count of frames where budget was exceeded
     pub fn exceeded_count(&self) -> u64 {
         self.inner.lock().unwrap().exceeded_count
+    }
+    
+    /// Record timing for a specific system (by script path)
+    pub fn record_system_time(&self, script_path: String, elapsed: Duration) {
+        let mut inner = self.inner.lock().unwrap();
+        let elapsed_ms = elapsed.as_secs_f64() * 1000.0;
+        
+        let timing = inner.system_timings.entry(script_path).or_default();
+        timing.call_count += 1;
+        timing.total_ms += elapsed_ms;
+        timing.last_ms = elapsed_ms;
+        if elapsed_ms > timing.max_ms {
+            timing.max_ms = elapsed_ms;
+        }
+    }
+    
+    /// Get all system timings (for Lua profiler)
+    pub fn get_system_timings(&self) -> std::collections::HashMap<String, SystemTiming> {
+        self.inner.lock().unwrap().system_timings.clone()
+    }
+    
+    /// Clear all timing data
+    pub fn clear_timings(&self) {
+        self.inner.lock().unwrap().system_timings.clear();
     }
 }
 

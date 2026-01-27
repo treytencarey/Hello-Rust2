@@ -8,7 +8,6 @@
 
 -- Spawn camera for UI
 spawn({
-    Camera = {},
     Camera2d = {},
 })
 

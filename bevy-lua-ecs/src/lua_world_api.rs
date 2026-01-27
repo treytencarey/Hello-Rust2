@@ -3,36 +3,120 @@ use crate::components::ComponentRegistry;
 use bevy::ecs::reflect::ReflectComponent;
 use bevy::prelude::*;
 use mlua::prelude::*;
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 
+/// Filter types that can be combined with Or combinator
+/// Matches Bevy's Or<(Changed<T1>, Changed<T2>, Added<T3>, ...)>
+#[derive(Clone, Default, Debug)]
+pub struct OrFilters {
+    /// Or<(Changed<T1>, Changed<T2>, ...)> - at least one must have changed
+    pub changed: Vec<String>,
+    /// Or<(Added<T1>, Added<T2>, ...)> - at least one must be newly added
+    pub added: Vec<String>,
+    /// Or<(Removed<T1>, Removed<T2>, ...)> - at least one must have been removed
+    pub removed: Vec<String>,
+}
+
+impl OrFilters {
+    pub fn is_empty(&self) -> bool {
+        self.changed.is_empty() && self.added.is_empty() && self.removed.is_empty()
+    }
+}
+
 /// Lua userdata representing a query builder
+/// Supports Bevy-style filters: With, Without, Changed, Added, AnyOf, Or
 #[derive(Clone)]
 pub struct LuaQueryBuilder {
+    /// With<T> - Required components (AND logic, all must be present)
     pub with_components: Vec<String>,
+    /// Without<T> - Excluded components (none must be present)
+    pub without_components: Vec<String>,
+    /// AnyOf<(&T1, &T2, ...)> - Optional components (at least one must be present)
+    pub any_of_components: Vec<String>,
+    /// Changed<T> - Components that must have changed (AND logic)
     pub changed_components: Vec<String>,
+    /// Added<T> - Components that must be newly added (AND logic)
+    pub added_components: Vec<String>,
+    /// Or<(F1, F2, ...)> - Union filter combinator
+    pub or_filters: OrFilters,
 }
 
 impl LuaQueryBuilder {
     pub fn new() -> Self {
         Self {
             with_components: Vec::new(),
+            without_components: Vec::new(),
+            any_of_components: Vec::new(),
             changed_components: Vec::new(),
+            added_components: Vec::new(),
+            or_filters: OrFilters::default(),
         }
+    }
+
+    /// Check if this query has any change-detection filters (Changed, Added, Or)
+    pub fn has_change_detection(&self) -> bool {
+        !self.changed_components.is_empty()
+            || !self.added_components.is_empty()
+            || !self.or_filters.is_empty()
     }
 }
 
 impl LuaUserData for LuaQueryBuilder {
     fn add_methods<M: LuaUserDataMethods<Self>>(methods: &mut M) {
+        // With<T> - require component (AND)
         methods.add_method("with", |_, this, component_name: String| {
             let mut new_builder = this.clone();
             new_builder.with_components.push(component_name);
             Ok(new_builder)
         });
 
+        // Without<T> - exclude component
+        methods.add_method("without", |_, this, component_name: String| {
+            let mut new_builder = this.clone();
+            new_builder.without_components.push(component_name);
+            Ok(new_builder)
+        });
+
+        // AnyOf - optional components (at least one must be present)
+        methods.add_method("any_of", |_, this, component_name: String| {
+            let mut new_builder = this.clone();
+            new_builder.any_of_components.push(component_name);
+            Ok(new_builder)
+        });
+
+        // Changed<T> - component must have changed (AND)
         methods.add_method("changed", |_, this, component_name: String| {
             let mut new_builder = this.clone();
             new_builder.changed_components.push(component_name);
+            Ok(new_builder)
+        });
+
+        // Added<T> - component must be newly added (AND)
+        methods.add_method("added", |_, this, component_name: String| {
+            let mut new_builder = this.clone();
+            new_builder.added_components.push(component_name);
+            Ok(new_builder)
+        });
+
+        // Or changed - at least one must have changed
+        methods.add_method("or_changed", |_, this, component_name: String| {
+            let mut new_builder = this.clone();
+            new_builder.or_filters.changed.push(component_name);
+            Ok(new_builder)
+        });
+
+        // Or added - at least one must be newly added
+        methods.add_method("or_added", |_, this, component_name: String| {
+            let mut new_builder = this.clone();
+            new_builder.or_filters.added.push(component_name);
+            Ok(new_builder)
+        });
+
+        // Or removed - at least one must have been removed this frame
+        methods.add_method("or_removed", |_, this, component_name: String| {
+            let mut new_builder = this.clone();
+            new_builder.or_filters.removed.push(component_name);
             Ok(new_builder)
         });
     }
@@ -48,6 +132,8 @@ pub struct LuaEntitySnapshot {
     pub entity: Entity,
     pub component_data: HashMap<String, String>,
     pub lua_components: HashMap<String, Arc<LuaRegistryKey>>,
+    pub changed_components: HashSet<String>,
+    pub added_components: HashSet<String>,
     pub update_queue: ComponentUpdateQueue,
 }
 
@@ -57,6 +143,8 @@ impl Clone for LuaEntitySnapshot {
             entity: self.entity,
             component_data: self.component_data.clone(),
             lua_components: HashMap::new(), // Can't clone registry keys easily without context
+            changed_components: self.changed_components.clone(),
+            added_components: self.added_components.clone(),
             update_queue: self.update_queue.clone(),
         }
     }
@@ -99,6 +187,30 @@ impl LuaUserData for LuaEntitySnapshot {
         });
 
         methods.add_method("id", |_, this, ()| Ok(this.entity.to_bits()));
+        
+        methods.add_method("changed_components", |lua, this, ()| {
+            let table = lua.create_table()?;
+            for (i, name) in this.changed_components.iter().enumerate() {
+                table.set(i + 1, name.clone())?;
+            }
+            Ok(table)
+        });
+
+        methods.add_method("added_components", |lua, this, ()| {
+            let table = lua.create_table()?;
+            for (i, name) in this.added_components.iter().enumerate() {
+                table.set(i + 1, name.clone())?;
+            }
+            Ok(table)
+        });
+
+        methods.add_method("is_changed", |_, this, component_name: String| {
+            Ok(this.changed_components.contains(&component_name))
+        });
+
+        methods.add_method("is_added", |_, this, component_name: String| {
+            Ok(this.added_components.contains(&component_name))
+        });
 
         methods.add_method("get_components", |lua, this, ()| {
             let table = lua.create_table()?;
@@ -498,6 +610,51 @@ fn json_to_lua_impl(
     }
 }
 
+/// Helper function to resolve a component name to CachedComponentInfo
+/// Uses cache if available, otherwise does full lookup
+fn resolve_component_info(
+    name: &str,
+    query_cache: Option<&crate::query_cache::LuaQueryCache>,
+    component_registry: &ComponentRegistry,
+    type_registry: &bevy::reflect::TypeRegistry,
+    world: &World,
+) -> crate::query_cache::CachedComponentInfo {
+    // Check cache first
+    if let Some(cache) = query_cache {
+        if let Some(info) = cache.get_component_info(name) {
+            return info;
+        }
+    }
+
+    // Cache miss - do lookup
+    let info = if let Some(type_id) = component_registry.get_non_reflected_type_id(name) {
+        if let Some(id) = world.components().get_id(*type_id) {
+            crate::query_cache::CachedComponentInfo::Rust(id)
+        } else {
+            crate::query_cache::CachedComponentInfo::Lua
+        }
+    } else if let Some(type_path) = component_registry.get_type_path(name) {
+        if let Some(registration) = type_registry.get_with_type_path(&type_path) {
+            if let Some(id) = world.components().get_id(registration.type_id()) {
+                crate::query_cache::CachedComponentInfo::Rust(id)
+            } else {
+                crate::query_cache::CachedComponentInfo::Lua
+            }
+        } else {
+            crate::query_cache::CachedComponentInfo::Lua
+        }
+    } else {
+        crate::query_cache::CachedComponentInfo::Lua
+    };
+
+    // Cache for next time
+    if let Some(cache) = query_cache {
+        cache.cache_component_info(name, info.clone());
+    }
+
+    info
+}
+
 /// Execute a query and collect entity snapshots
 /// Uses per-frame caching with full component data for performance
 pub fn execute_query(
@@ -512,10 +669,48 @@ pub fn execute_query(
     current_frame: u64,
     asset_registry: Option<&crate::asset_loading::AssetRegistry>,
 ) -> LuaResult<Vec<LuaEntitySnapshot>> {
+    // Special handling for 'removed' queries
+    // These return entity_bits for entities that had components removed this frame
+    // The entities may no longer exist, so we can't return full snapshots
+    if !query_builder.or_filters.removed.is_empty() {
+        let removed_tracker = world
+            .get_resource::<crate::removed_components::RemovedComponentsTracker>()
+            .cloned()
+            .unwrap_or_default();
+
+        let mut seen_entities = HashSet::new();
+        let mut results = Vec::new();
+
+        // Collect entity_bits for all removed components (OR logic)
+        for comp_name in &query_builder.or_filters.removed {
+            for entity_bits in removed_tracker.get_removed(comp_name) {
+                if seen_entities.insert(entity_bits) {
+                    // Create a minimal snapshot with just the entity bits
+                    // The entity may not exist anymore, but we provide the bits for state lookup
+                    results.push(LuaEntitySnapshot {
+                        entity: Entity::from_bits(entity_bits),
+                        component_data: HashMap::new(),
+                        lua_components: HashMap::new(),
+                        changed_components: HashSet::new(),
+                        added_components: HashSet::new(),
+                        update_queue: update_queue.clone(),
+                    });
+                }
+            }
+        }
+
+        return Ok(results);
+    }
+
     let type_registry = component_registry.type_registry().read();
     
     // For queries without change detection, check cache first (full component data)
-    if query_builder.changed_components.is_empty() {
+    // Note: We skip cache for queries with Without/AnyOf filters since those need runtime checks
+    let can_use_cache = !query_builder.has_change_detection()
+        && query_builder.without_components.is_empty()
+        && query_builder.any_of_components.is_empty();
+
+    if can_use_cache {
         if let Some(cache) = query_cache {
             if let Some(cached_results) = cache.get_full(&query_builder.with_components, current_frame) {
                 // Fast path: directly use cached registry keys
@@ -533,6 +728,8 @@ pub fn execute_query(
                             entity,
                             component_data: HashMap::new(), // Not needed, we have lua_components
                             lua_components: cached.component_keys.clone(),
+                            changed_components: HashSet::new(),
+                            added_components: HashSet::new(),
                             update_queue: update_queue.clone(),
                         });
                     }
@@ -595,9 +792,15 @@ pub fn execute_query(
         query_builder.with_components, has_rust_components, query_builder.changed_components.is_empty(), _check_time
     );
     
-    // FAST PATH: For pure Lua component queries (no Rust components, no change detection)
+    // FAST PATH: For pure Lua component queries (no Rust components, no complex filters)
     // This is a direct iteration without parallel overhead - much faster for small result sets
-    if !has_rust_components && query_builder.changed_components.is_empty() {
+    // Skip FAST PATH if we have: Rust components, change detection, Without, AnyOf, Added, or Or filters
+    let use_fast_path = !has_rust_components
+        && !query_builder.has_change_detection()
+        && query_builder.without_components.is_empty()
+        && query_builder.any_of_components.is_empty();
+
+    if use_fast_path {
         let component_id = world.components().component_id::<LuaCustomComponents>();
         if let Some(comp_id) = component_id {
             use std::time::Instant;
@@ -647,6 +850,8 @@ pub fn execute_query(
                                     entity,
                                     component_data: HashMap::new(),
                                     lua_components,
+                                    changed_components: HashSet::new(),
+                                    added_components: HashSet::new(),
                                     update_queue: update_queue.clone(),
                                 });
                             }
@@ -837,6 +1042,93 @@ pub fn execute_query(
         }
     }
 
+    // Resolve Without filter components
+    let mut excluded_ids = Vec::new();
+    let mut lua_without = Vec::new();
+    for name in &query_builder.without_components {
+        let info = resolve_component_info(name, query_cache, component_registry, &*type_registry, world);
+        match info {
+            crate::query_cache::CachedComponentInfo::Rust(id) => {
+                excluded_ids.push(id);
+            }
+            crate::query_cache::CachedComponentInfo::Lua | crate::query_cache::CachedComponentInfo::NotFound => {
+                lua_without.push(name.clone());
+            }
+        }
+    }
+
+    // Resolve AnyOf filter components
+    let mut any_of_ids = Vec::new();
+    let mut lua_any_of = Vec::new();
+    for name in &query_builder.any_of_components {
+        let info = resolve_component_info(name, query_cache, component_registry, &*type_registry, world);
+        match info {
+            crate::query_cache::CachedComponentInfo::Rust(id) => {
+                any_of_ids.push((name.clone(), id));
+            }
+            crate::query_cache::CachedComponentInfo::Lua | crate::query_cache::CachedComponentInfo::NotFound => {
+                lua_any_of.push(name.clone());
+            }
+        }
+    }
+
+    // Resolve Added filter components (AND logic)
+    let mut added_ids = Vec::new();
+    let mut lua_added = Vec::new();
+    for name in &query_builder.added_components {
+        let info = resolve_component_info(name, query_cache, component_registry, &*type_registry, world);
+        match info {
+            crate::query_cache::CachedComponentInfo::Rust(id) => {
+                added_ids.push((name.clone(), id));
+                if !required_ids.contains(&id) {
+                    required_ids.push(id);
+                }
+            }
+            crate::query_cache::CachedComponentInfo::Lua | crate::query_cache::CachedComponentInfo::NotFound => {
+                lua_added.push(name.clone());
+                if let Some(id) = lua_custom_comp_id {
+                    if !required_ids.contains(&id) {
+                        required_ids.push(id);
+                    }
+                }
+            }
+        }
+    }
+
+    // Resolve Or filter components
+    let mut or_changed_ids = Vec::new();
+    let mut or_changed_lua = Vec::new();
+    for name in &query_builder.or_filters.changed {
+        let info = resolve_component_info(name, query_cache, component_registry, &*type_registry, world);
+        match info {
+            crate::query_cache::CachedComponentInfo::Rust(id) => {
+                or_changed_ids.push((name.clone(), id));
+            }
+            crate::query_cache::CachedComponentInfo::Lua | crate::query_cache::CachedComponentInfo::NotFound => {
+                or_changed_lua.push(name.clone());
+            }
+        }
+    }
+
+    let mut or_added_ids = Vec::new();
+    let mut or_added_lua = Vec::new();
+    for name in &query_builder.or_filters.added {
+        let info = resolve_component_info(name, query_cache, component_registry, &*type_registry, world);
+        match info {
+            crate::query_cache::CachedComponentInfo::Rust(id) => {
+                or_added_ids.push((name.clone(), id));
+            }
+            crate::query_cache::CachedComponentInfo::Lua | crate::query_cache::CachedComponentInfo::NotFound => {
+                or_added_lua.push(name.clone());
+            }
+        }
+    }
+
+    let has_or_filters = !or_changed_ids.is_empty()
+        || !or_changed_lua.is_empty()
+        || !or_added_ids.is_empty()
+        || !or_added_lua.is_empty();
+
     let mut results = Vec::new();
     let mut cache_entries = Vec::new();
     let mut archetypes_checked = 0u32;
@@ -849,6 +1141,8 @@ pub fn execute_query(
     // 2. Iterate archetypes that contain ALL required components
     for archetype in world.archetypes().iter() {
         archetypes_checked += 1;
+
+        // Check all required components are present (With filter)
         let mut matches = true;
         for &id in &required_ids {
             if !archetype.contains(id) {
@@ -856,10 +1150,37 @@ pub fn execute_query(
                 break;
             }
         }
-
         if !matches {
             continue;
         }
+
+        // Check no excluded Rust components are present (Without filter - archetype level)
+        let mut has_excluded = false;
+        for &id in &excluded_ids {
+            if archetype.contains(id) {
+                has_excluded = true;
+                break;
+            }
+        }
+        if has_excluded {
+            continue;
+        }
+
+        // Check at least one AnyOf Rust component is present (if any specified)
+        // Note: Lua AnyOf components are checked at entity level since they share LuaCustomComponents
+        if !any_of_ids.is_empty() && lua_any_of.is_empty() {
+            let mut has_any_of = false;
+            for (_name, id) in &any_of_ids {
+                if archetype.contains(*id) {
+                    has_any_of = true;
+                    break;
+                }
+            }
+            if !has_any_of {
+                continue;
+            }
+        }
+
         archetypes_matched += 1;
         
         // 3. Collect entities and their data
@@ -868,12 +1189,30 @@ pub fn execute_query(
             let entity = arch_entity.id();
             let entity_ref = world.get_entity(entity).expect("Entity in archetype must exist");
             
-            // Check Lua-specific requirements (since they share the same ComponentId)
-            let custom_comps = if !lua_required.is_empty() || !lua_changed.is_empty() {
-                let comps = entity_ref.get::<crate::components::LuaCustomComponents>()
-                    .expect("Archetype matches but component missing?");
-                
-                // Check missing Lua requirements
+            let mut entity_changed = HashSet::new();
+            let mut entity_added = HashSet::new();
+
+            // Determine if we need LuaCustomComponents for any check
+            let needs_lua_comps = !lua_required.is_empty()
+                || !lua_changed.is_empty()
+                || !lua_without.is_empty()
+                || !lua_any_of.is_empty()
+                || !lua_added.is_empty()
+                || !or_changed_lua.is_empty()
+                || !or_added_lua.is_empty();
+
+            let custom_comps = if needs_lua_comps {
+                entity_ref.get::<crate::components::LuaCustomComponents>()
+            } else {
+                None
+            };
+
+            // Check Lua-specific requirements (With filter)
+            if !lua_required.is_empty() {
+                let comps = match &custom_comps {
+                    Some(c) => c,
+                    None => continue, // No LuaCustomComponents means missing Lua components
+                };
                 let mut lua_missing = false;
                 for name in &lua_required {
                     if !comps.components.contains_key(name) {
@@ -882,8 +1221,55 @@ pub fn execute_query(
                     }
                 }
                 if lua_missing { continue; }
-                
-                // Check Lua change filters
+            }
+
+            // Check Lua Without filter (exclude entities with these Lua components)
+            if !lua_without.is_empty() {
+                if let Some(comps) = &custom_comps {
+                    let mut has_excluded = false;
+                    for name in &lua_without {
+                        if comps.components.contains_key(name) {
+                            has_excluded = true;
+                            break;
+                        }
+                    }
+                    if has_excluded { continue; }
+                }
+            }
+
+            // Check AnyOf filter (at least one must be present)
+            if !any_of_ids.is_empty() || !lua_any_of.is_empty() {
+                let mut has_any_of = false;
+
+                // Check Rust AnyOf components
+                for (_name, id) in &any_of_ids {
+                    if entity_ref.contains_id(*id) {
+                        has_any_of = true;
+                        break;
+                    }
+                }
+
+                // Check Lua AnyOf components
+                if !has_any_of {
+                    if let Some(comps) = &custom_comps {
+                        for name in &lua_any_of {
+                            if comps.components.contains_key(name) {
+                                has_any_of = true;
+                                break;
+                            }
+                        }
+                    }
+                }
+
+                if !has_any_of { continue; }
+            }
+
+            // Check Lua Changed filters (AND logic - all must have changed)
+            if !lua_changed.is_empty() {
+                let comps = match &custom_comps {
+                    Some(c) => c,
+                    None => continue,
+                };
                 let mut lua_not_changed = false;
                 for name in &lua_changed {
                     if let Some(&tick) = comps.changed_ticks.get(name) {
@@ -898,40 +1284,176 @@ pub fn execute_query(
                     }
                 }
                 if lua_not_changed { continue; }
-                
-                Some(comps)
-            } else {
-                None
-            };
-            
-            // Check Bevy change filters
-            let mut rust_not_changed = false;
-            for (_name, id) in &changed_ids {
-                if let Some(ticks) = entity_ref.get_change_ticks_by_id(*id) {
-                    use bevy::ecs::component::Tick;
-                    if !ticks.is_changed(Tick::new(last_run), Tick::new(this_run)) {
-                        rust_not_changed = true;
+                for name in &lua_changed {
+                    entity_changed.insert(name.clone());
+                }
+            }
+
+            // Check Bevy Changed filters (AND logic - all must have changed)
+            if !changed_ids.is_empty() {
+                let mut rust_not_changed = false;
+                for (_name, id) in &changed_ids {
+                    if let Some(ticks) = entity_ref.get_change_ticks_by_id(*id) {
+                        use bevy::ecs::component::Tick;
+                        if !ticks.is_changed(Tick::new(last_run), Tick::new(this_run)) {
+                            rust_not_changed = true;
+                            break;
+                        }
+                    }
+                }
+                if rust_not_changed { continue; }
+                for (name, _) in &changed_ids {
+                    entity_changed.insert(name.clone());
+                }
+            }
+
+            // Check Added filters (AND logic - all must be newly added)
+            if !added_ids.is_empty() {
+                let mut rust_not_added = false;
+                for (_name, id) in &added_ids {
+                    if let Some(ticks) = entity_ref.get_change_ticks_by_id(*id) {
+                        use bevy::ecs::component::Tick;
+                        if !ticks.is_added(Tick::new(last_run), Tick::new(this_run)) {
+                            rust_not_added = true;
+                            break;
+                        }
+                    } else {
+                        rust_not_added = true;
                         break;
                     }
                 }
+                if rust_not_added { continue; }
+                for (name, _) in &added_ids {
+                    entity_added.insert(name.clone());
+                }
             }
-            if rust_not_changed { continue; }
+
+            if !lua_added.is_empty() {
+                let comps = match &custom_comps {
+                    Some(c) => c,
+                    None => continue,
+                };
+                let mut lua_not_added = false;
+                for name in &lua_added {
+                    if let Some(&tick) = comps.added_ticks.get(name) {
+                        use bevy::ecs::component::Tick;
+                        if !Tick::new(tick).is_newer_than(Tick::new(last_run), Tick::new(this_run)) {
+                            lua_not_added = true;
+                            break;
+                        }
+                    } else {
+                        lua_not_added = true;
+                        break;
+                    }
+                }
+                if lua_not_added { continue; }
+                for name in &lua_added {
+                    entity_added.insert(name.clone());
+                }
+            }
+
+            // Check Or filters (at least one must match - early exit on first match)
+            if has_or_filters {
+                let mut or_matched = false;
+
+                // Check Or Changed - Rust components
+                for (name, id) in &or_changed_ids {
+                    if let Some(ticks) = entity_ref.get_change_ticks_by_id(*id) {
+                        use bevy::ecs::component::Tick;
+                        let changed = ticks.is_changed(Tick::new(last_run), Tick::new(this_run));
+                        if changed {
+                            or_matched = true;
+                            entity_changed.insert(name.clone());
+                        }
+                    }
+                }
+
+                // Check Or Changed - Lua components
+                if !or_matched || true { // Continue checking to collect all matches
+                    if let Some(comps) = &custom_comps {
+                        for name in &or_changed_lua {
+                            if let Some(&tick) = comps.changed_ticks.get(name) {
+                                use bevy::ecs::component::Tick;
+                                if Tick::new(tick).is_newer_than(Tick::new(last_run), Tick::new(this_run)) {
+                                    or_matched = true;
+                                    entity_changed.insert(name.clone());
+                                }
+                            }
+                        }
+                    }
+                }
+
+                // Check Or Added - Rust components
+                if !or_matched || true {
+                    for (name, id) in &or_added_ids {
+                        if let Some(ticks) = entity_ref.get_change_ticks_by_id(*id) {
+                            use bevy::ecs::component::Tick;
+                            if ticks.is_added(Tick::new(last_run), Tick::new(this_run)) {
+                                or_matched = true;
+                                entity_added.insert(name.clone());
+                            }
+                        }
+                    }
+                }
+
+                // Check Or Added - Lua components
+                if !or_matched || true {
+                    if let Some(comps) = &custom_comps {
+                        for name in &or_added_lua {
+                            if let Some(&tick) = comps.added_ticks.get(name) {
+                                use bevy::ecs::component::Tick;
+                                if Tick::new(tick).is_newer_than(Tick::new(last_run), Tick::new(this_run)) {
+                                    or_matched = true;
+                                    entity_added.insert(name.clone());
+                                }
+                            }
+                        }
+                    }
+                }
+
+                if !or_matched { continue; }
+            }
             
             // 4. Build snapshot and serialize
             let mut component_data = HashMap::new();
             let mut lua_components = HashMap::new();
-            
-            // Map Lua components
-            if let Some(comps) = custom_comps {
+
+            // Map Lua components (required + any_of + changed/added that are present)
+            if let Some(comps) = &custom_comps {
+                // Required Lua components
                 for name in &lua_required {
                     if let Some(key) = comps.components.get(name) {
                         lua_components.insert(name.clone(), key.clone());
                     }
                 }
+                // AnyOf Lua components (include if present)
+                for name in &lua_any_of {
+                    if let Some(key) = comps.components.get(name) {
+                        lua_components.insert(name.clone(), key.clone());
+                    }
+                }
+                // Include components from changed/added filters so they're serialized
+                for name in &or_changed_lua {
+                    if let Some(key) = comps.components.get(name) {
+                        lua_components.insert(name.clone(), key.clone());
+                    }
+                }
+                for name in &or_added_lua {
+                    if let Some(key) = comps.components.get(name) {
+                        lua_components.insert(name.clone(), key.clone());
+                    }
+                }
             }
-            
-            // Map Rust components
-            for name in &rust_required {
+
+            // Map Rust components (required + any_of + changed/added that are present)
+            // Combine required, any_of, and or_filters Rust component names
+            let rust_components_to_serialize: Vec<&String> = rust_required.iter()
+                .chain(any_of_ids.iter().map(|(name, _)| name))
+                .chain(or_changed_ids.iter().map(|(name, _)| name))
+                .chain(or_added_ids.iter().map(|(name, _)| name))
+                .collect();
+
+            for name in rust_components_to_serialize {
                 // Non-reflected component
                 if component_registry.get_non_reflected_type_id(name).is_some() {
                     if let Some(serialized) = component_registry.serialize_non_reflected(&entity_ref, name) {
@@ -939,7 +1461,7 @@ pub fn execute_query(
                     }
                     continue;
                 }
-                
+
                 // Reflected component
                 if let Some(type_path) = component_registry.get_type_path(name) {
                     if let Some(registration) = type_registry.get_with_type_path(&type_path) {
@@ -983,13 +1505,20 @@ pub fn execute_query(
                 entity,
                 component_data,
                 lua_components,
+                changed_components: entity_changed,
+                added_components: entity_added,
                 update_queue: update_queue.clone(),
             });
         }
     }
     
-    // Store in cache if no change detection
-    if query_builder.changed_components.is_empty() {
+    // Store in cache if no change detection and no complex filters
+    // (Without and AnyOf filters make caching less effective)
+    let should_cache = !query_builder.has_change_detection()
+        && query_builder.without_components.is_empty()
+        && query_builder.any_of_components.is_empty();
+
+    if should_cache {
         if let Some(cache) = query_cache {
             cache.insert_full(&query_builder.with_components, cache_entries, current_frame);
         }

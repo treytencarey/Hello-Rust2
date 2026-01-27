@@ -8160,6 +8160,8 @@ fn write_bindings_to_parent_crate(
                                 entity,
                                 component_data: std::collections::HashMap::new(),
                                 lua_components: std::collections::HashMap::new(),
+                                changed_components: std::collections::HashSet::new(),
+                                added_components: std::collections::HashSet::new(),
                                 update_queue: update_queue.clone(),
                             };
 

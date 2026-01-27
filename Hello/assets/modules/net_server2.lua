@@ -320,7 +320,6 @@ function NetServer2.message_processor(world)
 
                         -- Add ack_seq for entity owner
                         local owner = msg.owner_client
-                        print(string.format("TEST :: Owner %s msg %s", owner, NetSync2.json_encode(msg)))
                         if owner and owner == client_id then
                             payload.ack_seq = msg.payload.ack_seq
                         else

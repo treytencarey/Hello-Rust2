@@ -121,12 +121,15 @@ function NetSync3.init_client()
         print("[NET3] Already initialized")
         return
     end
-    
+
     print("[NET3] Initializing client mode")
-    
+
     state.mode = "client"
     state.initialized = true
-    
+
+    -- Initialize scope tracking for server (client_id 0)
+    State.init_client_scope(0)
+
     print("[NET3] Client mode configured (systems already registered)")
 end
 

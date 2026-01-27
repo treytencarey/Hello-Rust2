@@ -15,45 +15,17 @@ Messages.CHANNEL_UNRELIABLE = 1
 --------------------------------------------------------------------------------
 
 --- Build a spawn message for an entity
---- @param world userdata The world object
---- @param entity userdata The entity snapshot
 --- @param net_id number The network ID
---- @return table|nil The outbound message, or nil if failed
-function Messages.build_spawn(world, entity, net_id)
-    local sync = entity:get(Components.MARKER)
-    if not sync then
-        return nil
-    end
-    
-    local entity_id = entity:id()
-    local config = State.get_sync_config(entity_id, sync.sync_components)
-    
-    -- Collect all synced component data
-    local components = {}
-    for comp_name, _ in pairs(config.sync_components) do
-        local comp_data = entity:get(comp_name)
-        if comp_data then
-            components[comp_name] = comp_data
-        end
-    end
-    
-    -- Include the NetworkSync marker itself
-    components[Components.MARKER] = sync
-    
-    -- Check for parent relationship
-    local parent_net_id = nil
-    if entity:has("ChildOf") then
-        local child_of = entity:get("ChildOf")
-        if child_of and child_of.parent then
-            parent_net_id = State.get_net_id(child_of.parent)
-        end
-    end
-    
+--- @param owner_client number The owning client ID
+--- @param components table { comp_name -> value } All component data to include
+--- @param parent_net_id number|nil Parent's net_id if entity has ChildOf
+--- @return table The outbound message
+function Messages.build_spawn(net_id, owner_client, components, parent_net_id)
     return {
         msg_type = "spawn",
         channel = Messages.CHANNEL_RELIABLE,
         net_id = net_id,
-        owner_client = sync.owner_client,
+        owner_client = owner_client,
         payload = {
             components = components,
             parent_net_id = parent_net_id,

@@ -15,6 +15,9 @@ pub struct LuaCustomComponents {
     pub components: HashMap<String, Arc<LuaRegistryKey>>,
     /// Change ticks per component key - tracks when each Lua component was last modified
     pub changed_ticks: HashMap<String, u32>,
+    /// Added ticks per component key - tracks when each Lua component was first added
+    /// Used for Added<T> filter support (only set on first insertion, never updated)
+    pub added_ticks: HashMap<String, u32>,
 }
 
 /// Type for non-reflected component serializer callback

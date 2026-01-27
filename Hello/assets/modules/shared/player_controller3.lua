@@ -65,19 +65,9 @@ local function camera_attachment_system(world)
             state.attached_entities[entity_id] = true
             
             -- Set authority to local so we can send input
-            -- BUT: remove Transform from sync_components so we don't send predicted transforms back!
-            local sync = entity:get(NetSync3.MARKER)
-            local new_sync_comps = {}
-            for k, v in pairs(sync.sync_components or {}) do
-                if k ~= "Transform" then
-                    new_sync_comps[k] = v
-                end
-            end
-            
             entity:patch({
                 [NetSync3.MARKER] = {
                     authority = "local",
-                    sync_components = new_sync_comps
                 }
             })
             
@@ -238,6 +228,15 @@ local function movement_system(world)
             position = new_pos,
             rotation = new_rot
         }
+
+        -- Prune old predictions (safety net - prediction system also prunes on ack)
+        -- Keep last 120 frames (~2 seconds at 60fps) as safety buffer
+        -- The prediction reconciliation system prunes acked predictions automatically
+        for k in pairs(pred_state.predictions) do
+            if k > seq - 120 then break end
+            pred_state.predictions[k] = nil
+        end
+
         entity:patch({ [NetSync3.PREDICTION] = pred_state })
     end
 end

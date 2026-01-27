@@ -10,7 +10,7 @@ local state = define_resource("NetSyncState", {
     -- Entity tracking
     known_entities = {},      -- net_id -> entity_id
     entity_to_net = {},       -- entity_id -> net_id
-    entity_sync_config = {},  -- entity_id -> { sync_components, last_sync_times, last_sync_hashes, dirty, spawned, created_locally }
+    entity_sync_config = {},  -- entity_id -> { sync_components, last_sync_times, dirty, spawned, created_locally }
     
     -- Client identity
     my_client_id = nil,
@@ -35,12 +35,39 @@ local state = define_resource("NetSyncState", {
     
     -- Sync types set (component names we're syncing)
     sync_types = {},          -- component_name -> count
+
+    -- Push-based tracking (legacy, kept for compatibility)
+    pending_updates = {},     -- entity_id -> true
+
+    -- NEW: Per-entity pending values with metadata for sending without re-query
+    pending_values = {},      -- entity_id -> { net_id, owner_client, authority, components = { comp_name -> { value, queued_at } } }
+
+    -- NEW: Registered sync components per entity (normalized config)
+    registered_sync_components = {},  -- entity_id -> { comp_name -> { authority, reliable, rate_limit } }
 })
 
 --- Get or create the NetSyncState resource (idempotent)
 --- @return table The state table (modifications persist)
 function State.get()
     return state
+end
+
+--- Mark an entity as needing an update check
+--- @param entity_id number
+function State.mark_pending_update(entity_id)
+    state.pending_updates[entity_id] = true
+end
+
+--- Clear pending update flag for an entity
+--- @param entity_id number
+function State.clear_pending_update(entity_id)
+    state.pending_updates[entity_id] = nil
+end
+
+--- Get all entities with pending updates
+--- @return table entity_id -> true
+function State.get_pending_updates()
+    return state.pending_updates
 end
 
 --------------------------------------------------------------------------------
@@ -91,6 +118,7 @@ function State.unregister_entity(net_id)
     end
     state.known_entities[net_id] = nil
     state.entity_sync_config[entity_id] = nil
+    state.pending_updates[entity_id] = nil
 end
 
 --- Get entity ID from net_id
@@ -127,7 +155,6 @@ function State.get_sync_config(entity_id, sync_components)
         state.entity_sync_config[entity_id] = {
             sync_components = sync_components or { Transform = {} },
             last_sync_times = {},
-            last_sync_hashes = {},
             dirty = {},
             spawned = false,
             created_locally = true,
@@ -298,7 +325,7 @@ end
 function State.cleanup_pending_children(timeout)
     local now = os.clock()
     local timed_out = {}
-    
+
     for net_id, timestamp in pairs(state.pending_children_time) do
         if (now - timestamp) > timeout then
             table.insert(timed_out, net_id)
@@ -306,8 +333,104 @@ function State.cleanup_pending_children(timeout)
             state.pending_children_time[net_id] = nil
         end
     end
-    
+
     return timed_out
+end
+
+--------------------------------------------------------------------------------
+-- Registered Sync Components (per-entity normalized config)
+--------------------------------------------------------------------------------
+
+--- Get registered sync components for an entity
+--- @param entity_id number
+--- @return table|nil { comp_name -> { authority, reliable, rate_limit } }
+function State.get_registered_sync_components(entity_id)
+    return state.registered_sync_components[entity_id]
+end
+
+--- Set registered sync components for an entity (normalized config)
+--- @param entity_id number
+--- @param sync_components table { comp_name -> config }
+function State.set_registered_sync_components(entity_id, sync_components)
+    local normalized = {}
+    for comp_name, comp_config in pairs(sync_components) do
+        normalized[comp_name] = {
+            authority = comp_config.authority or "server",
+            reliable = comp_config.reliable ~= false,  -- default true
+            rate_limit = comp_config.rate_limit,       -- nil means no limit
+        }
+    end
+    state.registered_sync_components[entity_id] = normalized
+end
+
+--- Clear registered sync components for an entity
+--- @param entity_id number
+function State.clear_registered_sync_components(entity_id)
+    state.registered_sync_components[entity_id] = nil
+end
+
+--------------------------------------------------------------------------------
+-- Pending Values (for rate-limited guaranteed delivery)
+--------------------------------------------------------------------------------
+
+--- Get all pending values
+--- @return table entity_id -> { net_id, owner_client, authority, components }
+function State.get_pending_values()
+    return state.pending_values
+end
+
+--- Set pending entity data (used when first detecting changes)
+--- @param entity_id number
+--- @param data table { net_id, owner_client, authority, components = {} }
+function State.set_pending_entity(entity_id, data)
+    state.pending_values[entity_id] = data
+end
+
+--- Get pending entity data
+--- @param entity_id number
+--- @return table|nil { net_id, owner_client, authority, components }
+function State.get_pending_entity(entity_id)
+    return state.pending_values[entity_id]
+end
+
+--- Add or update a pending component value
+--- @param entity_id number
+--- @param comp_name string
+--- @param value any Component data
+--- @param timestamp number os.clock() timestamp
+function State.add_pending_component(entity_id, comp_name, value, timestamp)
+    local pending = state.pending_values[entity_id]
+    if pending then
+        pending.components[comp_name] = {
+            value = value,
+            queued_at = timestamp,
+        }
+    end
+end
+
+--- Clear a specific pending component (after sending)
+--- @param entity_id number
+--- @param comp_name string
+function State.clear_pending_component(entity_id, comp_name)
+    local pending = state.pending_values[entity_id]
+    if pending and pending.components then
+        pending.components[comp_name] = nil
+    end
+end
+
+--- Check if entity has any pending components
+--- @param entity_id number
+--- @return boolean
+function State.has_pending_components(entity_id)
+    local pending = state.pending_values[entity_id]
+    if not pending or not pending.components then return false end
+    return next(pending.components) ~= nil
+end
+
+--- Clear all pending data for an entity (cleanup on despawn)
+--- @param entity_id number
+function State.clear_pending_entity(entity_id)
+    state.pending_values[entity_id] = nil
 end
 
 return State

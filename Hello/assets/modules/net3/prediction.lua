@@ -11,8 +11,12 @@ local Prediction = {}
 function Prediction.system(world)
     -- We need Transform for the state, PlayerState to get the last_seq acked by server,
     -- and PredictionState for our local buffer.
-    local entities = world:query({ NetSync3.PREDICTION, "Transform", "PlayerState", "ScriptOwned" })
-    
+    -- Query runs when:
+    --   Transform changes (movement frames - for per-frame slerp smoothing)
+    --   OR PlayerState changes (ack frames - for reconciliation when stationary)
+    local entities = world:query({
+        with = { NetSync3.PREDICTION, "Transform", "PlayerState", "ScriptOwned" }
+    })
     for _, entity in ipairs(entities) do
         local pred = entity:get(NetSync3.PREDICTION)
         local player_state = entity:get("PlayerState")
@@ -101,7 +105,7 @@ function Prediction.system(world)
             -- Update local ack state
             pred.last_acked_sequence = last_acked
             
-            -- Prune old predictions
+            -- Prune old predictions (keep predictions AFTER last_acked for reconciliation)
             local new_predictions = {}
             for seq, data in pairs(pred.predictions or {}) do
                 if seq > last_acked then

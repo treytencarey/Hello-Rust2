@@ -141,9 +141,10 @@ pub fn process_spawn_queue(
                 lua_custom_components
                     .components
                     .insert(component_name.clone(), std::sync::Arc::new(registry_key));
-                // Mark as changed at current tick so change detection picks it up
+                // Mark as changed and added at current tick so change/added detection picks it up
                 let current_tick = system_tick.this_run().get();
-                lua_custom_components.changed_ticks.insert(component_name, current_tick);
+                lua_custom_components.changed_ticks.insert(component_name.clone(), current_tick);
+                lua_custom_components.added_ticks.insert(component_name, current_tick);
                 // We don't remove the registry value here because it's stored in Arc
                 // But wait, we retrieved it above. We need to be careful about ownership.
                 // The registry_key passed in the loop is owned by us.

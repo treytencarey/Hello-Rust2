@@ -1,3 +1,4 @@
+use std::collections::{HashMap, HashSet};
 use crate::component_update_queue::ComponentUpdateQueue;
 use crate::components::ComponentRegistry;
 use crate::lua_integration::LuaScriptContext;
@@ -26,7 +27,7 @@ pub struct LuaSystemEntry {
 pub struct LuaSystemRegistry {
     pub update_systems: Arc<Mutex<Vec<LuaSystemEntry>>>,
     /// Pending coroutines waiting for downloads: path -> list of (coroutine_key, instance_id)
-    pub pending_system_coroutines: Arc<Mutex<std::collections::HashMap<String, Vec<(Arc<LuaRegistryKey>, u64)>>>>,
+    pub pending_system_coroutines: Arc<Mutex<HashMap<String, Vec<(Arc<LuaRegistryKey>, u64)>>>>,
 }
 
 impl Default for LuaSystemRegistry {
@@ -245,7 +246,8 @@ pub fn run_lua_systems(world: &mut World) {
                 }
             }
             Err(e) => {
-                error!("Error running Lua system: {}", e);
+                error!("Encountered an error in system: {}", e);
+                // Should we remove failing systems? For now, keep them
             }
         }
         
@@ -256,16 +258,20 @@ pub fn run_lua_systems(world: &mut World) {
         let elapsed = timer.elapsed();
         
         // Log slow systems (>2ms) at INFO level for user visibility
+        let script_path = script_registry
+            .get_instance_path(entry.instance_id)
+            .map(|p| p.display().to_string())
+            .unwrap_or_else(|| format!("instance_{}", entry.instance_id));
+        
         if elapsed.as_millis() >= 2 {
-            let script_path = script_registry
-                .get_instance_path(entry.instance_id)
-                .map(|p| p.display().to_string())
-                .unwrap_or_else(|| "unknown".to_string());
             debug!(
                 "[LUA_PERF] 🐢 slow system: instance={} script={} took {:?}",
                 entry.instance_id, script_path, elapsed
             );
         }
+        
+        // Record per-system timing for profiler
+        progress.record_system_time(script_path, elapsed);
         
         systems_run += 1;
         
@@ -482,6 +488,8 @@ fn run_single_lua_system(
                         entity,
                         component_data: std::collections::HashMap::new(), // Not populating for now
                         lua_components,
+                        changed_components: std::collections::HashSet::new(),
+                        added_components: std::collections::HashSet::new(),
                         update_queue: update_queue_clone.clone(),
                     };
                     

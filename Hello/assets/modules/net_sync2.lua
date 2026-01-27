@@ -480,7 +480,6 @@ function NetSync2.outbound_system(world, context)
             entity_sync_config[entity_id] = {
                 sync_components = sync.sync_components or { Transform = {} },
                 last_sync_times = {},
-                last_sync_hashes = {},
                 spawned = false,
                 created_locally = true,  -- This instance created the entity (vs adopted from network)
             }
@@ -523,7 +522,6 @@ function NetSync2.outbound_system(world, context)
                 for comp_name, _ in pairs(cached_config.sync_components) do
                     local comp_data = full_entity:get(comp_name)
                     if comp_data then
-                        cached_config.last_sync_hashes[comp_name] = json_encode(comp_data)
                         cached_config.last_sync_times[comp_name] = now
                     end
                 end
@@ -580,12 +578,6 @@ function NetSync2.outbound_system(world, context)
 
             -- Hash-based change detection
             local comp_data = entity:get(comp_name)
-            local current_hash = json_encode(comp_data)
-            local last_hash = cached_config.last_sync_hashes[comp_name]
-
-            if current_hash == last_hash then
-                goto continue_comp
-            end
 
             -- Build update message
             local changed_components = { [comp_name] = comp_data }
@@ -634,7 +626,6 @@ function NetSync2.outbound_system(world, context)
             end
 
             -- Update cache
-            cached_config.last_sync_hashes[comp_name] = current_hash
             cached_config.last_sync_times[comp_name] = now
 
             ::continue_comp::
@@ -800,12 +791,6 @@ local function handle_update(world, msg, owner_client)
         -- Normal component update
         entity:set({ [comp_name] = comp_data })
 
-        -- Update hash cache to prevent outbound_system from re-detecting this as a change
-        local cached = entity_sync_config[entity_id]
-        if cached and cached.last_sync_hashes then
-            cached.last_sync_hashes[comp_name] = json_encode(comp_data)
-        end
-
         ::continue_update::
     end
 end
@@ -835,7 +820,6 @@ local function handle_spawn(world, msg, owner_client)
             entity_sync_config[existing_entity_id] = {
                 sync_components = sync.sync_components or { Transform = {} },
                 last_sync_times = {},
-                last_sync_hashes = {},
                 spawned = true,
                 created_locally = false,  -- Adopted from another instance, don't send despawns
             }

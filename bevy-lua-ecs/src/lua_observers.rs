@@ -15,6 +15,7 @@
 //! The consuming crate must call `set_observer_attacher()` with the generated
 //! `attach_observer_by_name` function to enable observer attachment.
 
+use std::collections::{HashMap, HashSet};
 use crate::spawn_queue::SpawnQueue;
 use bevy::prelude::*;
 use mlua::prelude::*;
@@ -178,8 +179,10 @@ pub fn dispatch_lua_observer_internal(
                 if let Ok(callback) = lua_ctx.lua.registry_value::<LuaFunction>(callback_key) {
                     let entity_snapshot = crate::lua_world_api::LuaEntitySnapshot {
                         entity,
-                        component_data: std::collections::HashMap::new(),
-                        lua_components: std::collections::HashMap::new(),
+                        component_data: HashMap::new(),
+                        lua_components: HashMap::new(),
+                        changed_components: HashSet::new(),
+                        added_components: HashSet::new(),
                         update_queue: update_queue.clone(),
                     };
 

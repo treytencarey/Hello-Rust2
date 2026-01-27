@@ -101,32 +101,71 @@ end
 --- @param world userdata
 function Server.on_client_connected(client_id, world)
     print(string.format("[NET3_SERVER] Client %s connected", client_id))
-    
+
     -- Initialize scope
     State.init_client_scope(client_id)
-    
+
     -- Send client_id assignment message
     local client_id_msg = Messages.build_client_id(client_id)
     spawn({ [Components.OUTBOUND] = client_id_msg })
-    
+
+    -- Build a lookup of all synced entities via query (avoids world:get_entity)
+    -- Include all sync components so their values are available
+    local sync_types = State.get_sync_types()
+    local sync_type_names = {}
+    for comp_name, _ in pairs(sync_types) do
+        table.insert(sync_type_names, comp_name)
+    end
+
+    local query_spec = {
+        with = { Components.MARKER, "ScriptOwned" }
+    }
+    if #sync_type_names > 0 then
+        query_spec.any_of = sync_type_names
+    end
+
+    local all_synced = world:query(query_spec)
+    local entity_by_id = {}
+    for _, entity in ipairs(all_synced) do
+        entity_by_id[entity:id()] = entity
+    end
+
     -- Send all existing entities to new client
     local count = 0
     for net_id, entity_id in pairs(state.known_entities) do
-        local entity = world:get_entity(entity_id)
+        local entity = entity_by_id[entity_id]
         if entity then
             local sync = entity:get(Components.MARKER)
             if sync and sync.authority ~= "remote" then
-                local spawn_msg = Messages.build_spawn(world, entity, net_id)
-                if spawn_msg then
-                    spawn_msg.target_clients = { client_id }
-                    spawn({ [Components.OUTBOUND] = spawn_msg })
-                    State.add_to_client_scope(client_id, net_id)
-                    count = count + 1
+                -- Collect all component values for spawn
+                local sync_components = sync.sync_components or { Transform = {} }
+                local components = {}
+                for comp_name, _ in pairs(sync_components) do
+                    local comp_data = entity:get(comp_name)
+                    if comp_data then
+                        components[comp_name] = comp_data
+                    end
                 end
+                components[Components.MARKER] = sync
+
+                -- Check for parent relationship
+                local parent_net_id = nil
+                if entity:has("ChildOf") then
+                    local child_of = entity:get("ChildOf")
+                    if child_of and child_of.parent then
+                        parent_net_id = State.get_net_id(child_of.parent)
+                    end
+                end
+
+                local spawn_msg = Messages.build_spawn(net_id, sync.owner_client, components, parent_net_id)
+                spawn_msg.target_clients = { client_id }
+                spawn({ [Components.OUTBOUND] = spawn_msg })
+                State.add_to_client_scope(client_id, net_id)
+                count = count + 1
             end
         end
     end
-    
+
     print(string.format("[NET3_SERVER] Sent %d entities to client %s", count, client_id))
 end
 
