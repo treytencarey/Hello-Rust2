@@ -36,7 +36,7 @@ function Client.send_system(world)
             owner_client = msg.owner_client,
             payload = msg.payload,
         })
-        print(string.format("[NET3_CLIENT] Sending message (%s): %s", channel == Messages.CHANNEL_RELIABLE and "RELIABLE" or "UNRELIABLE", encoded))
+        -- print(string.format("[NET3_CLIENT] Sending message (%s): %s", channel == Messages.CHANNEL_RELIABLE and "RELIABLE" or "UNRELIABLE", encoded))
         
         -- Send to server
         world:call_resource_method("RenetClient", "send_message", channel, encoded)
@@ -62,7 +62,7 @@ function Client.receive_system(world)
     while true do
         local msg_data = world:call_resource_method("RenetClient", "receive_message", Messages.CHANNEL_RELIABLE)
         if not msg_data or msg_data == "" then break end
-        print(string.format("[NET3_CLIENT] Received message: %s", msg_data))
+        -- print(string.format("[NET3_CLIENT] Received message: %s", msg_data))
         
         local success, msg = pcall(json.decode, msg_data)
         if success and msg then
@@ -74,7 +74,7 @@ function Client.receive_system(world)
     while true do
         local msg_data = world:call_resource_method("RenetClient", "receive_message", Messages.CHANNEL_UNRELIABLE)
         if not msg_data or msg_data == "" then break end
-        print(string.format("[NET3_CLIENT] Received message: %s", msg_data))
+        -- print(string.format("[NET3_CLIENT] Received message: %s", msg_data))
         
         local success, msg = pcall(json.decode, msg_data)
         if success and msg then

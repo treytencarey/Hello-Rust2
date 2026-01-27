@@ -250,6 +250,19 @@ impl LuaUserData for LuaWorldContext<'_> {
                     builder.with_components, has_changed, parse_time, query_time, table_time, result_count, elapsed
                 );
             }
+            
+            // Record query timing for profiler
+            if let Some(progress) = this.world().get_resource::<crate::lua_frame_budget::LuaSystemProgress>() {
+                // Create a signature for the query: "ComponentA,ComponentB[+Changed]"
+                let mut signature = builder.with_components.join(",");
+                if builder.has_change_detection() {
+                    signature.push_str("[+Changed]");
+                }
+                if signature.is_empty() {
+                    signature = "empty_query".to_string();
+                }
+                progress.record_query_time(signature, t3.duration_since(t0), result_count);
+            }
 
             Ok(results_table)
         });
@@ -741,6 +754,7 @@ impl LuaUserData for LuaWorldContext<'_> {
                     timing_table.set("total_ms", timing.total_ms)?;
                     timing_table.set("max_ms", timing.max_ms)?;
                     timing_table.set("last_ms", timing.last_ms)?;
+                    timing_table.set("state_id", timing.state_id)?;
                     timing_table.set("avg_ms", if timing.call_count > 0 { 
                         timing.total_ms / timing.call_count as f64 
                     } else { 
@@ -750,9 +764,37 @@ impl LuaUserData for LuaWorldContext<'_> {
                 }
                 
                 result.set("systems", systems_table)?;
+                
+                // Add query timings
+                let query_timings = progress.get_query_timings();
+                let queries_table = lua.create_table()?;
+                
+                for (signature, timing) in query_timings {
+                    let timing_table = lua.create_table()?;
+                    timing_table.set("count", timing.call_count)?;
+                    timing_table.set("total_ms", timing.total_ms)?;
+                    timing_table.set("max_ms", timing.max_ms)?;
+                    timing_table.set("last_ms", timing.last_ms)?;
+                    timing_table.set("avg_ms", if timing.call_count > 0 { 
+                        timing.total_ms / timing.call_count as f64 
+                    } else { 
+                        0.0 
+                    })?;
+                    timing_table.set("last_result_count", timing.last_result_count)?;
+                    queries_table.set(signature, timing_table)?;
+                }
+                
+                result.set("queries", queries_table)?;
                 result.set("time_this_frame_ms", progress.time_this_frame().as_secs_f64() * 1000.0)?;
                 result.set("exceeded_count", progress.exceeded_count())?;
             }
+            
+            // Add parallel execution status
+            let parallel_config = this.world().get_resource::<crate::lua_parallel::LuaParallelConfig>();
+            let parallel_enabled = parallel_config.map(|c| c.enabled).unwrap_or(false);
+            let parallel_feature = cfg!(feature = "parallel-systems");
+            result.set("parallel_enabled", parallel_enabled && parallel_feature)?;
+            result.set("parallel_feature", parallel_feature)?;
             
             Ok(result)
         });

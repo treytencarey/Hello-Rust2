@@ -13,9 +13,15 @@ local function server_movement_system(world)
     if state.mode ~= "server" then return end
     
     -- Query for players with input
-    local entities = world:query({ "PlayerInput", "PlayerState", "Transform" })
+    local entities = world:query({ NetSync3.MARKER, "PlayerInput", "PlayerState", "Transform" })
     
     for _, entity in ipairs(entities) do
+        -- Skip entities with local authority (client is doing prediction in "both" mode)
+        local sync = entity:get(NetSync3.MARKER)
+        if sync and sync.authority == "local" then
+            goto continue_movement
+        end
+
         local input = entity:get("PlayerInput")
         local player_state = entity:get("PlayerState")
         local transform = entity:get("Transform")
@@ -26,7 +32,7 @@ local function server_movement_system(world)
         
         -- Apply movement
         local move_config = { rotation_mode = input.rotation_mode or "face_movement" }
-        local new_pos, new_rot = Movement.apply(world, transform, input, speed, dt, false, move_config)
+        local new_pos, new_rot = Movement.apply(world, transform, input, speed, dt, true, move_config)
         
         -- Update authoritative transform, only if changed meaningfully
         local eps = 0.0001
@@ -57,6 +63,8 @@ local function server_movement_system(world)
                 }
             })
         end
+
+        ::continue_movement::
     end
 end
 

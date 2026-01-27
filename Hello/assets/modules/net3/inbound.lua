@@ -174,7 +174,6 @@ function Inbound.handle_update(world, msg, owner_client)
         local script_owned = entity:get("ScriptOwned")
         if script_owned and script_owned.instance_id ~= __INSTANCE_ID__ then
             if config and config.created_locally == false then
-                print(string.format("[NET3] Skipping update for shared entity %d (net_id %d)", entity_id, net_id))
                 goto continue_update
             end
         end

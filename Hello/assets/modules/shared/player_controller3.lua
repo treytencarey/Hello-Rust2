@@ -24,7 +24,7 @@ local state = define_resource("PlayerController3State", {
     current_sequence = 0,     -- Input sequence number
     last_input = nil,         -- LAST SENT input to server (for optimization)
     rotation_mode = "face_movement", -- "face_camera" | "face_movement"
-    enabled = false,
+    enabled = true,
 })
 
 --------------------------------------------------------------------------------
@@ -247,7 +247,10 @@ end
 
 -- Register systems at module load
 register_system("Update", camera_attachment_system)
-register_system("Update", movement_system)
+register_system("Update", function(world)
+    movement_system(world)
+    CameraController.update_system(world)
+end)
 
 -- Systems are registered but disabled by default - call enable() when ready
 print("[PLAYER3] Systems registered (disabled by default, call enable())")

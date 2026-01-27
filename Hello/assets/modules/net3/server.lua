@@ -40,7 +40,7 @@ function Server.send_system(world)
             owner_client = msg.owner_client,
             payload = msg.payload,
         })
-        print(string.format("[NET3_SERVER] Sending message (%s): %s", channel == Messages.CHANNEL_RELIABLE and "RELIABLE" or "UNRELIABLE", encoded))
+        -- print(string.format("[NET3_SERVER] Sending message (%s): %s", channel == Messages.CHANNEL_RELIABLE and "RELIABLE" or "UNRELIABLE", encoded))
         
         -- Send to each target client
         for _, client_id in ipairs(target_clients) do

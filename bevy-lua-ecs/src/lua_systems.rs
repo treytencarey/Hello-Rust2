@@ -20,6 +20,7 @@ pub struct LuaSystemEntry {
     pub last_run: u32,  // Per-system tick for change detection
     pub last_run_real_time: std::time::Instant, // Real time for delta_time calculation
     pub state_id: usize,  // Which Lua state this system belongs to (0=primary, >=1=instanced)
+    pub system_name: String,  // Human-readable name for profiling (e.g., "Update:scripts/main.lua")
 }
 
 /// Resource that stores registered Lua systems
@@ -42,7 +43,8 @@ impl Default for LuaSystemRegistry {
 impl LuaSystemRegistry {
     /// Register a new system with initial tick of 0
     /// state_id: Which Lua state this system runs in (0=primary, >=1=instanced)
-    pub fn register_system(&self, instance_id: u64, system_key: Arc<LuaRegistryKey>, state_id: usize) {
+    /// system_name: Human-readable name for profiling (e.g., "Update:scripts/player.lua")
+    pub fn register_system(&self, instance_id: u64, system_key: Arc<LuaRegistryKey>, state_id: usize, system_name: String) {
         let mut systems = self.update_systems.lock().unwrap();
         systems.push(LuaSystemEntry {
             instance_id,
@@ -50,6 +52,7 @@ impl LuaSystemRegistry {
             last_run: 0,
             last_run_real_time: std::time::Instant::now(),
             state_id,
+            system_name,
         });
     }
     
@@ -116,6 +119,10 @@ impl LuaSystemRegistry {
 /// remaining systems are deferred to run first on the next frame. This ensures
 /// fairness and prevents any single system from starving others.
 ///
+/// When the `parallel-systems` feature is enabled and `LuaParallelConfig.enabled` is true,
+/// systems are grouped by state_id. Systems from different Lua states can potentially
+/// execute in parallel (when World access patterns allow it).
+///
 /// The time budget is controlled by the `LuaFrameBudget` resource (default: 4ms).
 pub fn run_lua_systems(world: &mut World) {
     // Get resources we need
@@ -151,6 +158,12 @@ pub fn run_lua_systems(world: &mut World) {
         .cloned()
         .unwrap_or_default();
     
+    // Get parallel config (defaults to enabled)
+    let parallel_config = world
+        .get_resource::<crate::lua_parallel::LuaParallelConfig>()
+        .cloned()
+        .unwrap_or_default();
+    
     // Get query cache and current frame for query result caching
     let query_cache = world.get_resource::<crate::query_cache::LuaQueryCache>().cloned();
     let current_frame = world.get_resource::<bevy::diagnostic::FrameCount>()
@@ -169,6 +182,18 @@ pub fn run_lua_systems(world: &mut World) {
     
     if total_systems == 0 {
         return;
+    }
+    
+    // Group systems by state_id for potential parallel execution
+    let state_groups = crate::lua_parallel::group_systems_by_state(&systems);
+    let num_groups = state_groups.len();
+    let use_parallel = crate::lua_parallel::should_use_parallel(&parallel_config, num_groups);
+    
+    if use_parallel && num_groups > 1 {
+        debug!(
+            "[LUA_PERF] 🚀 Parallel mode: {} state groups, {} total systems",
+            num_groups, total_systems
+        );
     }
     
     // Start from where we left off last frame (for fairness)
@@ -258,20 +283,15 @@ pub fn run_lua_systems(world: &mut World) {
         let elapsed = timer.elapsed();
         
         // Log slow systems (>2ms) at INFO level for user visibility
-        let script_path = script_registry
-            .get_instance_path(entry.instance_id)
-            .map(|p| p.display().to_string())
-            .unwrap_or_else(|| format!("instance_{}", entry.instance_id));
-        
         if elapsed.as_millis() >= 2 {
             debug!(
-                "[LUA_PERF] 🐢 slow system: instance={} script={} took {:?}",
-                entry.instance_id, script_path, elapsed
+                "[LUA_PERF] 🐢 slow system: {} instance={} took {:?}",
+                entry.system_name, entry.instance_id, elapsed
             );
         }
         
-        // Record per-system timing for profiler
-        progress.record_system_time(script_path, elapsed);
+        // Record per-system timing for profiler (using the descriptive system_name)
+        progress.record_system_time(entry.system_name.clone(), elapsed, entry.state_id);
         
         systems_run += 1;
         

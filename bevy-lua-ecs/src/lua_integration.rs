@@ -223,14 +223,36 @@ impl LuaScriptContext {
 
         // Create register_system function
         let system_reg = system_registry.clone();
+        // Track system count per (instance_id, schedule) for unique naming
+        let system_counters: Arc<Mutex<HashMap<(u64, String), usize>>> = Arc::new(Mutex::new(HashMap::new()));
         let register_system = lua_clone.create_function(
-            move |lua_ctx, (_schedule, func): (String, LuaFunction)| {
+            move |lua_ctx, (schedule, func): (String, LuaFunction)| {
                 // Get the current instance ID and state_id from globals
                 let instance_id: u64 = lua_ctx.globals().get("__INSTANCE_ID__").unwrap_or(0);
                 let state_id: usize = lua_ctx.globals().get("__LUA_STATE_ID__").unwrap_or(0);
+                
+                // Get script name for human-readable profiling label
+                let script_name: String = lua_ctx.globals().get("__SCRIPT_NAME__")
+                    .unwrap_or_else(|_| format!("instance_{}", instance_id));
+                
+                // Get next system number for this (instance, schedule) combo
+                let key = (instance_id, schedule.clone());
+                let system_num = {
+                    let mut counters = system_counters.lock().unwrap();
+                    let count = counters.entry(key).or_insert(0);
+                    *count += 1;
+                    *count
+                };
+                
+                // Create a readable system name: "schedule:script_filename#N"
+                let script_basename = std::path::Path::new(&script_name)
+                    .file_name()
+                    .and_then(|n| n.to_str())
+                    .unwrap_or(&script_name);
+                let system_name = format!("{}:{}#{}", schedule, script_basename, system_num);
 
                 let registry_key = lua_ctx.create_registry_value(func)?;
-                system_reg.register_system(instance_id, Arc::new(registry_key), state_id);
+                system_reg.register_system(instance_id, Arc::new(registry_key), state_id, system_name);
                 Ok(())
             },
         )?;
@@ -1417,6 +1439,7 @@ impl Plugin for LuaSpawnPlugin {
         app.init_resource::<crate::lua_observers::LuaObserverRegistry>();
         app.init_resource::<crate::query_cache::LuaQueryCache>();
         app.init_resource::<crate::lua_frame_budget::LuaFrameBudget>();
+        app.init_resource::<crate::lua_parallel::LuaParallelConfig>();
         app.init_resource::<crate::lua_frame_budget::LuaSystemProgress>();
         app.init_resource::<crate::event_accumulator::LuaEventAccumulator>();
         app.init_resource::<crate::removed_components::RemovedComponentsTracker>();

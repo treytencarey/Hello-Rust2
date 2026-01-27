@@ -15,6 +15,7 @@ pub mod lua_file_watcher;
 pub mod lua_frame_budget;
 pub mod lua_integration;
 pub mod lua_observers;
+pub mod lua_parallel;
 pub mod lua_resource;
 pub mod lua_spawn_builder;
 pub mod lua_systems;
@@ -70,6 +71,7 @@ pub use lua_observers::{
 };
 pub use lua_spawn_builder::LuaSpawnBuilder;
 pub use lua_frame_budget::{LuaFrameBudget, LuaSystemProgress};
+pub use lua_parallel::LuaParallelConfig;
 pub use lua_resource::LuaTableResourceRegistry;
 pub use lua_systems::{run_lua_systems, LuaSystemEntry, LuaSystemRegistry};
 pub use lua_world_api::{execute_query, LuaEntitySnapshot, LuaQueryBuilder};

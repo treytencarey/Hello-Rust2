@@ -288,11 +288,6 @@ end
 -- Registration (self-registering at module load)
 --------------------------------------------------------------------------------
 
--- Register camera update system (called once at module load)
-register_system("Update", function(world)
-    CameraController.update_system(world)
-end)
-
 print("[CAMERA3] System registered")
 
 --------------------------------------------------------------------------------

@@ -4,7 +4,6 @@
 
 local NetGame3 = require("modules/net_game3.lua", { instanced = true })
 local PlayerController3 = require("modules/shared/player_controller3.lua")
-local CameraController = require("modules/camera3/controller.lua")
 
 print("[CONFLUX3_CLIENT] Starting...")
 
@@ -37,9 +36,6 @@ end
 -- Callback when connected to server
 local function on_connected(client_id, world)
     print(string.format("[CONFLUX3_CLIENT] Connected as client %d", client_id))
-    
-    -- Enable player controller (systems are already registered, just enable them)
-    PlayerController3.enable()
 end
 
 -- Join the server

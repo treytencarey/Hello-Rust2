@@ -17,6 +17,8 @@
 
 -- require("scripts/Conflux2/main.lua")
 
+require("modules/profiler/init.lua")
+
 -- local FPS = require("modules/fps.lua")
 -- FPS.setup()
 

@@ -21,6 +21,9 @@ local state = define_resource("ProfilerState", {
     -- System timing data: system_name -> {count, total_ms, max_ms, avg_ms, last_ms}
     systems = {},
     
+    -- Query timing data: query_signature -> {count, total_ms, max_ms, avg_ms, last_ms, last_result_count}
+    queries = {},
+    
     -- Table scanning
     scan_enabled = false,
     scan_interval_frames = 60,
@@ -36,14 +39,19 @@ local state = define_resource("ProfilerState", {
     
     -- Memory tracking
     lua_memory_kb = 0,
-    
+
     -- Frame timing
     frame_times = {},          -- Rolling window of frame times (ms)
     frame_time_max = 120,      -- Keep last 120 frames (2 seconds at 60fps)
+    current_fps = 0,           -- Current FPS calculated from frame_times
     
     -- UI entities
     panel_entity = nil,
     content_entities = {},
+    
+    -- Parallel execution info
+    parallel_enabled = false,
+    state_count = 0,  -- Number of unique state_ids
 })
 
 --------------------------------------------------------------------------------
@@ -335,19 +343,6 @@ local function create_ui()
         },
     }):with_parent(state.panel_entity):id()
     table.insert(state.content_entities, header)
-    
-    spawn({
-        Text = { text = "⏱ Profiler" },
-        TextFont = { font_size = 14 },
-        TextColor = { color = colors.accent },
-    }):with_parent(header)
-    
-    -- Memory display
-    spawn({
-        Text = { text = string.format("%.0f KB", state.lua_memory_kb) },
-        TextFont = { font_size = 11 },
-        TextColor = { color = colors.text_dim },
-    }):with_parent(header)
 end
 
 local function update_ui_content()
@@ -370,23 +365,43 @@ local function update_ui_content()
         },
     }):with_parent(state.panel_entity):id()
     table.insert(state.content_entities, header)
-    
+
     spawn({
         Text = { text = "⏱ Profiler" },
         TextFont = { font_size = 14 },
         TextColor = { color = colors.accent },
     }):with_parent(header)
-    
+
+    -- Right side container for FPS and memory
+    local right_side = spawn({
+        Node = {
+            flex_direction = "Row",
+            column_gap = {Px = 8},
+            align_items = "Center",
+        },
+    }):with_parent(header):id()
+
+    -- FPS display
+    spawn({
+        Text = { text = string.format("FPS: %d", state.current_fps) },
+        TextFont = { font_size = 11 },
+        TextColor = { color = colors.text_dim },
+    }):with_parent(right_side)
+
+    -- Memory display
     spawn({
         Text = { text = string.format("%.0f KB", state.lua_memory_kb) },
         TextFont = { font_size = 11 },
         TextColor = { color = colors.text_dim },
-    }):with_parent(header)
+    }):with_parent(right_side)
     
     -- Section: System Timings
     local systems_header = spawn({
         Node = {
             width = {Percent = 100},
+            flex_direction = "Row",
+            justify_content = "SpaceBetween",
+            align_items = "Center",
             margin = {top = {Px = 4}, bottom = {Px = 4}},
         },
     }):with_parent(state.panel_entity):id()
@@ -396,6 +411,15 @@ local function update_ui_content()
         Text = { text = "Systems" },
         TextFont = { font_size = 12 },
         TextColor = { color = colors.text_dim },
+    }):with_parent(systems_header)
+    
+    -- Show state count and parallel mode
+    local mode_text = state.parallel_enabled and "PAR" or "SEQ"
+    local mode_color = state.parallel_enabled and colors.text_good or colors.text_dim
+    spawn({
+        Text = { text = string.format("%d states [%s]", state.state_count, mode_text) },
+        TextFont = { font_size = 10 },
+        TextColor = { color = mode_color },
     }):with_parent(systems_header)
     
     -- Sort systems by avg time (slowest first)
@@ -420,23 +444,98 @@ local function update_ui_content()
         }):with_parent(state.panel_entity):id()
         table.insert(state.content_entities, row)
         
+        -- Left side: state badge + name
+        local left_container = spawn({
+            Node = {
+                flex_direction = "Row",
+                align_items = "Center",
+                column_gap = {Px = 4},
+            },
+        }):with_parent(row):id()
+        
+        -- State ID badge (S0, S1, S2, etc.)
+        local state_id = sys.data.state_id or 0
+        spawn({
+            Text = { text = string.format("S%d", state_id) },
+            TextFont = { font_size = 9 },
+            TextColor = { color = state_id == 0 and colors.text_dim or colors.accent },
+        }):with_parent(left_container)
+        
         -- Truncate long names
         local display_name = sys.name
-        if #display_name > 20 then
-            display_name = "..." .. display_name:sub(-17)
+        if #display_name > 18 then
+            display_name = "..." .. display_name:sub(-15)
         end
         
         spawn({
             Text = { text = display_name },
             TextFont = { font_size = 11 },
             TextColor = { color = colors.text },
-        }):with_parent(row)
+        }):with_parent(left_container)
         
         spawn({
             Text = { text = format_ms(sys.data.avg_ms) },
             TextFont = { font_size = 11 },
             TextColor = { color = get_time_color(sys.data.avg_ms) },
         }):with_parent(row)
+    end
+    
+    -- Section: Query Timings
+    local sorted_queries = {}
+    for sig, data in pairs(state.queries or {}) do
+        table.insert(sorted_queries, {signature = sig, data = data})
+    end
+    table.sort(sorted_queries, function(a, b) return a.data.avg_ms > b.data.avg_ms end)
+    
+    if #sorted_queries > 0 then
+        local queries_header = spawn({
+            Node = {
+                width = {Percent = 100},
+                margin = {top = {Px = 8}, bottom = {Px = 4}},
+            },
+        }):with_parent(state.panel_entity):id()
+        table.insert(state.content_entities, queries_header)
+        
+        spawn({
+            Text = { text = "Queries" },
+            TextFont = { font_size = 12 },
+            TextColor = { color = colors.text_dim },
+        }):with_parent(queries_header)
+        
+        -- Display top 8 queries
+        for i = 1, math.min(8, #sorted_queries) do
+            local q = sorted_queries[i]
+            local row = spawn({
+                Node = {
+                    width = {Percent = 100},
+                    height = {Px = ROW_HEIGHT},
+                    flex_direction = "Row",
+                    justify_content = "SpaceBetween",
+                    align_items = "Center",
+                },
+                BackgroundColor = { color = (i % 2 == 0) and colors.row_alt or colors.row_bg },
+            }):with_parent(state.panel_entity):id()
+            table.insert(state.content_entities, row)
+            
+            -- Truncate long signatures
+            local display_sig = q.signature
+            if #display_sig > 20 then
+                display_sig = display_sig:sub(1, 17) .. "..."
+            end
+            
+            spawn({
+                Text = { text = display_sig },
+                TextFont = { font_size = 10 },
+                TextColor = { color = colors.text },
+            }):with_parent(row)
+            
+            -- Show avg time and result count
+            spawn({
+                Text = { text = string.format("%s (n=%d)", format_ms(q.data.avg_ms), q.data.last_result_count or 0) },
+                TextFont = { font_size = 10 },
+                TextColor = { color = get_time_color(q.data.avg_ms) },
+            }):with_parent(row)
+        end
     end
     
     -- Section: Table Growth Alerts
@@ -682,19 +781,57 @@ local function profiler_update_system(world)
     while #state.frame_times > state.frame_time_max do
         table.remove(state.frame_times, 1)
     end
+
+    -- Calculate FPS from frame times
+    if #state.frame_times > 0 then
+        local total_time = 0
+        for _, frame_time in ipairs(state.frame_times) do
+            total_time = total_time + frame_time
+        end
+        local avg_frame_time = total_time / #state.frame_times
+        state.current_fps = avg_frame_time > 0 and math.floor(1000 / avg_frame_time + 0.5) or 0
+    end
     
     -- Fetch Rust-side system timing data (more accurate than Lua os.clock)
+    -- System names are now formatted as "Schedule:script_name.lua"
     local rust_stats = world:profiler_stats()
-    if rust_stats and rust_stats.systems then
-        for path, timing in pairs(rust_stats.systems) do
-            -- Use script filename as key for display
-            local display_name = path:match("([^/\\]+)$") or path
-            state.systems[display_name] = {
+    if rust_stats then
+        -- Update parallel status
+        state.parallel_enabled = rust_stats.parallel_enabled or false
+        
+        -- Count unique state_ids and update systems
+        local unique_states = {}
+        if rust_stats.systems then
+            for system_name, timing in pairs(rust_stats.systems) do
+                local sid = timing.state_id or 0
+                unique_states[sid] = true
+                state.systems[system_name] = {
+                    count = timing.count or 0,
+                    total_ms = timing.total_ms or 0,
+                    max_ms = timing.max_ms or 0,
+                    avg_ms = timing.avg_ms or 0,
+                    last_ms = timing.last_ms or 0,
+                    state_id = sid,
+                }
+            end
+        end
+        
+        -- Count unique states
+        local count = 0
+        for _ in pairs(unique_states) do count = count + 1 end
+        state.state_count = count
+    end
+    
+    -- Fetch query timing data
+    if rust_stats and rust_stats.queries then
+        for signature, timing in pairs(rust_stats.queries) do
+            state.queries[signature] = {
                 count = timing.count or 0,
                 total_ms = timing.total_ms or 0,
                 max_ms = timing.max_ms or 0,
                 avg_ms = timing.avg_ms or 0,
                 last_ms = timing.last_ms or 0,
+                last_result_count = timing.last_result_count or 0,
             }
         end
     end

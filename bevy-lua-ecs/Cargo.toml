@@ -30,11 +30,13 @@ rayon = "1.10"
 bevy_rapier2d = { workspace = true, optional = true }
 
 [features]
-default = []
+default = ["parallel-systems"]
 # Enable automatic reflection-based bundle spawning
 auto-reflection = []
 # Enable automatic resource method binding generation
 auto-bindings = []
+# Enable parallel execution of instanced Lua systems (rayon)
+parallel-systems = []
 
 # Feature alias for physics example compatibility
 bevy_rapier2d = ["dep:bevy_rapier2d"]

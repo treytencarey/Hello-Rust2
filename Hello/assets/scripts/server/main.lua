@@ -9,6 +9,12 @@ print("=== Server Mode Started ===")
 -- Test Net3 - Conflux3
 require("scripts/server/Conflux3/main.lua")
 
+-- local FPS = require("modules/FPS.lua")
+-- FPS.setup()
+
+-- local VSync = require("modules/VSync.lua")
+-- VSync.disable()
+
 -- -- Load server networking module
 -- local NetServer = require("modules/net_server.lua")
 -- NetServer.start(5000, 10)

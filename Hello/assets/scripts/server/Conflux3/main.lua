@@ -48,10 +48,10 @@ local function spawn_player_for_client(client_id, world)
         },
         [NetGame3.MARKER] = {
             owner_client = client_id,
-            authority = "local",
+            authority = "server",
             sync_components = {
                 SceneRoot = { rate_hz = 1.0 }, -- 1Hz
-                Transform = { rate_limit = 0.033 },  -- 30Hz
+                Transform = { reliable = false, rate_limit = 0.033 },  -- 30Hz
                 PlayerState = { rate_limit = 0.5 },   -- 2Hz
                 PlayerInput = { authority = "client" }, -- No rate limit (unlimited)
             },

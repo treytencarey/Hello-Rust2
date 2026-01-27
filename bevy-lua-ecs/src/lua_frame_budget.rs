@@ -67,9 +67,13 @@ struct ProgressInner {
     /// Number of frames where budget was exceeded (for diagnostics)
     exceeded_count: u64,
     
-    /// Per-system timing data: script_path -> (count, total_ms, max_ms, last_ms)
+    /// Per-system timing data: system_name -> timing
     /// Used by the Lua profiler to show which systems are slow
     system_timings: std::collections::HashMap<String, SystemTiming>,
+    
+    /// Per-query timing data: query_signature -> timing
+    /// Used by the Lua profiler to show which queries are slow
+    query_timings: std::collections::HashMap<String, QueryTiming>,
 }
 
 /// Timing data for a single Lua system
@@ -79,6 +83,18 @@ pub struct SystemTiming {
     pub total_ms: f64,
     pub max_ms: f64,
     pub last_ms: f64,
+    /// State ID for parallel execution tracking (0 = primary state)
+    pub state_id: usize,
+}
+
+/// Timing data for a query type
+#[derive(Clone, Default)]
+pub struct QueryTiming {
+    pub call_count: u64,
+    pub total_ms: f64,
+    pub max_ms: f64,
+    pub last_ms: f64,
+    pub last_result_count: usize,
 }
 
 impl Default for LuaSystemProgress {
@@ -149,7 +165,7 @@ impl LuaSystemProgress {
     }
     
     /// Record timing for a specific system (by script path)
-    pub fn record_system_time(&self, script_path: String, elapsed: Duration) {
+    pub fn record_system_time(&self, script_path: String, elapsed: Duration, state_id: usize) {
         let mut inner = self.inner.lock().unwrap();
         let elapsed_ms = elapsed.as_secs_f64() * 1000.0;
         
@@ -157,6 +173,7 @@ impl LuaSystemProgress {
         timing.call_count += 1;
         timing.total_ms += elapsed_ms;
         timing.last_ms = elapsed_ms;
+        timing.state_id = state_id;
         if elapsed_ms > timing.max_ms {
             timing.max_ms = elapsed_ms;
         }
@@ -169,7 +186,29 @@ impl LuaSystemProgress {
     
     /// Clear all timing data
     pub fn clear_timings(&self) {
-        self.inner.lock().unwrap().system_timings.clear();
+        let mut inner = self.inner.lock().unwrap();
+        inner.system_timings.clear();
+        inner.query_timings.clear();
+    }
+    
+    /// Record timing for a query
+    pub fn record_query_time(&self, signature: String, elapsed: Duration, result_count: usize) {
+        let mut inner = self.inner.lock().unwrap();
+        let elapsed_ms = elapsed.as_secs_f64() * 1000.0;
+        
+        let timing = inner.query_timings.entry(signature).or_default();
+        timing.call_count += 1;
+        timing.total_ms += elapsed_ms;
+        timing.last_ms = elapsed_ms;
+        timing.last_result_count = result_count;
+        if elapsed_ms > timing.max_ms {
+            timing.max_ms = elapsed_ms;
+        }
+    }
+    
+    /// Get all query timings (for Lua profiler)
+    pub fn get_query_timings(&self) -> std::collections::HashMap<String, QueryTiming> {
+        self.inner.lock().unwrap().query_timings.clone()
     }
 }
 

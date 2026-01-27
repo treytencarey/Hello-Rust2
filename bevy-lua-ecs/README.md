@@ -83,6 +83,42 @@ function my_system(world)
 - **Time Access**: Get delta time and frame information
 - **Script Importing**: Load Lua modules with `require()` and `require_async()`
 - **Hot Reload**: Automatic cache invalidation and dependent script reloading
+- **Parallel Execution**: Instanced scripts can run in parallel across different Lua states
+
+### Parallel System Execution
+
+When using instanced scripts (via `require("module.lua", { instanced = true })`), systems from different Lua states can be grouped for parallel execution. This is useful for running separate game instances (e.g., server and client) concurrently.
+
+**Feature flag**: `parallel-systems` (enabled by default)
+
+```toml
+[dependencies]
+bevy_lua_ecs = { path = "../bevy-lua-ecs" }  # parallel enabled by default
+
+# To disable parallel systems:
+bevy_lua_ecs = { path = "../bevy-lua-ecs", default-features = false }
+```
+
+**Runtime configuration**:
+
+```rust
+use bevy_lua_ecs::LuaParallelConfig;
+
+// Disable at runtime (for debugging)
+app.insert_resource(LuaParallelConfig { enabled: false, ..default() });
+
+// Require at least 3 state groups before parallelizing
+app.insert_resource(LuaParallelConfig { 
+    min_groups_for_parallel: 3,
+    ..default() 
+});
+```
+
+**How it works**:
+1. Systems are grouped by their `state_id` (each instanced require gets a unique ID)
+2. When multiple state groups exist and parallel is enabled, groups can execute concurrently  
+3. Systems within the same state execute sequentially (Lua is single-threaded)
+4. On WASM, rayon automatically falls back to sequential execution
 
 ### Lua API
 
@@ -818,6 +854,7 @@ See `examples/button.rs` and `assets/scripts/spawn_button.lua` for:
 - **Build Script**: Auto-generates method bindings and event registrations at compile time
 - **SerdeComponentRegistry**: Registers marker components for serialization
 - **LuaSystemRegistry**: Manages Lua systems to run each frame
+- **LuaParallelConfig**: Controls parallel execution of instanced Lua scripts
 - **Query API**: Provides ECS queries to Lua
 - **Asset Loading**: Generic `load_asset()` and `create_asset()` functions
 - **Resource Management**: Generic `insert_resource()`, `query_resource()`, and `call_resource_method()` functions
