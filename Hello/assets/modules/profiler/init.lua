@@ -18,6 +18,10 @@ local state = define_resource("ProfilerState", {
     enabled = false,
     ui_visible = false,
     
+    -- Layout settings
+    parent_entity = nil,
+    left_offset = nil,
+    
     -- System timing data: system_name -> {count, total_ms, max_ms, avg_ms, last_ms}
     systems = {},
     
@@ -47,7 +51,10 @@ local state = define_resource("ProfilerState", {
     
     -- UI entities
     panel_entity = nil,
+    header_container = nil,
+    scroll_container = nil,
     content_entities = {},
+    scroll_offset = 0,
     
     -- Parallel execution info
     parallel_enabled = false,
@@ -59,8 +66,9 @@ local state = define_resource("ProfilerState", {
 --------------------------------------------------------------------------------
 
 local colors = {
-    bg = {r = 0.08, g = 0.08, b = 0.10, a = 0.95},
-    header_bg = {r = 0.12, g = 0.12, b = 0.15, a = 1.0},
+    border = {r = 0.08, g = 0.08, b = 0.10, a = 1.0},
+    bg = {r = 0.12, g = 0.12, b = 0.14, a = 1.0},
+    header_bg = {r = 0.15, g = 0.15, b = 0.18, a = 1.0},
     row_bg = {r = 0.10, g = 0.10, b = 0.12, a = 1.0},
     row_alt = {r = 0.12, g = 0.12, b = 0.14, a = 1.0},
     text = {r = 0.9, g = 0.9, b = 0.9, a = 1.0},
@@ -153,7 +161,7 @@ end
 
 --- Start an incremental scan of global tables
 local function start_global_scan()
-    state.scan_results = {}
+    state.pending_scan_results = {}
     
     -- Create coroutine for incremental scanning
     state.scan_coroutine = coroutine.create(function()
@@ -174,7 +182,7 @@ local function start_global_scan()
                     if type(v) == "table" then
                         local size = count_table_entries(v, 0, 3, {})  -- Limited depth for size
                         if size >= state.scan_size_threshold then
-                            table.insert(state.scan_results, {
+                            table.insert(state.pending_scan_results, {
                                 path = entry_path,
                                 size = size,
                             })
@@ -203,6 +211,10 @@ local function resume_scan()
     if status == "dead" then
         -- Scan complete - compare with previous snapshot
         local current_frame = state.scan_frame_counter
+        
+        -- Commit results
+        state.scan_results = state.pending_scan_results or {}
+        state.pending_scan_results = nil
         
         state.scan_growth_alerts = {}
         for _, result in ipairs(state.scan_results) do
@@ -284,6 +296,11 @@ end
 local PANEL_WIDTH = 320
 local ROW_HEIGHT = 20
 
+--- Create a new profiler instance (singleton)
+function Profiler.new()
+    return Profiler
+end
+
 local function despawn_ui()
     for _, entity in ipairs(state.content_entities or {}) do
         despawn(entity)
@@ -293,6 +310,8 @@ local function despawn_ui()
     if state.panel_entity then
         despawn(state.panel_entity)
         state.panel_entity = nil
+        state.header_container = nil
+        state.scroll_container = nil
     end
 end
 
@@ -309,40 +328,108 @@ local function get_time_color(ms)
     else return colors.text_bad end
 end
 
-local function create_ui()
-    if state.panel_entity then return end
+--- Spawn the main panel
+--- @param left_offset number|nil Optional left offset
+--- @param parent_entity number|nil Optional parent entity
+function Profiler:spawn_panel(left_offset, parent_entity)
+    if state.panel_entity then return state.panel_entity end
     
-    -- Main panel (top-right corner)
-    state.panel_entity = spawn({
-        Node = {
+    state.left_offset = left_offset
+    state.parent_entity = parent_entity
+    
+    -- Node config based on layout mode
+    local node_config
+    if parent_entity then
+        -- Child mode (fill parent height, fixed width)
+        node_config = {
+            width = {Px = PANEL_WIDTH},
+            height = {Percent = 100},
+            flex_direction = "Column",
+            border = { left = {Px = 1}, right = {Px = 1} },
+        }
+    elseif left_offset then
+        -- Sidebar mode (Absolute left)
+        node_config = {
+            position_type = "Absolute",
+            left = {Px = left_offset},
+            top = {Px = 0},
+            bottom = {Px = 0},
+            width = {Px = PANEL_WIDTH},
+            flex_direction = "Column",
+            padding = {left = {Px = 0}, right = {Px = 0}, top = {Px = 0}, bottom = {Px = 0}},
+            border = { left = {Px = 1}, right = {Px = 1} },
+        }
+    else
+        -- Legacy mode (Absolute top-right)
+        node_config = {
             position_type = "Absolute",
             right = {Px = 10},
             top = {Px = 10},
             width = {Px = PANEL_WIDTH},
             max_height = {Percent = 80},
             flex_direction = "Column",
-            padding = {left = {Px = 8}, right = {Px = 8}, top = {Px = 8}, bottom = {Px = 8}},
-            overflow = { x = "Visible", y = "Scroll" },
-        },
+            padding = {left = {Px = 0}, right = {Px = 0}, top = {Px = 0}, bottom = {Px = 0}},
+            border = { left = {Px = 1}, right = {Px = 1} },
+        }
+    end
+    
+    -- Main panel
+    local panel = spawn({
+        Node = node_config,
         BackgroundColor = { color = colors.bg },
-        BorderRadius = { 
-            top_left = {Px = 6}, top_right = {Px = 6}, 
-            bottom_left = {Px = 6}, bottom_right = {Px = 6} 
+        BorderColor = {
+            left = colors.border,
+            right = colors.border,
         },
         GlobalZIndex = { value = 500 },
-    }):id()
+        -- Component to identify this as a sidebar panel (for escape key handling)
+        SidebarPanel = { script = "modules/profiler/init.lua" },
+    })
     
-    -- Header
-    local header = spawn({
+    if parent_entity then
+        panel:with_parent(parent_entity)
+    end
+    
+    state.panel_entity = panel:id()
+
+    -- Fixed Header Container
+    state.header_container = spawn({
         Node = {
             width = {Percent = 100},
+            height = {Px = 36},
             flex_direction = "Row",
-            justify_content = "SpaceBetween",
-            align_items = "Center",
-            margin = {bottom = {Px = 8}},
-        },
+            flex_shrink = 0, -- Don't shrink
+        }
     }):with_parent(state.panel_entity):id()
-    table.insert(state.content_entities, header)
+
+    -- Scrollable Content Container
+    state.scroll_container = spawn({
+        Node = {
+            display = "Flex",
+            width = {Percent = 100},
+            flex_grow = 1,
+            flex_direction = "Column",
+            align_items = "FlexStart",
+            overflow = { x = "Visible", y = "Scroll" },
+            padding = { top = {Px = 4}, bottom = {Px = 4}, left = {Px = 8}, right = {Px = 8} }, 
+        },
+        ScrollPosition = { offset = {x = 0, y = state.scroll_offset} },
+    })
+    :with_parent(state.panel_entity)
+    :observe("Pointer<Scroll>", function(entity, event)
+        local scroll = event.event
+        state.scroll_offset = state.scroll_offset - scroll.y * 20
+        if state.scroll_offset < 0 then state.scroll_offset = 0 end
+        entity:set({ ScrollPosition = { offset = {x = 0, y = state.scroll_offset} } })
+    end)
+    :id()
+    
+    return state.panel_entity
+end
+
+local function create_ui()
+    -- Compatibility wrapper for legacy internal calls
+    Profiler:spawn_panel()
 end
 
 local function update_ui_content()
@@ -358,18 +445,20 @@ local function update_ui_content()
     local header = spawn({
         Node = {
             width = {Percent = 100},
+            height = {Percent = 100},
             flex_direction = "Row",
-            justify_content = "SpaceBetween",
             align_items = "Center",
-            margin = {bottom = {Px = 8}},
+            justify_content = "SpaceBetween",
+            padding = { left = {Px = 12}, right = {Px = 8} },
         },
-    }):with_parent(state.panel_entity):id()
+        BackgroundColor = { color = colors.header_bg },
+    }):with_parent(state.header_container):id()
     table.insert(state.content_entities, header)
 
     spawn({
-        Text = { text = "⏱ Profiler" },
+        Text = { text = "[Profiler]" },
         TextFont = { font_size = 14 },
-        TextColor = { color = colors.accent },
+        TextColor = { color = colors.text },
     }):with_parent(header)
 
     -- Right side container for FPS and memory
@@ -404,7 +493,7 @@ local function update_ui_content()
             align_items = "Center",
             margin = {top = {Px = 4}, bottom = {Px = 4}},
         },
-    }):with_parent(state.panel_entity):id()
+    }):with_parent(state.scroll_container):id()
     table.insert(state.content_entities, systems_header)
     
     spawn({
@@ -441,7 +530,7 @@ local function update_ui_content()
                 align_items = "Center",
             },
             BackgroundColor = { color = (i % 2 == 0) and colors.row_alt or colors.row_bg },
-        }):with_parent(state.panel_entity):id()
+        }):with_parent(state.scroll_container):id()
         table.insert(state.content_entities, row)
         
         -- Left side: state badge + name
@@ -493,7 +582,7 @@ local function update_ui_content()
                 width = {Percent = 100},
                 margin = {top = {Px = 8}, bottom = {Px = 4}},
             },
-        }):with_parent(state.panel_entity):id()
+        }):with_parent(state.scroll_container):id()
         table.insert(state.content_entities, queries_header)
         
         spawn({
@@ -514,7 +603,7 @@ local function update_ui_content()
                     align_items = "Center",
                 },
                 BackgroundColor = { color = (i % 2 == 0) and colors.row_alt or colors.row_bg },
-            }):with_parent(state.panel_entity):id()
+            }):with_parent(state.scroll_container):id()
             table.insert(state.content_entities, row)
             
             -- Truncate long signatures
@@ -545,7 +634,7 @@ local function update_ui_content()
                 width = {Percent = 100},
                 margin = {top = {Px = 8}, bottom = {Px = 4}},
             },
-        }):with_parent(state.panel_entity):id()
+        }):with_parent(state.scroll_container):id()
         table.insert(state.content_entities, alerts_header)
         
         spawn({
@@ -565,7 +654,7 @@ local function update_ui_content()
                     align_items = "Center",
                 },
                 BackgroundColor = { color = colors.row_bg },
-            }):with_parent(state.panel_entity):id()
+            }):with_parent(state.scroll_container):id()
             table.insert(state.content_entities, row)
             
             -- Truncate path
@@ -596,7 +685,7 @@ local function update_ui_content()
                 width = {Percent = 100},
                 margin = {top = {Px = 8}, bottom = {Px = 4}},
             },
-        }):with_parent(state.panel_entity):id()
+        }):with_parent(state.scroll_container):id()
         table.insert(state.content_entities, tables_header)
         
         spawn({
@@ -615,7 +704,7 @@ local function update_ui_content()
                     align_items = "Center",
                 },
                 BackgroundColor = { color = (i % 2 == 0) and colors.row_alt or colors.row_bg },
-            }):with_parent(state.panel_entity):id()
+            }):with_parent(state.scroll_container):id()
             table.insert(state.content_entities, row)
             
             local display_path = tbl.path
@@ -665,16 +754,31 @@ function Profiler.toggle()
         end
     else
         Profiler.enable()
-        Profiler.show_ui()
+        Profiler:show()
     end
 end
 
 --- Show the profiler UI
-function Profiler.show_ui()
-    if state.ui_visible then return end
+--- @param left_offset number|nil Optional left offset
+--- @param parent_entity number|nil Optional parent entity
+function Profiler:show(left_offset, parent_entity)
+    if state.ui_visible then return state.panel_entity end
     state.ui_visible = true
-    create_ui()
+    
+    -- Ensure enabled when shown
+    if not state.enabled then
+        Profiler.enable()
+    end
+    
+    self:spawn_panel(left_offset, parent_entity)
     update_ui_content()
+    
+    return state.panel_entity
+end
+
+--- Alias for backward compatibility
+function Profiler.show_ui()
+    Profiler:show()
 end
 
 --- Hide the profiler UI
@@ -689,7 +793,7 @@ function Profiler.toggle_ui()
     if state.ui_visible then
         Profiler.hide_ui()
     else
-        Profiler.show_ui()
+        Profiler:show()
     end
 end
 
@@ -765,11 +869,6 @@ local function is_key_just_pressed(world, key_code)
 end
 
 local function profiler_update_system(world)
-    -- Toggle with F3
-    if is_key_just_pressed(world, "F3") then
-        Profiler.toggle()
-    end
-    
     if not state.enabled then return end
     
     -- Update memory usage
@@ -857,7 +956,5 @@ end
 
 -- Register update system
 register_system("Update", profiler_update_system)
-
-print("[PROFILER] Module loaded. Press F3 to toggle.")
 
 return Profiler

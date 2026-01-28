@@ -248,7 +248,9 @@ end
 -- Register systems at module load
 register_system("Update", camera_attachment_system)
 register_system("Update", function(world)
-    movement_system(world)
+    if CameraController.is_enabled() then
+        movement_system(world)
+    end
     CameraController.update_system(world)
 end)
 

@@ -17,12 +17,12 @@
 
 -- require("scripts/Conflux2/main.lua")
 
-require("modules/profiler/init.lua")
+-- require("modules/profiler/init.lua")
 
 -- local FPS = require("modules/fps.lua")
 -- FPS.setup()
 
--- require("scripts/examples/sidebar_example.lua")
+require("scripts/examples/sidebar_example.lua")
 
 -- Test Net3 - Conflux3
 require("scripts/Conflux3/main.lua")

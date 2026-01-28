@@ -74,6 +74,7 @@ function SidebarMenu:show()
         },
         BackgroundColor = { color = {r = 0, g = 0, b = 0, a = 0} },  -- Transparent
         GlobalZIndex = { value = 100 },
+        SidebarMenu = {}
     })
     self.outer_container = outer:id()
     table.insert(self.entities, self.outer_container)

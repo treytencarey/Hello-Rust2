@@ -144,24 +144,33 @@ end
 
 --- Set input mode
 --- @param world userdata
---- @param mode string "game" | "ui"
+--- @param mode string "game" | "ui" | "game_and_ui"
 function CameraController.set_input_mode(world, mode)
-    if not state.enabled then return end
-    
     state.input_mode = mode
 
     local windows = world:query({"Window", "CursorOptions"})
     if #windows == 0 then return end
     
     local window = windows[1]
+    print("TEST :: Setting input mode to " .. state.input_mode)
     if state.input_mode == "game" then
+        CameraController.set_enabled(true)
         window:set({
             CursorOptions = {
                 visible = false,
                 grab_mode = { Locked = true }
             }
         })
-    else
+    elseif state.input_mode == "ui" then
+        CameraController.set_enabled(false)
+        window:set({
+            CursorOptions = {
+                visible = true,
+                grab_mode = { None = true }
+            }
+        })
+    elseif state.input_mode == "game_and_ui" then
+        CameraController.set_enabled(true)
         window:set({
             CursorOptions = {
                 visible = true,
@@ -205,6 +214,26 @@ end
 --------------------------------------------------------------------------------
 
 
+--- Check if menu is open or closed, for input mode
+--- @param world userdata
+local function check_menu(world)
+    if state.input_mode == "game" then
+        local menu = world:query({
+            added = { "SidebarMenu" }
+        })
+        if #menu > 0 then
+            CameraController.set_input_mode(world, "ui")
+        end
+    elseif state.input_mode == "ui" then
+        local menu = world:query({
+            removed = { "SidebarMenu" }
+        })
+        if #menu > 0 then
+            CameraController.set_input_mode(world, "game")
+        end
+    end
+end
+
 --- Camera update system - handles positioning and smooth following
 --- @param world userdata
 function CameraController.update_system(world)
@@ -213,6 +242,9 @@ function CameraController.update_system(world)
     if not state.attached or not state.target_entity_id then
         return
     end
+    
+    -- Check if menu is open or closed, for input mode
+    check_menu(world)
     
     local target_entity = world:get_entity(state.target_entity_id)
     if not target_entity then
@@ -304,6 +336,8 @@ function CameraController.is_attached() return state.attached end
 function CameraController.set_enabled(enabled)
     state.enabled = enabled
 end
+
+function CameraController.is_enabled() return state.enabled end
 
 function CameraController.set_mode(mode)
     state.mode = mode

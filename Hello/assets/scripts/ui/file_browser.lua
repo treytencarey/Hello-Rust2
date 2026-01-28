@@ -56,6 +56,7 @@ function FileBrowser.new()
     
     -- Colors
     self.colors = {
+        border = {r = 0.08, g = 0.08, b = 0.10, a = 1.0},
         bg = {r = 0.12, g = 0.12, b = 0.14, a = 1.0},
         header_bg = {r = 0.15, g = 0.15, b = 0.18, a = 1.0},
         row_hover = {r = 0.2, g = 0.2, b = 0.25, a = 1.0},
@@ -128,6 +129,7 @@ function FileBrowser:spawn_panel()
             width = {Px = PANEL_WIDTH},
             height = {Percent = 100},  -- Fill parent height
             flex_direction = "Column",
+            border = { left = {Px = 1}, right = {Px = 1} },
         }
     else
         -- Standalone root - use absolute positioning
@@ -139,12 +141,17 @@ function FileBrowser:spawn_panel()
             bottom = {Px = 0},
             width = {Px = PANEL_WIDTH},
             flex_direction = "Column",
+            border = { left = {Px = 1}, right = {Px = 1} },
         }
     end
     
     local panel = spawn({
         Node = node_config,
         BackgroundColor = { color = self.colors.bg },
+        BorderColor = {
+            left = self.colors.border,
+            right = self.colors.border,
+        },
         GlobalZIndex = { value = 100 },
         -- Component to identify this as a sidebar panel (for escape key handling)
         SidebarPanel = { script = "scripts/ui/file_browser.lua" },
@@ -293,7 +300,7 @@ function FileBrowser:spawn_panel()
         :observe("Pointer<Scroll>", function(entity, event)
             -- Handle scroll wheel events
             local scroll = event.event
-            self.scroll_offset = self.scroll_offset - scroll.y * 2
+            self.scroll_offset = self.scroll_offset - scroll.y * 20
             if self.scroll_offset < 0 then
                 self.scroll_offset = 0
             end

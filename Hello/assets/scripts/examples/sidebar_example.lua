@@ -6,11 +6,6 @@
 -- 2. Click icons to open panel scripts
 -- 3. Press Escape to close panels (most recent first)
 
--- Spawn camera for UI
-spawn({
-    Camera2d = {},
-})
-
 -- Load the sidebar menu
 local SidebarMenu = require("scripts/ui/sidebar_menu.lua")
 local menu = SidebarMenu.new()
@@ -33,6 +28,15 @@ spawn({
         icon = "icons/account.png", 
         title = "Account",
         script = "scripts/ui/file_browser1.lua",  -- Reusing for demo
+    }
+})
+
+-- Profiler button
+spawn({
+    SidebarButton = {
+        icon = "icons/settings.png",  -- Using settings icon as placeholder
+        title = "Profiler",
+        script = "modules/profiler/init.lua",
     }
 })
 
