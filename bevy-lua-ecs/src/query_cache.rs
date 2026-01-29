@@ -38,11 +38,11 @@ struct QueryCacheInner {
     last_frame: u64,
     /// Cache: sorted component names -> cached entity results
     cache: HashMap<Vec<String>, Vec<CachedEntityResult>>,
-    /// Permanent cache: component name -> is_rust_component (never clears)
-    /// This avoids expensive type registry lookups on every query
+    /// Cache: component name -> is_rust_component (only caches true values)
+    /// False values are not cached to handle type registry initialization races
     component_type_cache: HashMap<String, bool>,
-    /// Permanent cache: component name -> ComponentId (never clears)
-    /// This avoids the expensive type_registry lookups on every query
+    /// Cache: component name -> ComponentId (only caches Rust components)
+    /// Lua/NotFound results are not cached to handle type registry initialization races
     component_id_cache: HashMap<String, CachedComponentInfo>,
 }
 
@@ -54,7 +54,8 @@ impl LuaQueryCache {
         inner.component_id_cache.get(name).cloned()
     }
 
-    /// Cache ComponentId for a component name (permanent, never clears)
+    /// Cache ComponentId for a component name
+    /// Note: Callers should only cache Rust components to avoid initialization race issues
     pub fn cache_component_info(&self, name: &str, info: CachedComponentInfo) {
         let mut inner = self.inner.lock().unwrap();
         inner.component_id_cache.insert(name.to_string(), info);
@@ -85,7 +86,8 @@ impl LuaQueryCache {
         inner.component_type_cache.get(name).copied()
     }
 
-    /// Cache whether a component name is a Rust component (permanent, never clears)
+    /// Cache whether a component name is a Rust component
+    /// Note: Callers should only cache is_rust=true to avoid initialization race issues
     pub fn cache_component_type(&self, name: &str, is_rust: bool) {
         let mut inner = self.inner.lock().unwrap();
         inner.component_type_cache.insert(name.to_string(), is_rust);

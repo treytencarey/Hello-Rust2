@@ -2,6 +2,7 @@
 -- Processes PlayerInput from clients and applies authoritative movement
 
 local NetSync3 = require("modules/net3/init.lua")
+local State = require("modules/net3/state.lua")
 local Movement = require("modules/shared/movement.lua")
 
 local ServerMovement = {}
@@ -13,7 +14,9 @@ local function server_movement_system(world)
     if state.mode ~= "server" then return end
     
     -- Query for players with input
-    local entities = world:query({ NetSync3.MARKER, "PlayerInput", "PlayerState", "Transform" })
+    local entities = world:query({
+        with = { NetSync3.MARKER, "PlayerInput", "PlayerState", "Transform" },
+    })
     
     for _, entity in ipairs(entities) do
         -- Skip entities with local authority (client is doing prediction in "both" mode)
@@ -46,6 +49,9 @@ local function server_movement_system(world)
                             math.abs(new_rot.w - transform.rotation.w) > eps
 
         if pos_changed or rot_changed then
+            -- Mark Transform as originating from the owner client (synchronous, for echo suppression)
+            State.mark_inbound_source(entity:id(), "Transform", sync.owner_client)
+
             entity:patch({
                 Transform = {
                     translation = new_pos,

@@ -185,14 +185,17 @@ function Outbound.system(world, context)
                 if registered[comp_name] then
                     local value = entity:get(comp_name)
                     if value then
+                        -- Check State for source (synchronous, set by inbound/movement systems)
+                        local source_client = State.get_inbound_source(entity_id, comp_name)
                         pending.components[comp_name] = {
                             value = value,
                             queued_at = now,
+                            source_client = source_client,
                         }
                     end
                 end
             end
-
+            
             ::continue_change::
         end
     end
@@ -254,10 +257,7 @@ function Outbound.system(world, context)
 
                 if in_scope then
                     if client_knew then
-                        -- Echo suppression: don't send updates back to the owner
-                        if client_id ~= owner_client then
-                            table.insert(update_targets, client_id)
-                        end
+                        table.insert(update_targets, client_id)
                     else
                         table.insert(spawn_targets, client_id)
                     end
@@ -332,10 +332,10 @@ function Outbound.system(world, context)
 
         -- Process pending updates (use stored values, apply rate limiting)
         if #update_targets > 0 then
-            local components_to_send = {}
-            local has_reliable = false
+            local ready_components = {}
             local remaining = {}
 
+            -- 1. Rate Limiting Pass
             for comp_name, pending_comp in pairs(pending.components) do
                 local comp_config = registered[comp_name]
                 if not comp_config then
@@ -360,12 +360,8 @@ function Outbound.system(world, context)
                 end
 
                 if can_send then
-                    components_to_send[comp_name] = pending_comp.value
+                    ready_components[comp_name] = pending_comp
                     config.last_sync_times[comp_name] = now
-
-                    if comp_config.reliable then
-                        has_reliable = true
-                    end
                 else
                     -- Keep in pending for next frame (guaranteed delivery)
                     remaining[comp_name] = pending_comp
@@ -374,22 +370,62 @@ function Outbound.system(world, context)
                 ::next_pending_comp::
             end
 
-            -- Send update if we have components
-            if next(components_to_send) then
-                -- Channel selection: if ANY reliable component, use reliable for all
-                local channel = has_reliable and Messages.CHANNEL_RELIABLE or Messages.CHANNEL_UNRELIABLE
+            -- 2. Send Pass
+            if next(ready_components) then
+                -- Split targets
+                local targets_others = {}
+                local targets_owner = {}
 
-                local update_msg = Messages.build_update(
-                    owner_client,
-                    entity,
-                    net_id,
-                    components_to_send,
-                    nil, -- seq
-                    nil, -- ack_seq
-                    channel
-                )
-                update_msg.target_clients = update_targets
-                spawn({ [Components.OUTBOUND] = update_msg })
+                for _, client_id in ipairs(update_targets) do
+                    if client_id == owner_client then
+                        table.insert(targets_owner, client_id)
+                    else
+                        table.insert(targets_others, client_id)
+                    end
+                end
+
+                -- Helper to build and send
+                local function send_subset(targets, filter_func)
+                    if #targets == 0 then return end
+
+                    local payload = {}
+                    local has_reliable = false
+
+                    for name, p_comp in pairs(ready_components) do
+                        if not filter_func or filter_func(p_comp) then
+                            payload[name] = p_comp.value
+                            if registered[name].reliable then 
+                                has_reliable = true 
+                            end
+                        end
+                    end
+
+                    if next(payload) then
+                        local channel = has_reliable and Messages.CHANNEL_RELIABLE or Messages.CHANNEL_UNRELIABLE
+                        local update_msg = Messages.build_update(
+                            owner_client,
+                            entity,
+                            net_id,
+                            payload,
+                            nil, -- seq
+                            nil, -- ack_seq
+                            channel
+                        )
+                        update_msg.target_clients = targets
+                        spawn({ [Components.OUTBOUND] = update_msg })
+                    end
+                end
+                
+                -- Send to others (full updates)
+                send_subset(targets_others, nil)
+
+                -- Send to owner (filter out updates they originated)
+                send_subset(targets_owner, function(p_comp)
+                    -- send if we (the logic) are not the source (nil check for safe operator)
+                    -- source_client is nil if server/local generated.
+                    -- if owner_client matched source_client, it means they sent it.
+                    return p_comp.source_client ~= owner_client
+                end)
             end
 
             -- Update pending components (keep rate-limited ones)
@@ -462,6 +498,11 @@ function Outbound.system(world, context)
 
         ::continue_removed::
     end
+
+    ---------------------------------------------------------------------------
+    -- Phase 5: Clear inbound sources (for next frame)
+    ---------------------------------------------------------------------------
+    State.clear_inbound_sources()
 end
 
 --- Outbound system - detects changes and spawns NetSyncOutbound entities

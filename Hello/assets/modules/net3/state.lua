@@ -44,6 +44,10 @@ local state = define_resource("NetSyncState", {
 
     -- NEW: Registered sync components per entity (normalized config)
     registered_sync_components = {},  -- entity_id -> { comp_name -> { authority, reliable, rate_limit } }
+
+    -- Track inbound sources for echo suppression (cleared each frame)
+    -- Synchronous updates avoid timing issues with component update queue
+    inbound_sources = {},             -- entity_id -> { comp_name -> source_client_id }
 })
 
 --- Get or create the NetSyncState resource (idempotent)
@@ -431,6 +435,35 @@ end
 --- @param entity_id number
 function State.clear_pending_entity(entity_id)
     state.pending_values[entity_id] = nil
+end
+
+--------------------------------------------------------------------------------
+-- Inbound Source Tracking (for echo suppression)
+--------------------------------------------------------------------------------
+
+--- Mark a component as originating from a specific client (synchronous, immediate)
+--- @param entity_id number
+--- @param comp_name string
+--- @param source_client number
+function State.mark_inbound_source(entity_id, comp_name, source_client)
+    if not state.inbound_sources[entity_id] then
+        state.inbound_sources[entity_id] = {}
+    end
+    state.inbound_sources[entity_id][comp_name] = source_client
+end
+
+--- Get the source client for a component (nil if server/local originated)
+--- @param entity_id number
+--- @param comp_name string
+--- @return number|nil
+function State.get_inbound_source(entity_id, comp_name)
+    local sources = state.inbound_sources[entity_id]
+    return sources and sources[comp_name]
+end
+
+--- Clear all inbound sources (call at end of frame)
+function State.clear_inbound_sources()
+    state.inbound_sources = {}
 end
 
 return State

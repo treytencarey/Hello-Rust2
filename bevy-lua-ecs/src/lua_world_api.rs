@@ -34,6 +34,8 @@ pub struct LuaQueryBuilder {
     pub without_components: Vec<String>,
     /// AnyOf<(&T1, &T2, ...)> - Optional components (at least one must be present)
     pub any_of_components: Vec<String>,
+    /// Optional<T> - Component that might be present (doesn't filter)
+    pub optional_components: Vec<String>,
     /// Changed<T> - Components that must have changed (AND logic)
     pub changed_components: Vec<String>,
     /// Added<T> - Components that must be newly added (AND logic)
@@ -48,6 +50,7 @@ impl LuaQueryBuilder {
             with_components: Vec::new(),
             without_components: Vec::new(),
             any_of_components: Vec::new(),
+            optional_components: Vec::new(),
             changed_components: Vec::new(),
             added_components: Vec::new(),
             or_filters: OrFilters::default(),
@@ -82,6 +85,13 @@ impl LuaUserData for LuaQueryBuilder {
         methods.add_method("any_of", |_, this, component_name: String| {
             let mut new_builder = this.clone();
             new_builder.any_of_components.push(component_name);
+            Ok(new_builder)
+        });
+    
+        // Optional<T> - component that might be present
+        methods.add_method("optional", |_, this, component_name: String| {
+            let mut new_builder = this.clone();
+            new_builder.optional_components.push(component_name);
             Ok(new_builder)
         });
 
@@ -335,6 +345,17 @@ impl LuaUserData for LuaEntitySnapshot {
                         .queue_update(this.entity, component_name, registry_key);
                 }
 
+                Ok(())
+            },
+        );
+
+        // Remove components
+        // Usage: entity:remove("ComponentName")
+        methods.add_method(
+            "remove",
+            |_lua, this, component_name: String| {
+                // Queue the removal
+                this.update_queue.queue_removal(this.entity, component_name);
                 Ok(())
             },
         );
@@ -647,9 +668,13 @@ fn resolve_component_info(
         crate::query_cache::CachedComponentInfo::Lua
     };
 
-    // Cache for next time
+    // Cache for next time - but only cache Rust components
+    // Don't cache Lua/NotFound results since they might just be Rust components
+    // that aren't registered in the type registry yet (initialization order race)
     if let Some(cache) = query_cache {
-        cache.cache_component_info(name, info.clone());
+        if matches!(info, crate::query_cache::CachedComponentInfo::Rust(_)) {
+            cache.cache_component_info(name, info.clone());
+        }
     }
 
     info
@@ -723,13 +748,63 @@ pub fn execute_query(
                 for cached in cached_results {
                     let entity = Entity::from_bits(cached.entity_bits);
                     // Verify entity still exists (could have been despawned)
-                    if world.get_entity(entity).is_ok() {
+                    if let Ok(entity_ref) = world.get_entity(entity) {
+                        let mut lua_components = cached.component_keys.clone();
+                        let changed_set = HashSet::new(); // Cached results don't have change info
+                        let added_set = HashSet::new(); // Cached results don't have added info
+
+                        // Resolving optional components
+                        let mut optional_component_keys = HashMap::new();
+                        if !query_builder.optional_components.is_empty() {
+                            for name in &query_builder.optional_components {
+                                let info = resolve_component_info(
+                                    name,
+                                    query_cache,
+                                    component_registry,
+                                    &type_registry,
+                                    world,
+                                );
+                                
+                                match info {
+                                    crate::query_cache::CachedComponentInfo::Rust(id) => {
+                                        if let Some(component_info) = world.components().get_info(id) {
+                                            // Only try to reflect if component exists on entity
+                                            if entity_ref.contains_id(id) {
+                                                let type_id = component_info.type_id().unwrap();
+                                                if let Some(registration) = type_registry.get(type_id) {
+                                                    if let Some(reflect_component) = registration.data::<ReflectComponent>() {
+                                                        if let Some(component) = reflect_component.reflect(entity_ref) {
+                                                            if let Ok(lua_value) = crate::lua_world_api::reflection_to_lua_with_assets(lua, component, asset_registry) {
+                                                                if let Ok(registry_key) = lua.create_registry_value(lua_value) {
+                                                                    optional_component_keys.insert(name.clone(), Arc::new(registry_key));
+                                                                }
+                                                            }
+                                                        }
+                                                    }
+                                                }
+                                            }
+                                        }
+                                    }
+                                    crate::query_cache::CachedComponentInfo::Lua | crate::query_cache::CachedComponentInfo::NotFound => {
+                                        // Lua components are handled later if they are 'with' components.
+                                        // For optional, if it's Lua and not in 'with', we don't add it here.
+                                        // NotFound means it doesn't exist, so nothing to add.
+                                    }
+                                }
+                            }
+                        }
+
+                        // Merge optional components into lua_components
+                        for (k, v) in optional_component_keys {
+                            lua_components.insert(k, v);
+                        }
+
                         results.push(LuaEntitySnapshot {
                             entity,
                             component_data: HashMap::new(), // Not needed, we have lua_components
-                            lua_components: cached.component_keys.clone(),
-                            changed_components: HashSet::new(),
-                            added_components: HashSet::new(),
+                            lua_components,
+                            changed_components: changed_set,
+                            added_components: added_set,
                             update_queue: update_queue.clone(),
                         });
                     }
@@ -758,12 +833,14 @@ pub fn execute_query(
             has_rust
         } else {
             // Some components need registry lookup, then cache the result
+            // Only cache positive (is_rust=true) results - don't cache false since
+            // the component might just not be registered in the type registry yet
             let mut has_rust = false;
             for name in &needs_lookup {
                 let is_rust = component_registry.get_type_path(name).is_some() ||
                     component_registry.get_non_reflected_type_id(name).is_some();
-                cache.cache_component_type(name, is_rust);
                 if is_rust {
+                    cache.cache_component_type(name, true);
                     has_rust = true;
                 }
             }
@@ -948,9 +1025,13 @@ pub fn execute_query(
         };
         expensive_lookup_time_ns += t_expensive_start.elapsed().as_nanos() as u64;
 
-        // Cache for next time
+        // Cache for next time - but only cache Rust components
+        // Don't cache Lua/NotFound results since they might just be Rust components
+        // that aren't registered in the type registry yet (initialization order race)
         if let Some(cache) = query_cache {
-            cache.cache_component_info(name, info.clone());
+            if matches!(info, crate::query_cache::CachedComponentInfo::Rust(_)) {
+                cache.cache_component_info(name, info.clone());
+            }
         }
 
         // Apply the resolved info
@@ -1017,9 +1098,13 @@ pub fn execute_query(
             crate::query_cache::CachedComponentInfo::Lua
         };
 
-        // Cache for next time
+        // Cache for next time - but only cache Rust components
+        // Don't cache Lua/NotFound results since they might just be Rust components
+        // that aren't registered in the type registry yet (initialization order race)
         if let Some(cache) = query_cache {
-            cache.cache_component_info(name, info.clone());
+            if matches!(info, crate::query_cache::CachedComponentInfo::Rust(_)) {
+                cache.cache_component_info(name, info.clone());
+            }
         }
 
         match info {

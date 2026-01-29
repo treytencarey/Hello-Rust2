@@ -10,10 +10,17 @@ pub struct ComponentUpdateRequest {
     pub data: Arc<LuaRegistryKey>,
 }
 
+/// Removal request for a component on an entity
+pub struct ComponentRemovalRequest {
+    pub entity: Entity,
+    pub component_name: String,
+}
+
 /// Resource that holds the component update queue
 #[derive(Resource, Clone)]
 pub struct ComponentUpdateQueue {
     queue: Arc<Mutex<Vec<ComponentUpdateRequest>>>,
+    removal_queue: Arc<Mutex<Vec<ComponentRemovalRequest>>>,
     /// Lock-free flag for fast-path empty check (optimization)
     has_updates: Arc<AtomicBool>,
 }
@@ -22,6 +29,7 @@ impl Default for ComponentUpdateQueue {
     fn default() -> Self {
         Self {
             queue: Arc::new(Mutex::new(Vec::new())),
+            removal_queue: Arc::new(Mutex::new(Vec::new())),
             has_updates: Arc::new(AtomicBool::new(false)),
         }
     }
@@ -39,11 +47,25 @@ impl ComponentUpdateQueue {
         self.has_updates.store(true, Ordering::Relaxed);
     }
 
+    /// Add a component removal request
+    pub fn queue_removal(&self, entity: Entity, component_name: String) {
+        let request = ComponentRemovalRequest {
+            entity,
+            component_name,
+        };
+        self.removal_queue.lock().unwrap().push(request);
+    }
+
     /// Drain all pending update requests
     pub fn drain(&self) -> Vec<ComponentUpdateRequest> {
         let drained = self.queue.lock().unwrap().drain(..).collect();
         self.has_updates.store(false, Ordering::Relaxed);
         drained
+    }
+
+    /// Drain all pending removal requests
+    pub fn drain_removals(&self) -> Vec<ComponentRemovalRequest> {
+        self.removal_queue.lock().unwrap().drain(..).collect()
     }
 
     /// Fast check if queue has any pending updates (lock-free for performance)

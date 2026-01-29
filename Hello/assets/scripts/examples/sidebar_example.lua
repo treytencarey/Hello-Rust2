@@ -34,18 +34,9 @@ spawn({
 -- Profiler button
 spawn({
     SidebarButton = {
-        icon = "icons/settings.png",  -- Using settings icon as placeholder
+        icon = "icons/profiler.png",  -- Using settings icon as placeholder
         title = "Profiler",
         script = "modules/profiler/init.lua",
-    }
-})
-
--- Settings button (placeholder)
-spawn({
-    SidebarButton = {
-        icon = "icons/settings.png",
-        title = "Settings",
-        script = "scripts/ui/file_browser2.lua",  -- Reusing for demo
     }
 })
 

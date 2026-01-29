@@ -241,6 +241,52 @@ pub fn process_component_updates(
     if batch_time.as_millis() >= 1 {
         debug!("[COMPONENT_UPDATE] Processed {} updates in {:?}", request_count, batch_time);
     }
+
+    // Process component removals
+    let removal_requests = {
+        let queue = world.resource::<ComponentUpdateQueue>();
+        queue.drain_removals()
+    };
+
+    if !removal_requests.is_empty() {
+        let type_registry = world.resource::<AppTypeRegistry>().clone();
+
+        for request in removal_requests {
+            let type_path = request.component_name.clone();
+            debug!("[COMPONENT_REMOVAL] Processing removal for component '{}' on entity {:?}", type_path, request.entity);
+
+            // Check entity exists
+            if world.get_entity(request.entity).is_err() {
+                continue;
+            }
+
+            // Try reflection-based removal first
+            let reflect_component_opt = {
+                let registry = type_registry.read();
+                registry.get_with_type_path(&type_path)
+                    .or_else(|| registry.get_with_short_type_path(&type_path))
+                    .and_then(|registration| registration.data::<ReflectComponent>().cloned())
+            };
+
+            if let Some(reflect_component) = reflect_component_opt {
+                if let Ok(mut entity_mut) = world.get_entity_mut(request.entity) {
+                    reflect_component.remove(&mut entity_mut);
+                    debug!("[COMPONENT_REMOVAL] Removed {} via reflection", type_path);
+                    continue;
+                }
+            }
+
+            // Fallback: It's a Lua component - remove from LuaCustomComponents
+            if let Ok(mut entity_mut) = world.get_entity_mut(request.entity) {
+                if let Some(mut lua_components) = entity_mut.get_mut::<LuaCustomComponents>() {
+                    lua_components.components.remove(&request.component_name);
+                    lua_components.changed_ticks.remove(&request.component_name);
+                    lua_components.added_ticks.remove(&request.component_name);
+                    debug!("[COMPONENT_REMOVAL] Removed Lua component {}", type_path);
+                }
+            }
+        }
+    }
 }
 
 /// Update a component's fields from a Lua table using reflection

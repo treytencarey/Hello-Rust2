@@ -48,10 +48,16 @@ fn parse_query_dsl(table: &LuaTable, builder: &mut LuaQueryBuilder) -> LuaResult
         }
     }
 
-    // Parse 'any_of' - optional components (at least one required)
     if let Ok(any_of_table) = table.get::<LuaTable>("any_of") {
         for comp_name in any_of_table.sequence_values::<String>() {
             builder.any_of_components.push(comp_name?);
+        }
+    }
+
+    // Parse 'optional' - optional components (doesn't filter)
+    if let Ok(optional_table) = table.get::<LuaTable>("optional") {
+        for comp_name in optional_table.sequence_values::<String>() {
+            builder.optional_components.push(comp_name?);
         }
     }
 
@@ -193,6 +199,7 @@ impl LuaUserData for LuaWorldContext<'_> {
             let is_dsl = matches!(first_arg.get::<LuaValue>("with"), Ok(LuaValue::Table(_)))
                 || matches!(first_arg.get::<LuaValue>("without"), Ok(LuaValue::Table(_)))
                 || matches!(first_arg.get::<LuaValue>("any_of"), Ok(LuaValue::Table(_)))
+                || matches!(first_arg.get::<LuaValue>("optional"), Ok(LuaValue::Table(_)))
                 || matches!(first_arg.get::<LuaValue>("changed"), Ok(LuaValue::Table(_)))
                 || matches!(first_arg.get::<LuaValue>("added"), Ok(LuaValue::Table(_)))
                 || matches!(first_arg.get::<LuaValue>("removed"), Ok(LuaValue::Table(_)))

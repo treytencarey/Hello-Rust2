@@ -9,9 +9,10 @@ local Interpolation = {}
 --- @param world userdata
 function Interpolation.system(world)
     local dt = world:delta_time()
-    local entities = world:query({ Components.INTERPOLATION, "Transform", "ScriptOwned" })
+    local entities = world:query({ Components.MARKER, Components.INTERPOLATION, "Transform", "ScriptOwned" })
     
     for _, entity in ipairs(entities) do
+        local sync = entity:get(Components.MARKER)
         local target = entity:get(Components.INTERPOLATION)
         local transform = entity:get("Transform")
         
@@ -49,7 +50,10 @@ function Interpolation.system(world)
                 t
             )
             
-            entity:set({
+            -- Mark Transform as originating from the owner client (synchronous, for echo suppression)
+            State.mark_inbound_source(entity:id(), "Transform", sync.owner_client)
+
+            entity:patch({
                 Transform = {
                     translation = {
                         x = transform.translation.x + dx * t,
@@ -57,7 +61,6 @@ function Interpolation.system(world)
                         z = transform.translation.z + dz * t,
                     },
                     rotation = new_rot,
-                    scale = target.scale or transform.scale,
                 }
             })
         end

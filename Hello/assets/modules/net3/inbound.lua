@@ -165,7 +165,10 @@ function Inbound.handle_update(world, msg, owner_client)
     -- Get sync config to check authority (initialize if missing)
     local sync = entity:get(Components.MARKER)
     local config = State.get_sync_config(entity_id, sync and sync.sync_components)
-    
+
+    -- Track which components we apply for echo suppression
+    local applied_components = {}
+
     for comp_name, comp_data in pairs(payload.components or {}) do
         -- 0. Shared Entity Suppression (for "both" mode)
         -- If this entity is managed by another instance in the same world, 
@@ -196,8 +199,14 @@ function Inbound.handle_update(world, msg, owner_client)
                 goto continue_update
             end
         end
+        
+        -- 3. Apply normal component update
+        entity:set({ [comp_name] = comp_data })
 
-        -- 2. Special handling for Transform (interpolation/prediction)
+        -- Track this component as coming from inbound
+        applied_components[comp_name] = owner_client
+
+        -- 4. Special handling for Transform (interpolation/prediction)
         if comp_name == "Transform" then
             if is_own_entity then
                 -- Update prediction state for reconciliation
@@ -212,7 +221,6 @@ function Inbound.handle_update(world, msg, owner_client)
                             last_acked_sequence = payload.ack_seq,
                         }
                     })
-                    goto continue_update
                 end
             else
                 -- Set interpolation target for remote entities
@@ -224,7 +232,6 @@ function Inbound.handle_update(world, msg, owner_client)
                             scale = comp_data.scale,
                         }
                     })
-                    goto continue_update
                 else
                     -- Add interpolation component if not present
                     entity:set({
@@ -236,15 +243,16 @@ function Inbound.handle_update(world, msg, owner_client)
                             snap_threshold = 5.0,
                         }
                     })
-                    goto continue_update
                 end
             end
         end
         
-        -- 3. Apply normal component update
-        entity:set({ [comp_name] = comp_data })
-        
         ::continue_update::
+    end
+
+    -- Mark which components came from inbound for echo suppression (synchronous)
+    for comp_name, source_client in pairs(applied_components) do
+        State.mark_inbound_source(entity_id, comp_name, source_client)
     end
 end
 

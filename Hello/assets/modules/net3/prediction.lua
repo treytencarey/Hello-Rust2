@@ -11,13 +11,12 @@ local Prediction = {}
 function Prediction.system(world)
     -- We need Transform for the state, PlayerState to get the last_seq acked by server,
     -- and PredictionState for our local buffer.
-    -- Query runs when:
-    --   Transform changes (movement frames - for per-frame slerp smoothing)
-    --   OR PlayerState changes (ack frames - for reconciliation when stationary)
+    -- Query for predicted entities
     local entities = world:query({
-        with = { NetSync3.PREDICTION, "Transform", "PlayerState", "ScriptOwned" }
+        with = { NetSync3.MARKER, NetSync3.PREDICTION, "Transform", "PlayerState", "ScriptOwned" }
     })
     for _, entity in ipairs(entities) do
+        local sync = entity:get(NetSync3.MARKER)
         local pred = entity:get(NetSync3.PREDICTION)
         local player_state = entity:get("PlayerState")
         local transform = entity:get("Transform")
@@ -91,11 +90,13 @@ function Prediction.system(world)
                                         math.abs(current_rot.w - transform.rotation.w) > eps
 
                     if pos_changed or rot_changed then
-                        entity:set({
+                        -- Mark Transform as originating from the owner client (synchronous, for echo suppression)
+                        State.mark_inbound_source(entity:id(), "Transform", sync.owner_client)
+
+                        entity:patch({
                             Transform = {
                                 translation = sim_pos,
-                                rotation = current_rot,
-                                scale = transform.scale
+                                rotation = current_rot
                             }
                         })
                     end
