@@ -152,7 +152,6 @@ function CameraController.set_input_mode(world, mode)
     if #windows == 0 then return end
     
     local window = windows[1]
-    print("TEST :: Setting input mode to " .. state.input_mode)
     if state.input_mode == "game" then
         CameraController.set_enabled(true)
         window:set({

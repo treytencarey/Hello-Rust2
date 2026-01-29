@@ -3,6 +3,7 @@
 
 local NetSync3 = require("modules/net3/init.lua")
 local Movement = require("modules/shared/movement.lua")
+local State = require("modules/net3/state.lua")
 
 local Prediction = {}
 

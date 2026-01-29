@@ -2,6 +2,7 @@
 -- Smooth movement for remote entities
 
 local Components = require("modules/net3/components.lua")
+local State = require("modules/net3/state.lua")
 
 local Interpolation = {}
 
