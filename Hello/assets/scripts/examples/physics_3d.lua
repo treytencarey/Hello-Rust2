@@ -121,4 +121,9 @@ spawn({
     }
 })
 
+register_system("Update", function(world)
+    local entities = world:query({"RigidBody"})
+    print(#entities)
+end)
+
 print("[PHYSICS_3D] 3D physics scene ready - watch the boxes fall!")

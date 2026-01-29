@@ -1,202 +1,107 @@
--- Conflux Server Entry Point
--- Server-side game logic for networked 3D game
---
--- Run with: cargo run --features networking -- --network server
+-- Conflux Server Main Entry Point
+-- Entry point for server-side game using net modules
+-- Just requiring modules registers their systems automatically
 
-local NetRole = require("modules/net_role.lua")
-local NetGame = require("modules/net_game.lua")
-local NetSync = require("modules/net_sync.lua")
-local WorldBuilder = require("modules/world_builder.lua")
-local SpawnSystem = require("modules/spawn_system.lua")
-local PlayerController = require("modules/player_controller.lua")
-local CharacterSync = require("modules/character_sync.lua")
+local NetGame = require("modules/net/net_game.lua", { instanced = true })
+require("modules/net/server_movement.lua")
 
-print("[CONFLUX SERVER] Initializing...")
+print("[CONFLUX_SERVER] Starting...")
 
 --------------------------------------------------------------------------------
 -- Configuration
 --------------------------------------------------------------------------------
 
-local GAME_CONFIG = {
+local config = define_resource("ConfluxServerConfig", {
     port = 5000,
-    max_players = 4,
-    floor_size = {x = 50, y = 1, z = 50},
-    floor_color = {r = 0.3, g = 0.7, b = 0.3, a = 1.0},
-    model_path = "Conflux/Placeholder-Character.glb#Scene0",
-}
-
---------------------------------------------------------------------------------
--- World Setup (Server has collision but no visuals)
---------------------------------------------------------------------------------
-
-WorldBuilder.create_floor({
-    size = GAME_CONFIG.floor_size,
-    position = {x = 0, y = -0.5, z = 0},
-    color = GAME_CONFIG.floor_color
-})
-
-print("[CONFLUX SERVER] World geometry created")
-
---------------------------------------------------------------------------------
--- Spawn System
---------------------------------------------------------------------------------
-
-SpawnSystem.init({
-    locations = {
-        {x = -5, y = 0, z = -5},
-        {x = 5, y = 0, z = -5},
-        {x = -5, y = 0, z = 5},
-        {x = 5, y = 0, z = 5},
-    },
-    show_debug = false
 })
 
 --------------------------------------------------------------------------------
--- Player Management
+-- Parse command line arguments
 --------------------------------------------------------------------------------
 
-local player_entities = {}  -- client_id -> entity_id
-local next_net_id = 1000    -- Server-controlled net_ids start at 1000
-
-local function spawn_player(client_id)
-    local spawn_pos = SpawnSystem.claim_spawn(client_id)
-    if not spawn_pos then
-        print(string.format("[CONFLUX SERVER] No spawn available for client %d", client_id))
-        return nil
+local args = get_args()
+for i, arg in ipairs(args) do
+    if arg == "--port" and args[i+1] then
+        config.port = tonumber(args[i+1])
     end
-    
-    local net_id = next_net_id
-    next_net_id = next_net_id + 1
-    
-    local entity_id = CharacterSync.create_character({
-        model_path = GAME_CONFIG.model_path,
-        position = spawn_pos,
-        owner_client = client_id,
-        net_id = net_id
-    })
-    
-    player_entities[client_id] = { entity_id = entity_id, net_id = net_id }
-    NetSync.register_entity(net_id, entity_id)
-    
-    -- Mark this client as the owner - prevents NetSync from echoing spawn/updates back to them
-    NetSync.set_net_id_owner(net_id, client_id)
-    
-    -- Send "your_character" message to THIS client so they know which entity is theirs
-    register_system("PostUpdate", function(world)
-        local json = require("modules/dkjson.lua")
-        local msg = json.encode({ type = "your_character", net_id = net_id })
-        local channel = 0  -- Reliable
-        world:call_resource_method("RenetServer", "send_message", client_id, channel, msg)
-        print(string.format("[CONFLUX SERVER] Sent your_character to client %d: net_id=%d", client_id, net_id))
-        return true  -- Run once
-    end)
-    
-    print(string.format("[CONFLUX SERVER] Spawned player for client %d at (%.1f, %.1f, %.1f) net_id=%d",
-        client_id, spawn_pos.x, spawn_pos.y, spawn_pos.z, net_id))
-    
-    return entity_id
-end
-
-local function despawn_player(client_id)
-    local player_data = player_entities[client_id]
-    if player_data then
-        local entity_id = player_data.entity_id
-        local net_id = player_data.net_id
-        
-        -- Prepare despawn message
-        local json = require("modules/dkjson.lua")
-        local despawn_msg = json.encode({ type = "despawn", net_id = net_id })
-        
-        -- Use a one-shot system to broadcast (woprld not available in callback)
-        register_system("PostUpdate", function(world)
-            print(string.format("[CONFLUX SERVER] Broadcasting despawn message: %s", despawn_msg))
-            local clients = world:call_resource_method("RenetServer", "clients_id")
-            print(string.format("[CONFLUX SERVER] Broadcasting to %d clients", #(clients or {})))
-            for _, cid in ipairs(clients or {}) do
-                world:call_resource_method("RenetServer", "send_message", cid, 0, despawn_msg)
-                print(string.format("[CONFLUX SERVER] Sent despawn to client %d", cid))
-            end
-            return true  -- Run once
-        end)
-        
-        -- Clear local tracking
-        NetSync.despawn_by_net_id(nil, net_id, nil)  -- No send_fn, we handle broadcast above
-        
-        despawn(entity_id)
-        player_entities[client_id] = nil
-    end
-    SpawnSystem.release_spawn(client_id)
-    print(string.format("[CONFLUX SERVER] Despawned player for client %d", client_id))
 end
 
 --------------------------------------------------------------------------------
--- Host Game (deferred to first Update system)
+-- Player Spawning
 --------------------------------------------------------------------------------
 
-local server_initialized = false
+local function spawn_player_for_client(client_id, world)
+    print(string.format("[CONFLUX_SERVER] Spawning player for client %s", client_id))
+    
+    local player_id = spawn({
+        Transform = {
+            translation = { x = 0, y = 1, z = 0 },
+            rotation = { x = 0, y = 0, z = 0, w = 1 },
+            scale = { x = 1, y = 1, z = 1 },
+        },
+        SceneRoot = {
+            id = load_asset("Conflux/Placeholder-Character.glb#Scene0")
+        },
+        PlayerState = {
+            health = 100,
+            name = "Player_" .. client_id,
+        },
+        [NetGame.MARKER] = {
+            owner_client = client_id,
+            authority = "server",
+            sync_components = {
+                SceneRoot = { rate_hz = 1.0 }, -- 1Hz
+                Transform = { reliable = false, rate_limit = 0.033 },  -- 30Hz
+                PlayerState = { rate_limit = 0.5 },   -- 2Hz
+                PlayerInput = { authority = "client" }, -- No rate limit (unlimited)
+            },
+        },
+    }):id()
+    
+    print(string.format("[CONFLUX_SERVER] Player spawned: entity=%d", player_id))
+    
+    return player_id
+end
 
-register_system("Startup", function(world)
-    if not server_initialized then
-        NetGame.host(world, {
-            port = GAME_CONFIG.port,
-            max_players = GAME_CONFIG.max_players,
-            -- Game-specific network module (can be swapped for different games)
-            network_script = "scripts/server/Conflux/modules/networking.lua",
-            on_player_join = function(client_id)
-                spawn_player(client_id)
-            end,
-            on_player_leave = function(client_id)
-                despawn_player(client_id)
+local function despawn_player_for_client(client_id, world)
+    print(string.format("[CONFLUX_SERVER] Cleaning up player for client %d", client_id))
+    
+    -- Find and despawn player entity
+    local state = NetGame.get_state()
+    for net_id, entity_id in pairs(state.known_entities) do
+        if state.net_id_owners[net_id] == client_id then
+            local entity = world:get_entity(entity_id)
+            if entity and entity:has("PlayerState") then
+                despawn(entity_id)
+                print(string.format("[CONFLUX_SERVER] Despawned player entity %d", entity_id))
             end
-        })
-        server_initialized = true
+        end
     end
-    return true  -- Run once
-end)
+end
 
 --------------------------------------------------------------------------------
--- Server Update Systems
+-- Initialize
 --------------------------------------------------------------------------------
 
--- Main networking and game logic update
-register_system("Update", function(world)
-    -- Update networking (NetGame routes to NetServer/NetClient based on role)
-    -- Spatial filtering handled automatically by loaded network module
-    NetGame.update(world)
-    
-    -- Process PlayerInput changes from clients
-    local players = world:query({"NetworkSync", "PlayerInput", "Transform", "PlayerState"}, {"PlayerInput"})
-    
-    for _, entity in ipairs(players) do
-        -- Skip local player in "both" mode - client handles prediction
-        local sync = entity:get("NetworkSync")
-        if sync and sync.net_id == NetSync.get_my_net_id() then
-            goto continue
-        end
+local function on_game_ready()
+    print("[CONFLUX_SERVER] Server ready and listening")
+end
 
-        local result = PlayerController.process_server_input(entity)
-        if result then
-            -- Debug: log physics result
-            local result_pos = result.transform.translation
-            print(string.format("[SERVER PHYSICS] net_id=%d BEFORE=(%.2f,%.2f,%.2f) AFTER=(%.2f,%.2f,%.2f)",
-                sync.net_id, pre_pos.x, pre_pos.y, pre_pos.z,
-                result_pos.x, result_pos.y, result_pos.z))
+local function on_player_joined(client_id, world)
+    print(string.format("[CONFLUX_SERVER] Player joined: %s", client_id))
+    spawn_player_for_client(client_id, world)
+end
 
-            -- Use patch() to preserve model_path and other existing fields
-            entity:patch({
-                Transform = result.transform,
-                PlayerState = {
-                    velocity = result.velocity,
-                    last_acked_seq = result.last_acked_seq
-                }
-            })
-        end
+local function on_player_left(client_id, world)
+    print(string.format("[CONFLUX_SERVER] Player left: %s", client_id))
+    despawn_player_for_client(client_id, world)
+end
 
-        ::continue::
-    end
-end)
+-- Host the server
+NetGame.host(config.port, {
+    on_game_ready = on_game_ready,
+    on_player_joined = on_player_joined,
+    on_player_left = on_player_left,
+})
 
--- Update animation states
-register_system("Update", CharacterSync.create_animation_system())
-
-print("[CONFLUX SERVER] Ready on port " .. GAME_CONFIG.port)
+print(string.format("[CONFLUX_SERVER] Hosting on port %d, instance_id: %d", config.port, __INSTANCE_ID__))

@@ -6,18 +6,14 @@ print("=== Server Mode Started ===")
 
 -- require("scripts/server/Conflux2/main.lua")
 
--- Test Net3 - Conflux3
-require("scripts/server/Conflux3/main.lua")
+-- Test Net - Conflux
+require("scripts/server/Conflux/main.lua")
 
 -- local FPS = require("modules/FPS.lua")
 -- FPS.setup()
 
 -- local VSync = require("modules/VSync.lua")
 -- VSync.disable()
-
--- -- Load server networking module
--- local NetServer = require("modules/net_server.lua")
--- NetServer.start(5000, 10)
 
 -- print("Listening for client connections...")
 -- print("Files will be served from assets/ directory")
